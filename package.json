@@ -1,0 +1,14 @@
+{
+  "name": "bookmark-manager",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Firefox add-on for finding and cleaning up duplicate, broken, redirected, unnamed and empty bookmarks.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "lint": "npx --yes web-ext lint --ignore-files 'test/**' 'package.json' 'README.md'",
+    "start": "npx --yes web-ext run --ignore-files 'test/**'",
+    "build": "npx --yes web-ext build --overwrite-dest --ignore-files 'test/**' 'package.json' 'README.md'"
+  },
+  "license": "MPL-2.0"
+}

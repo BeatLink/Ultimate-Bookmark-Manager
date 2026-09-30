@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Bookmark Manager",
+  "version": "0.1.0",
+  "description": "Find and clean up duplicate, broken, redirected, unnamed and empty bookmarks — with undo.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "bookmark-manager@beatlink",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": { "required": ["none"] }
+    },
+    "gecko_android": { "strict_min_version": "142.0" }
+  },
+  "icons": { "48": "icons/icon.svg", "96": "icons/icon.svg" },
+  "permissions": ["bookmarks", "storage", "menus"],
+  "optional_host_permissions": ["<all_urls>"],
+  "background": { "scripts": ["src/background.js"], "type": "module" },
+  "action": { "default_title": "Bookmark Manager", "default_icon": "icons/icon.svg" },
+  "sidebar_action": {
+    "default_title": "Bookmark Manager",
+    "default_panel": "src/ui/app.html?sidebar=1",
+    "default_icon": "icons/icon.svg",
+    "open_at_install": false
+  },
+  "options_ui": { "page": "src/ui/options.html", "open_in_tab": true },
+  "commands": {
+    "open-dashboard": {
+      "suggested_key": { "default": "Shift+F11" },
+      "description": "Open the Bookmark Manager dashboard"
+    },
+    "_execute_sidebar_action": {
+      "description": "Toggle the Bookmark Manager sidebar"
+    }
+  },
+  "omnibox": { "keyword": "bm" }
+}
