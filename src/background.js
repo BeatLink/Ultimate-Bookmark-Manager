@@ -7,6 +7,7 @@ import { Actions } from './lib/actions.js';
 import { push, pull, reconcile, isSyncEnabled, guarded } from './lib/sync.js';
 
 const VIEWS = {
+  stats: 'Dashboard',
   duplicates: 'Duplicates',
   'empty-folders': 'Empty folders',
   'same-name': 'Same-name folders',
@@ -20,7 +21,7 @@ const VIEWS = {
 };
 
 // Focuses an open dashboard tab if there is one, otherwise opens a new one.
-async function openDashboard(view = 'duplicates') {
+async function openDashboard(view = 'stats') {
   const focused = await browser.runtime.sendMessage({ type: 'focus-dashboard', view }).catch(() => false);
   if (!focused) await browser.tabs.create({ url: browser.runtime.getURL(`src/ui/app.html#${view}`) });
 }
@@ -68,7 +69,7 @@ browser.omnibox.onInputChanged.addListener((text, suggest) => {
 browser.omnibox.onInputEntered.addListener((text) => {
   const q = text.trim().toLowerCase();
   const match = Object.keys(VIEWS).find((id) => id === q) ?? Object.keys(VIEWS).find((id) => id.startsWith(q));
-  openDashboard(match ?? 'duplicates');
+  openDashboard(match ?? 'stats');
 });
 
 // New bookmarks wait this long before being organized, so a folder picked in the star panel wins.

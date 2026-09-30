@@ -5,6 +5,7 @@ import { flatten } from '../lib/tree.js';
 import { Actions } from '../lib/actions.js';
 import { loadSettings, loadWhitelist, loadLinkResults } from '../lib/settings.js';
 import { LinkChecker } from './link-checker.js';
+import stats from './views/stats.js';
 import duplicates from './views/duplicates.js';
 import emptyFolders from './views/empty-folders.js';
 import sameName from './views/same-name.js';
@@ -16,7 +17,7 @@ import all from './views/all.js';
 import history from './views/history.js';
 import settings from './views/settings.js';
 
-const VIEWS = [duplicates, emptyFolders, sameName, untitled, broken, redirects, organize, all, history, settings];
+const VIEWS = [stats, duplicates, emptyFolders, sameName, untitled, broken, redirects, organize, all, history, settings];
 const isSidebar = new URLSearchParams(location.search).has('sidebar');
 document.body.classList.toggle('sidebar', isSidebar);
 

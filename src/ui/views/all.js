@@ -10,6 +10,12 @@ const PAGE = 200;
 // Search, filter and page size survive the re-render that follows a refresh.
 const view = { query: '', filter: 'all', shown: PAGE };
 
+// Opens this page with the search box already filled in, e.g. with a site chosen on the dashboard.
+export function showInAll(ctx, query) {
+  Object.assign(view, { query, filter: 'all', shown: PAGE });
+  ctx.go('all');
+}
+
 export default {
   id: 'all',
   label: 'All bookmarks',
