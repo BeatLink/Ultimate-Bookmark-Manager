@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { conditionMatches, ruleMatches, resolveTarget, planMoves, validateRules, duplicateRule } from '../src/lib/organize.js';
+import { conditionMatches, ruleMatches, resolveTarget, planMoves, validateRules, duplicateRule, describeRule } from '../src/lib/organize.js';
 
 const roots = [
   { id: 'menu________', title: 'Bookmarks Menu' },
@@ -87,4 +87,67 @@ test('a duplicated rule is an independent copy with its own id', () => {
   copy.conditions[0].values.push('go');
   assert.deepEqual(original.conditions[0].values, ['rust'], 'editing the copy leaves the original alone');
   assert.equal(duplicateRule(rule('x', [], 'A', { name: '' })).name, '', 'an unnamed rule stays unnamed');
+});
+
+test('rules are summed up in plain words', () => {
+  const r = rule('r', [cond('contains', 'rust,cargo', { field: 'title' }), cond('domain', 'github.com'), cond('contains', '')], 'Dev', { match: 'all' });
+  assert.equal(describeRule(r), 'title contains any of “cargo”, “rust” and address is on domain “github.com”');
+  assert.equal(describeRule(rule('r', [cond('startsWith', 'Doc', { caseSensitive: true })], 'X')), 'title or address starts with “Doc” (exact case)');
+  assert.equal(describeRule(rule('r', [cond('contains', '')], 'X')), 'No conditions yet');
+});
+
+test('summaries list keywords alphabetically, ignoring case and ordering numbers by value', () => {
+  const r = rule('r', [{ field: 'title', op: 'contains', values: ['zeta', 'Alpha', 'item10', 'item2', 'beta'] }], 'X');
+  assert.equal(describeRule(r), 'title contains any of “Alpha”, “beta”, “item2”, “item10”, “zeta”');
+});
+
+const group = (match, conditions) => ({ type: 'group', match, conditions });
+
+test('groups nest with any, all and none', () => {
+  const rustNotReddit = rule('r', [
+    cond('contains', 'rust', { field: 'title' }),
+    group('none', [cond('domain', 'reddit.com'), cond('contains', 'meme', { field: 'title' })]),
+  ], 'Dev', { match: 'all' });
+  assert.ok(ruleMatches(rustNotReddit, bm('1', 'Rust book', 'https://doc.rust-lang.org/')));
+  assert.ok(!ruleMatches(rustNotReddit, bm('2', 'Rust thread', 'https://www.reddit.com/r/rust')));
+  assert.ok(!ruleMatches(rustNotReddit, bm('3', 'Rust meme', 'https://x.test/')));
+  assert.ok(!ruleMatches(rustNotReddit, bm('4', 'Go book', 'https://go.dev/')));
+
+  const either = rule('e', [group('all', [cond('contains', 'a', { field: 'title' }), cond('contains', 'b', { field: 'title' })]), cond('contains', 'z', { field: 'title' })], 'X');
+  assert.ok(ruleMatches(either, bm('1', 'ab', 'https://q.test')));
+  assert.ok(ruleMatches(either, bm('2', 'z', 'https://q.test')));
+  assert.ok(!ruleMatches(either, bm('3', 'a', 'https://q.test')));
+});
+
+test('a top-level none rule matches bookmarks that meet none of its conditions', () => {
+  const r = rule('n', [cond('contains', 'work,job', { field: 'title' })], 'Personal', { match: 'none' });
+  assert.ok(ruleMatches(r, bm('1', 'Holiday photos', 'https://p.test')));
+  assert.ok(!ruleMatches(r, bm('2', 'Job board', 'https://p.test')));
+});
+
+test('empty groups are ignored and a rule made only of them never matches', () => {
+  const r = rule('r', [group('none', [cond('contains', '')]), cond('contains', 'rust')], 'X');
+  assert.ok(ruleMatches(r, bm('1', 'rust', 'https://a.test')));
+  const empty = rule('e', [group('none', [cond('contains', '')])], 'X');
+  assert.ok(!ruleMatches(empty, bm('1', 'anything', 'https://a.test')));
+  assert.deepEqual(validateRules([empty], roots).get('e'), ['Add at least one keyword to a condition.']);
+});
+
+test('nested groups are summed up with brackets and "not"', () => {
+  const r = rule('r', [
+    cond('contains', 'rust', { field: 'title' }),
+    group('none', [cond('domain', 'reddit.com'), cond('contains', 'meme', { field: 'title' })]),
+    group('any', [cond('contains', 'book', { field: 'title' })]),
+  ], 'Dev', { match: 'all' });
+  assert.equal(describeRule(r), 'title contains any of “rust” and not (address is on domain “reddit.com” or title contains any of “meme”) and title contains any of “book”');
+});
+
+test('invalid regexes inside nested groups are reported', () => {
+  const r = rule('r', [cond('contains', 'x'), group('all', [group('any', [{ field: 'title', op: 'regex', values: ['('] }])])], 'X');
+  assert.equal(validateRules([r], roots).get('r').length, 1);
+});
+
+test('a none group always gets brackets, even with one condition', () => {
+  const r = rule('r', [cond('contains', 'work')], 'X', { match: 'none' });
+  assert.equal(describeRule(r), 'not (title or address contains any of “work”)');
 });

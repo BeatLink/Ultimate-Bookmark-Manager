@@ -1,5 +1,7 @@
 // Organize rules: match bookmarks by title or address and plan moves into target folders.
 
+import { byText } from './text.js';
+
 export const OPERATORS = {
   contains: 'contains any of',
   containsAll: 'contains all of',
@@ -21,6 +23,17 @@ const ROOT_ALIASES = {
   unfiled: 'unfiled_____',
   mobile: 'mobile______',
 };
+
+// How a group combines its items; "none" is true when none of them are.
+export const MODES = { any: 'any', all: 'all', none: 'none' };
+
+export function newGroup() {
+  return { type: 'group', match: 'any', conditions: [newCondition()] };
+}
+
+export function isGroup(item) {
+  return item?.type === 'group';
+}
 
 export function newCondition() {
   return { field: 'either', op: 'contains', values: [], caseSensitive: false };
@@ -96,15 +109,45 @@ export function conditionMatches(cond, bookmark) {
     : testText(cond, title, url) || testText(cond, url, url);
 }
 
-// A condition with no keywords is ignored, so a half-written rule never matches everything.
-function activeConditions(rule) {
-  return (rule.conditions ?? []).filter((c) => keywords(c).length);
+// A rule is itself a group: `match` says how its `conditions` combine, and each of those may be a nested group.
+// Conditions without keywords and groups with nothing active are ignored, so a half-written rule never matches everything.
+function activeItems(group) {
+  return (group.conditions ?? []).filter((item) => (isGroup(item) ? activeItems(item).length : keywords(item).length));
+}
+
+function allConditions(group) {
+  return (group.conditions ?? []).flatMap((item) => (isGroup(item) ? allConditions(item) : [item]));
+}
+
+function groupMatches(group, bookmark) {
+  const test = (item) => (isGroup(item) ? groupMatches(item, bookmark) : conditionMatches(item, bookmark));
+  const items = activeItems(group);
+  if (group.match === 'all') return items.every(test);
+  if (group.match === 'none') return !items.some(test);
+  return items.some(test);
 }
 
 export function ruleMatches(rule, bookmark) {
-  const conds = activeConditions(rule);
-  if (!conds.length) return false;
-  return rule.match === 'all' ? conds.every((c) => conditionMatches(c, bookmark)) : conds.some((c) => conditionMatches(c, bookmark));
+  return activeItems(rule).length > 0 && groupMatches(rule, bookmark);
+}
+
+// One condition in plain words, e.g. `title contains any of “rust”, “cargo”`.
+export function describeCondition(cond) {
+  const list = keywords(cond).sort(byText).map((w) => `“${w}”`).join(', ');
+  const subject = cond.op === 'domain' ? 'address' : FIELDS[cond.field] ?? FIELDS.either;
+  return `${subject} ${OPERATORS[cond.op] ?? cond.op} ${list}${cond.caseSensitive && cond.op !== 'domain' ? ' (exact case)' : ''}`;
+}
+
+function describeGroup(group, nested) {
+  const parts = activeItems(group).map((item) => (isGroup(item) ? describeGroup(item, true) : describeCondition(item)));
+  const joined = parts.join(group.match === 'all' ? ' and ' : ' or ');
+  if (group.match === 'none') return `not (${joined})`;
+  return nested && parts.length > 1 ? `(${joined})` : joined;
+}
+
+// The rule's logic in one line, with nested groups in brackets and "none" groups always as "not (…)" so they read unambiguously.
+export function describeRule(rule) {
+  return activeItems(rule).length ? describeGroup(rule, false) : 'No conditions yet';
 }
 
 // Resolves "Root/Sub/Folder" against the top-level folders; a path not starting with one goes under Other Bookmarks.
@@ -128,9 +171,9 @@ export function validateRules(rules, rootFolders) {
   const problems = new Map();
   for (const rule of rules) {
     const issues = [];
-    if (!activeConditions(rule).length) issues.push('Add at least one keyword to a condition.');
+    if (!activeItems(rule).length) issues.push('Add at least one keyword to a condition.');
     if (!resolveTarget(rule.target, rootFolders)) issues.push('Choose a target folder.');
-    for (const c of activeConditions(rule)) {
+    for (const c of allConditions(rule)) {
       if (c.op !== 'regex') continue;
       for (const pattern of keywords(c)) {
         try {

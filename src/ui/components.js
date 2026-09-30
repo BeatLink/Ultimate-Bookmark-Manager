@@ -2,6 +2,7 @@
 
 import { h, formatDate } from './dom.js';
 import { formatPath } from '../lib/tree.js';
+import { byText } from '../lib/text.js';
 
 export function viewHeader(title, description, ...actions) {
   return h('header', { class: 'view-header' },
@@ -98,7 +99,7 @@ export function row(sel, id, content, extra = []) {
   return h('li', { class: 'item' }, h('label', { class: 'check' }, checkbox(sel, id)), content, h('div', { class: 'item-actions' }, extra));
 }
 
-// A box of removable keyword chips; Enter (or a comma, when allowed) turns the typed text into a chip.
+// A box of removable keyword chips, shown alphabetically; Enter (or a comma, when allowed) turns the typed text into a chip.
 export function tagInput({ values, onchange, placeholder = 'Type and press Enter', commaSeparates = true, mono = false, label = 'Keywords' }) {
   const box = h('div', { class: `tag-input${mono ? ' mono' : ''}` });
   const input = h('input', { type: 'text', 'aria-label': label });
@@ -115,19 +116,22 @@ export function tagInput({ values, onchange, placeholder = 'Type and press Enter
     }
     input.value = '';
     if (added) {
+      values.sort(byText);
       draw();
       emit();
     }
   };
-  const removeAt = (i) => {
-    values.splice(i, 1);
+  const remove = (v) => {
+    values.splice(values.indexOf(v), 1);
     draw();
     emit();
   };
+  // Sorted for display only, so older unsorted lists do not count as an unsaved change.
+  const sorted = () => [...values].sort(byText);
   const draw = () => {
-    box.replaceChildren(...values.map((v, i) => h('span', { class: 'tag' },
-      h('button', { class: 'tag-text', text: v, title: 'Edit', onclick: () => { removeAt(i); input.value = v; input.focus(); } }),
-      h('button', { class: 'tag-remove', text: '×', 'aria-label': `Remove “${v}”`, onclick: () => { removeAt(i); input.focus(); } }))), input);
+    box.replaceChildren(...sorted().map((v) => h('span', { class: 'tag' },
+      h('button', { class: 'tag-text', text: v, title: 'Edit', onclick: () => { remove(v); input.value = v; input.focus(); } }),
+      h('button', { class: 'tag-remove', text: '×', 'aria-label': `Remove “${v}”`, onclick: () => { remove(v); input.focus(); } }))), input);
     input.placeholder = values.length ? '' : placeholder;
   };
 
@@ -136,7 +140,7 @@ export function tagInput({ values, onchange, placeholder = 'Type and press Enter
       e.preventDefault();
       add(input.value);
     } else if (e.key === 'Backspace' && !input.value && values.length) {
-      removeAt(values.length - 1);
+      remove(sorted().at(-1));
     }
   });
   input.addEventListener('paste', (e) => {

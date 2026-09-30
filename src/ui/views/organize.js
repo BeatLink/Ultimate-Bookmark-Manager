@@ -3,7 +3,7 @@
 import { h, Selection, toast, confirmDialog } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, tagInput, pickFolder } from '../components.js';
 import { saveSettings } from '../../lib/settings.js';
-import { OPERATORS, FIELDS, newRule, newCondition, keywords, duplicateRule, planMoves, ruleMatches } from '../../lib/organize.js';
+import { OPERATORS, FIELDS, MODES, newRule, newCondition, newGroup, isGroup, keywords, duplicateRule, describeRule, planMoves, ruleMatches } from '../../lib/organize.js';
 
 // Unsaved edits live here so they survive the re-render that follows any other action.
 let draft = null;
@@ -69,39 +69,88 @@ function targetPicker(ctx, rule, changed) {
   return button;
 }
 
-function ruleCard(ctx, rule, i, rules, redraw, changed, info) {
+// A group of conditions and nested groups; the rule itself is the outermost group, which cannot be removed.
+function groupEditor(group, changed, onRemove) {
+  const items = h('ul', { class: 'conditions' });
+  const draw = () => items.replaceChildren(...group.conditions.map((item, j) => {
+    const remove = () => { group.conditions.splice(j, 1); draw(); changed(); };
+    return isGroup(item) ? h('li', { class: 'group-item' }, groupEditor(item, changed, remove)) : conditionRow(item, remove, changed);
+  }));
+  draw();
+  const add = (item) => {
+    group.conditions.push(item);
+    draw();
+    changed();
+    items.lastElementChild?.querySelector('.tag-input input')?.focus();
+  };
+  return h('div', { class: `cond-group${onRemove ? ' nested' : ''}` },
+    h('div', { class: 'row wrap' },
+      onRemove ? null : 'When',
+      select(MODES, group.match, (v) => { group.match = v; changed(); }, onRemove ? 'Group match' : 'Match'),
+      'of these are true:',
+      onRemove && h('button', { class: 'small group-remove', text: 'Remove group', onclick: onRemove })),
+    items,
+    h('div', { class: 'row wrap' },
+      h('button', { class: 'small', text: '+ Condition', onclick: () => add(newCondition()) }),
+      h('button', { class: 'small', text: '+ Group', title: 'Add a group with its own any / all / none setting', onclick: () => add(newGroup()) })));
+}
+
+// Rules shown open; saved rules start closed, while new and duplicated ones open for editing.
+const expanded = new Set();
+
+// A rule as a one-line summary row that expands into its editor; `parts` receives the bits refreshed while editing.
+function ruleCard(ctx, rule, i, rules, redraw, changed, parts) {
   const move = (delta) => {
     rules.splice(i, 1);
     rules.splice(i + delta, 0, rule);
     redraw();
   };
-  const conds = h('ul', { class: 'conditions' });
-  const drawConds = () => conds.replaceChildren(...rule.conditions.map((c, j) =>
-    conditionRow(c, () => { rule.conditions.splice(j, 1); drawConds(); changed(); }, changed)));
-  drawConds();
-
-  return h('li', { class: `rule-card${rule.enabled === false ? ' disabled' : ''}` },
-    h('div', { class: 'row wrap' },
-      h('input', { type: 'checkbox', checked: rule.enabled !== false, 'aria-label': 'Rule enabled', onchange: (e) => { rule.enabled = e.target.checked; redraw(); } }),
-      h('span', { class: 'order', text: i + 1, title: 'Rules are tried in this order; the first match wins' }),
-      h('input', { type: 'text', class: 'grow rule-name', value: rule.name, placeholder: 'Rule name (optional)', 'aria-label': 'Rule name', oninput: (e) => { rule.name = e.target.value; changed(); } }),
-      h('button', { class: 'small', text: '↑', title: 'Move up', 'aria-label': 'Move rule up', disabled: i === 0, onclick: () => move(-1) }),
-      h('button', { class: 'small', text: '↓', title: 'Move down', 'aria-label': 'Move rule down', disabled: i === rules.length - 1, onclick: () => move(1) }),
-      h('button', { class: 'small', text: 'Duplicate', title: 'Add an editable copy of this rule below it', onclick: (e) => {
-        const list = e.currentTarget.closest('.rule-list');
-        rules.splice(i + 1, 0, duplicateRule(rule));
-        redraw();
-        const name = list.children[i + 1]?.querySelector('.rule-name');
-        name?.scrollIntoView?.({ block: 'nearest' });
-        name?.focus();
-        name?.select();
-      } }),
-      h('button', { class: 'small danger', text: 'Delete', onclick: () => { rules.splice(i, 1); redraw(); } })),
-    h('div', { class: 'row wrap' }, 'When', select({ any: 'any', all: 'all' }, rule.match, (v) => { rule.match = v; changed(); }, 'Match'), 'of these are true:'),
-    conds,
-    h('button', { class: 'small', text: '+ Condition', onclick: () => { rule.conditions.push(newCondition()); drawConds(); conds.lastElementChild?.querySelector('.tag-input input')?.focus(); } }),
+  const bodyId = `rule-body-${rule.id}`;
+  const isOpen = expanded.has(rule.id);
+  const body = h('div', { class: 'rule-body', id: bodyId, hidden: !isOpen },
+    h('label', { class: 'row wrap' }, 'Name',
+      h('input', { type: 'text', class: 'grow rule-name', value: rule.name, placeholder: 'Rule name (optional)', 'aria-label': 'Rule name', oninput: (e) => { rule.name = e.target.value; changed(); } })),
+    groupEditor(rule, changed, null),
     h('div', { class: 'row wrap target' }, 'Move to folder', targetPicker(ctx, rule, changed)),
-    info);
+    parts.info);
+
+  const toggle = h('button', {
+    class: 'rule-toggle', type: 'button', 'aria-expanded': String(isOpen), 'aria-controls': bodyId,
+    title: isOpen ? 'Collapse' : 'Edit this rule',
+    onclick: () => {
+      const open = body.hidden;
+      body.hidden = !open;
+      open ? expanded.add(rule.id) : expanded.delete(rule.id);
+      toggle.setAttribute('aria-expanded', String(open));
+      toggle.title = open ? 'Collapse' : 'Edit this rule';
+      card.classList.toggle('open', open);
+    },
+  }, h('span', { class: 'chevron', 'aria-hidden': 'true' }),
+  h('span', { class: 'rule-headline' }, parts.title, parts.summary, h('span', { class: 'rule-target' }, parts.target)));
+
+  const card = h('li', { class: `rule-card${rule.enabled === false ? ' disabled' : ''}${isOpen ? ' open' : ''}` },
+    h('div', { class: 'rule-head' },
+      h('input', { type: 'checkbox', checked: rule.enabled !== false, 'aria-label': 'Rule enabled', title: 'Enabled', onchange: (e) => { rule.enabled = e.target.checked; redraw(); } }),
+      h('span', { class: 'order', text: i + 1, title: 'Rules are tried in this order; the first match wins' }),
+      toggle,
+      parts.badge,
+      h('div', { class: 'rule-actions' },
+        h('button', { class: 'small', text: '↑', title: 'Move up', 'aria-label': 'Move rule up', disabled: i === 0, onclick: () => move(-1) }),
+        h('button', { class: 'small', text: '↓', title: 'Move down', 'aria-label': 'Move rule down', disabled: i === rules.length - 1, onclick: () => move(1) }),
+        h('button', { class: 'small', text: 'Duplicate', title: 'Add an editable copy of this rule below it', onclick: (e) => {
+          const list = e.currentTarget.closest('.rule-list');
+          const copy = duplicateRule(rule);
+          expanded.add(copy.id);
+          rules.splice(i + 1, 0, copy);
+          redraw();
+          const name = list.children[i + 1]?.querySelector('.rule-name');
+          name?.scrollIntoView?.({ block: 'nearest' });
+          name?.focus();
+          name?.select();
+        } }),
+        h('button', { class: 'small danger', text: 'Delete', onclick: () => { expanded.delete(rule.id); rules.splice(i, 1); redraw(); } }))),
+    body);
+  return card;
 }
 
 export default {
@@ -136,28 +185,50 @@ export default {
       previewTimer = setTimeout(drawPreview, 300);
     };
 
-    // Cards are rebuilt only when rules are added, removed or reordered; typing just refreshes this text.
-    const infos = new Map();
+    // Cards are rebuilt only when rules are added, removed or reordered; typing just refreshes their text.
+    const cardParts = new Map();
+    const bulk = h('div', { class: 'row wrap end' },
+      h('button', { class: 'small', text: 'Expand all', onclick: () => { rules.forEach((r) => expanded.add(r.id)); drawRules(); } }),
+      h('button', { class: 'small', text: 'Collapse all', onclick: () => { expanded.clear(); drawRules(); } }));
     const drawRules = () => {
-      infos.clear();
+      bulk.hidden = rules.length < 2;
+      cardParts.clear();
       rulesList.replaceChildren(...rules.map((r, i) => {
-        const info = h('div', { class: 'rule-info' });
-        infos.set(r.id, info);
-        return ruleCard(ctx, r, i, rules, redraw, changed, info);
+        const parts = {
+          info: h('div', { class: 'rule-info' }),
+          title: h('strong', { class: 'rule-title' }),
+          summary: h('span', { class: 'rule-summary' }),
+          target: h('span'),
+          badge: h('span', { class: 'rule-badge' }),
+        };
+        cardParts.set(r.id, parts);
+        return ruleCard(ctx, r, i, rules, redraw, changed, parts);
       }));
+      const { moves, problems } = plan(ctx, rules);
+      refreshInfo(moves, problems);
     };
     const refreshInfo = (moves, problems) => {
       for (const r of rules) {
-        const info = infos.get(r.id);
-        if (!info) continue;
+        const parts = cardParts.get(r.id);
+        if (!parts) continue;
+        parts.title.textContent = r.name || 'Unnamed rule';
+        parts.title.classList.toggle('muted', !r.name);
+        parts.summary.textContent = describeRule(r);
+        parts.target.textContent = r.target ? `→ ${r.target.split('/').join(' › ')}` : '→ no folder yet';
         const issues = problems.get(r.id);
         if (issues) {
-          info.replaceChildren(...issues.map((p) => h('p', { class: 'error small', text: p })));
+          parts.info.replaceChildren(...issues.map((p) => h('p', { class: 'error small', text: p })));
+          parts.badge.textContent = 'Needs attention';
+          parts.badge.className = 'rule-badge error';
+          parts.badge.title = issues.join(' ');
           continue;
         }
         const matched = ctx.state.flat.filter((b) => b.type === 'bookmark' && ruleMatches(r, b)).length;
         const moving = moves.filter((m) => m.ruleId === r.id).length;
-        info.replaceChildren(h('p', { class: 'muted small', text: `Matches ${matched} bookmark(s); ${moving} would move. The rest are already in place or taken by an earlier rule.` }));
+        parts.info.replaceChildren(h('p', { class: 'muted small', text: `Matches ${matched} bookmark(s); ${moving} would move. The rest are already in place or taken by an earlier rule.` }));
+        parts.badge.textContent = r.enabled === false ? 'Off' : `${moving} to move`;
+        parts.badge.className = `rule-badge${moving && r.enabled !== false ? ' active' : ''}`;
+        parts.badge.title = `Matches ${matched} bookmark(s); ${moving} would move`;
       }
     };
 
@@ -224,9 +295,16 @@ export default {
       h('label', { class: 'check-line' },
         h('input', { type: 'checkbox', checked: draft.autoApply, onchange: (e) => { draft.autoApply = e.target.checked; changed(); } }),
         'Organize new bookmarks automatically (a few seconds after they are added; skipped if you pick a folder yourself or many arrive at once, as during an import or sync)'),
+      bulk,
       rulesList,
       h('div', { class: 'row wrap' },
-        h('button', { text: '+ Add rule', onclick: () => { rules.push(newRule()); redraw(); rulesList.lastElementChild?.querySelector('.tag-input input')?.focus(); } })),
+        h('button', { text: '+ Add rule', onclick: () => {
+          const r = newRule();
+          expanded.add(r.id);
+          rules.push(r);
+          redraw();
+          rulesList.lastElementChild?.querySelector('.tag-input input')?.focus();
+        } })),
       previewBox);
 
     drawRules();
