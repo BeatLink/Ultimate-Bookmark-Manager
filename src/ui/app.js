@@ -147,6 +147,14 @@ async function start() {
   await load();
   ctx.linkChecker = new LinkChecker(ctx);
   document.getElementById('nav-select').addEventListener('change', (e) => ctx.go(e.target.value));
+  for (const button of document.querySelectorAll('[data-action=reload]')) {
+    button.addEventListener('click', () => ctx.run(async () => {
+      clearTimeout(refreshTimer);
+      refreshWaiting = false;
+    })
+      .then(() => toast(`Reloaded ${state.flat.filter((b) => b.type === 'bookmark').length} bookmarks.`, 'success'))
+      .catch((err) => toast(`Could not reload: ${err.message ?? err}`, 'error')));
+  }
   document.getElementById('open-tab').addEventListener('click', () => {
     browser.tabs.create({ url: browser.runtime.getURL(`src/ui/app.html#${current.id}`) });
   });
