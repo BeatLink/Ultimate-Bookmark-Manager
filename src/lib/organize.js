@@ -1,7 +1,7 @@
-// Organize rules: match bookmarks by title, address or part of the address and plan moves into target folders.
+// Organize rules: match bookmarks by title, URL or part of the URL and plan moves into target folders.
 
 import { byText } from './text.js';
-import { valuePoints, CATCH_ALL_SCORE, ADDRESS_TIER, formatScore } from './specificity.js';
+import { valuePoints, CATCH_ALL_SCORE, URL_TIER, formatScore } from './specificity.js';
 import { buildOrder, rankCandidates, lostBecause } from './rule-order.js';
 
 export const OPERATORS = {
@@ -17,17 +17,17 @@ export const OPERATORS = {
 };
 
 export const FIELDS = {
-  either: 'title or address',
+  either: 'title or URL',
   title: 'title',
-  url: 'address',
+  url: 'URL',
   host: 'site name',
-  path: 'address path',
+  path: 'URL path',
   query: 'query string',
   fragment: 'part after #',
 };
 
-// Operators that always look at the address, so the field choice does not apply to them.
-export const ADDRESS_OPS = new Set(['domain', 'param']);
+// Operators that always look at the URL, so the field choice does not apply to them.
+export const URL_OPS = new Set(['domain', 'param']);
 
 // Short names accepted as the first segment of a target path, alongside the root folders' own titles.
 const ROOT_ALIASES = {
@@ -94,14 +94,14 @@ export function keywords(cond) {
 
 const hosts = new Map();
 
-// The address's host name, remembered because parsing an address is slow and rules ask for the same ones repeatedly.
+// The URL's host name, remembered because parsing a URL is slow and rules ask for the same ones repeatedly.
 function hostOf(url) {
   if (hosts.has(url)) return hosts.get(url);
   let host = '';
   try {
     host = new URL(url).hostname.toLowerCase();
   } catch {
-    // Not an address; it has no host.
+    // Not a URL; it has no host.
   }
   if (hosts.size > 50000) hosts.clear();
   hosts.set(url, host);
@@ -150,10 +150,10 @@ export function occurrences(cond, value, text) {
   return out;
 }
 
-// Splits an address as written into site name, path, query string and fragment (RFC 3986, appendix B).
+// Splits a URL as written into site name, path, query string and fragment (RFC 3986, appendix B).
 const URL_SHAPE = /^(?:[a-z][a-z0-9+.-]*:)?(?:\/\/([^/?#]*))?([^?#]*)(?:\?([^#]*))?(?:#(.*))?$/dis;
 
-// One part of an address and where it starts in it, so highlights land on the address as shown; empty when absent.
+// One part of a URL and where it starts in it, so highlights land on the URL as shown; empty when absent.
 export function urlPart(url, part) {
   if (part === 'url') return { text: url, start: 0 };
   const m = URL_SHAPE.exec(url);
@@ -198,13 +198,13 @@ function paramRanges(cond, value, url) {
   return out;
 }
 
-// The parts of a bookmark a condition looks at: the title, the whole address or one part of it.
+// The parts of a bookmark a condition looks at: the title, the whole URL or one part of it.
 function fieldsOf(cond) {
-  if (ADDRESS_OPS.has(cond.op)) return ['url'];
+  if (URL_OPS.has(cond.op)) return ['url'];
   return !cond.field || cond.field === 'either' ? ['title', 'url'] : [cond.field];
 }
 
-// Where one keyword occurs in one part of a bookmark, as ranges in the title (for "title") or else in the address.
+// Where one keyword occurs in one part of a bookmark, as ranges in the title (for "title") or else in the URL.
 // Throws on an invalid regex so callers can report it.
 function rangesIn(cond, value, bookmark, on) {
   const url = bookmark.url ?? '';
@@ -260,8 +260,8 @@ function compileCondition(cond) {
       return found;
     };
   }
-  // Conditions aimed only at the address rank in the address tier; "title or address" stays a keyword condition.
-  return { op: cond.op, values, fields, hit, tier: fields.includes('title') ? 1 : ADDRESS_TIER };
+  // Conditions aimed only at the URL rank in the URL tier; "title or URL" stays a keyword condition.
+  return { op: cond.op, values, fields, hit, tier: fields.includes('title') ? 1 : URL_TIER };
 }
 
 // A rule's conditions prepared once per plan, with inactive items already dropped.
@@ -294,7 +294,7 @@ function groupScore(group, text) {
   return hits.length ? hits.reduce((a, b) => a + b, 0) : null;
 }
 
-// A bookmark's title and address, with each part of the address split out once when first asked for.
+// A bookmark's title and URL, with each part of the URL split out once when first asked for.
 function bookmarkText(bookmark) {
   const title = bookmark.title ?? '';
   const url = bookmark.url ?? '';
@@ -316,7 +316,7 @@ export function maxScore(rule) {
   const cond = (c) => {
     if (c.op === 'notContains') return 0;
     const fields = fieldsOf(c);
-    const tier = fields.includes('title') ? 1 : ADDRESS_TIER;
+    const tier = fields.includes('title') ? 1 : URL_TIER;
     return keywords(c).reduce((sum, v) => sum + Math.max(...fields.map((f) => valuePoints(c.op, v, f))), 0) * tier;
   };
   const group = (g) => (g.match === 'none' ? 0 : activeItems(g).reduce((sum, item) => sum + (isGroup(item) ? group(item) : cond(item)), 0));
@@ -359,7 +359,7 @@ function mergeRanges(ranges) {
 }
 
 // Why a rule matched a bookmark: the keywords that matched and where, plus merged ranges to highlight in the
-// title and the address. Null when the rule does not match; a catch-all matches with nothing to show.
+// title and the URL. Null when the rule does not match; a catch-all matches with nothing to show.
 export function explainMatch(rule, bookmark) {
   if (rule.catchAll) return { terms: [], title: [], url: [] };
   if (!activeItems(rule).length) return null;
@@ -389,7 +389,7 @@ export function ruleMatches(rule, bookmark) {
 // One condition in plain words, e.g. `title contains any of “rust”, “cargo”`.
 export function describeCondition(cond) {
   const list = keywords(cond).sort(byText).map((w) => `“${w}”`).join(', ');
-  const subject = ADDRESS_OPS.has(cond.op) ? 'address' : FIELDS[cond.field] ?? FIELDS.either;
+  const subject = URL_OPS.has(cond.op) ? 'URL' : FIELDS[cond.field] ?? FIELDS.either;
   // Matching inside words is the risky setting ("cat" in "category"), so the summary says when it is on.
   const inside = WORD_OPS.has(cond.op) && !cond.wholeWords ? ' (also inside words)' : '';
   return `${subject} ${OPERATORS[cond.op] ?? cond.op} ${list}${cond.caseSensitive && cond.op !== 'domain' ? ' (exact case)' : ''}${inside}`;
@@ -484,7 +484,7 @@ export function rankingWarnings(rules) {
 
 // Works out where each bookmark should go. Of the enabled, valid rules that match it and look in its folder, a rule
 // wins over any it ranks above by the ranking lists; between rules no list relates, the more specific match wins
-// (address conditions before keywords), then the newer rule, and catch-alls only take what nothing else matches.
+// (URL conditions before keywords), then the newer rule, and catch-alls only take what nothing else matches.
 // `tree` is the whole flattened tree, used to check source folders exist when `flat` holds only some bookmarks.
 export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree = flat) {
   const problems = validateRules(rules, rootFolders, tree);

@@ -1,4 +1,4 @@
-// Bookmarks whose address now redirects elsewhere, with one-click correction to the final address.
+// Bookmarks whose URL now redirects elsewhere, with one-click correction to the final URL.
 
 import { h } from '../dom.js';
 import { emptyState, bindCheckboxes, selectionBar, selectAllToggle, bookmarkInfo, row } from '../components.js';
@@ -12,7 +12,7 @@ export default {
   badge: (ctx) => scans.linkResults(ctx)?.results.filter((r) => r.status === 'redirect').length,
 
   render(ctx) {
-    const header = checkControls(ctx, 'Redirects', 'Bookmarks that lead somewhere else now. Fixing replaces the saved address with the one it redirects to. Check where it goes first: sites sometimes redirect dead pages to their home or login page.');
+    const header = checkControls(ctx, 'Redirects', 'Bookmarks that lead somewhere else now. Fixing replaces the saved URL with the one it redirects to. Check where it goes first: sites sometimes redirect dead pages to their home or login page.');
     const saved = scans.linkResults(ctx);
     if (!saved) return h('section', {}, header);
     const items = saved.results.filter((r) => r.status === 'redirect');
@@ -20,8 +20,8 @@ export default {
 
     const fix = (ids) => ctx.run(async () => {
       const changes = items.filter((b) => ids.includes(b.id)).map((b) => ({ id: b.id, url: b.finalUrl }));
-      await ctx.actions.update(changes, `Updated ${changes.length} redirected address(es)`);
-      ctx.done(`Updated ${changes.length} address(es).`);
+      await ctx.actions.update(changes, `Updated ${changes.length} redirected URL(s)`);
+      ctx.done(`Updated ${changes.length} URL(s).`);
     });
     const sel = ctx.selection('redirects', items.map((b) => b.id));
     const bar = selectionBar(sel, [

@@ -11,7 +11,7 @@ const bm = (id, title, url, path = ['Bookmarks Menu']) => ({ id, title, url, typ
 const cond = (op, words, extra = {}) => ({ field: 'either', op, values: words ? words.split(',') : [], caseSensitive: false, wholeWords: true, ...extra });
 const rule = (id, conditions, target, extra = {}) => ({ id, name: id, enabled: true, match: 'any', conditions, target, ...extra });
 
-test('contains matches any comma-separated word in title or address, ignoring case', () => {
+test('contains matches any comma-separated word in title or URL, ignoring case', () => {
   const b = bm('1', 'Learn RUST today', 'https://example.com/x');
   assert.ok(conditionMatches(cond('contains', 'python, rust'), b));
   assert.ok(!conditionMatches(cond('contains', 'rust', { caseSensitive: true }), b));
@@ -68,7 +68,7 @@ test('the more specific match wins whatever the order or age of the rules', () =
   assert.equal(win(keyword, domain), 'dom', 'domain (50) beats one keyword (20)');
   assert.equal(win(domain, sub), 'sub', 'subdomain (60) beats domain (50)');
   assert.equal(win(sub, path), 'path', 'a path (100 + 10 per segment) beats a subdomain');
-  assert.equal(win(path, exact, keyword), 'exact', 'an exact address beats everything');
+  assert.equal(win(path, exact, keyword), 'exact', 'an exact URL beats everything');
   const twoWords = rule('two', [cond('containsAll', 'rust,news', { field: 'title' })], 'Two', { createdAt: 1 });
   assert.equal(win(keyword, twoWords), 'two', 'two required keywords (40) beat one (20)');
 });
@@ -117,8 +117,8 @@ test('a duplicated rule is an independent copy with its own id', () => {
 
 test('rules are summed up in plain words', () => {
   const r = rule('r', [cond('contains', 'rust,cargo', { field: 'title' }), cond('domain', 'github.com'), cond('contains', '')], 'Dev', { match: 'all' });
-  assert.equal(describeRule(r), 'title contains any of “cargo”, “rust” and address is on domain “github.com”');
-  assert.equal(describeRule(rule('r', [cond('startsWith', 'Doc', { caseSensitive: true })], 'X')), 'title or address starts with “Doc” (exact case)');
+  assert.equal(describeRule(r), 'title contains any of “cargo”, “rust” and URL is on domain “github.com”');
+  assert.equal(describeRule(rule('r', [cond('startsWith', 'Doc', { caseSensitive: true })], 'X')), 'title or URL starts with “Doc” (exact case)');
   assert.equal(describeRule(rule('r', [cond('contains', '')], 'X')), 'No conditions yet');
 });
 
@@ -165,7 +165,7 @@ test('nested groups are summed up with brackets and "not"', () => {
     group('none', [cond('domain', 'reddit.com'), cond('contains', 'meme', { field: 'title' })]),
     group('any', [cond('contains', 'book', { field: 'title' })]),
   ], 'Dev', { match: 'all' });
-  assert.equal(describeRule(r), 'title contains any of “rust” and not (address is on domain “reddit.com” or title contains any of “meme”) and title contains any of “book”');
+  assert.equal(describeRule(r), 'title contains any of “rust” and not (URL is on domain “reddit.com” or title contains any of “meme”) and title contains any of “book”');
 });
 
 test('invalid regexes inside nested groups are reported', () => {
@@ -175,7 +175,7 @@ test('invalid regexes inside nested groups are reported', () => {
 
 test('a none group always gets brackets, even with one condition', () => {
   const r = rule('r', [cond('contains', 'work')], 'X', { match: 'none' });
-  assert.equal(describeRule(r), 'not (title or address contains any of “work”)');
+  assert.equal(describeRule(r), 'not (title or URL contains any of “work”)');
 });
 
 test('source folders limit which bookmarks a rule looks at', () => {
@@ -263,7 +263,7 @@ test('the winning rule explains what matched and where', () => {
 });
 
 
-test('conditions can look at one part of the address', async () => {
+test('conditions can look at one part of the URL', async () => {
   const { urlPart } = await import('../src/lib/organize.js');
   const url = 'https://user:pw@Docs.Example.com:8080/guide/intro?lang=en&v=2#setup';
   assert.deepEqual(urlPart(url, 'host'), { text: 'Docs.Example.com', start: 16 });
@@ -279,7 +279,7 @@ test('conditions can look at one part of the address', async () => {
   assert.ok(conditionMatches(cond('endsWith', 'example.com', { field: 'host' }), b));
   assert.ok(!conditionMatches(cond('contains', 'guide', { field: 'host' }), b));
   assert.ok(conditionMatches(cond('notContains', 'intro', { field: 'query' }), b));
-  assert.equal(describeRule(rule('r', [cond('startsWith', '/guide', { field: 'path' })], 'X')), 'address path starts with “/guide”');
+  assert.equal(describeRule(rule('r', [cond('startsWith', '/guide', { field: 'path' })], 'X')), 'URL path starts with “/guide”');
 });
 
 test('query parameters match by name, or by name and value', () => {
@@ -293,14 +293,14 @@ test('query parameters match by name, or by name and value', () => {
   assert.deepEqual(moves[0].why, { terms: [{ value: 'list', on: ['query'] }], title: [], url: [[36, 44]] });
 });
 
-test('address parts are highlighted where they sit in the address', () => {
+test('URL parts are highlighted where they sit in the URL', () => {
   const b = bm('1', 'Docs', 'https://example.com/docs/api?q=docs#docs');
   const r = rule('r', [cond('contains', 'docs', { field: 'path' })], 'X');
   const { why } = planMoves([b], [r], roots).moves[0];
   assert.deepEqual(why, { terms: [{ value: 'docs', on: ['path'] }], title: [], url: [[20, 24]] });
 });
 
-test('precise address parts score above looser matches', () => {
+test('precise URL parts score above looser matches', () => {
   const flat = [bm('a', 'Intro', 'https://docs.example.com/guide/intro?lang=en&v=2')];
   const dom = rule('dom', [cond('domain', 'example.com')], 'Domain', { createdAt: 9 });
   const param = rule('param', [cond('param', 'lang')], 'Param', { createdAt: 9 });
@@ -327,30 +327,30 @@ test('the plan counts every bookmark each valid rule matches, disabled rules and
   assert.equal(moves.length, 2);
 });
 
-test('an address condition always outranks keyword matches, however many', async () => {
+test('a URL condition always outranks keyword matches, however many', async () => {
   const { formatScore } = await import('../src/lib/specificity.js');
   const flat = [bm('v', 'CCNA subnetting and routing lab guide', 'https://www.youtube.com/@NetworkChuck/videos')];
   const words = rule('words', [cond('contains', 'ccna,subnetting,routing,lab')], 'Words', { createdAt: 9 });
   const addr = (id, c) => rule(id, [c], id, { createdAt: 1 });
   const win = (...rs) => planMoves(flat, rs, roots).moves[0];
-  // The case reported: a site plus path typed into "address contains" scored 20 and lost to title keywords.
+  // The case reported: a site plus path typed into "URL contains" scored 20 and lost to title keywords.
   let m = win(words, addr('sitePath', cond('contains', 'youtube.com/@NetworkChuck', { field: 'url' })));
   assert.equal(m.ruleId, 'sitePath');
-  assert.equal(formatScore(m.score), 'address 110');
-  assert.match(m.ranking[1].lost, /less specific \(keywords 80 vs address 110\)/);
-  // Even a bare word looked for only in the address outranks four title keywords.
+  assert.equal(formatScore(m.score), 'URL 110');
+  assert.match(m.ranking[1].lost, /less specific \(keywords 80 vs URL 110\)/);
+  // Even a bare word looked for only in the URL outranks four title keywords.
   m = win(words, addr('addrWord', cond('contains', 'videos', { field: 'url' })));
   assert.equal(m.ruleId, 'addrWord');
-  assert.equal(formatScore(m.score), 'address 20');
-  // Structured address text scores by what it spells out.
-  assert.equal(formatScore(win(addr('host', cond('contains', 'youtube.com', { field: 'host' }))).score), 'address 50');
-  assert.equal(formatScore(win(addr('path', cond('contains', '/@NetworkChuck/videos', { field: 'path' }))).score), 'address 120');
-  // Within the address tier, more specific still wins; keywords only break ties between equal address scores.
+  assert.equal(formatScore(m.score), 'URL 20');
+  // Structured URL text scores by what it spells out.
+  assert.equal(formatScore(win(addr('host', cond('contains', 'youtube.com', { field: 'host' }))).score), 'URL 50');
+  assert.equal(formatScore(win(addr('path', cond('contains', '/@NetworkChuck/videos', { field: 'path' }))).score), 'URL 120');
+  // Within the URL tier, more specific still wins; keywords only break ties between equal URL scores.
   const both = rule('both', [cond('domain', 'youtube.com'), cond('contains', 'ccna', { field: 'title' })], 'Both', { match: 'all', createdAt: 1 });
   m = win(both, addr('dom', cond('domain', 'youtube.com')));
   assert.equal(m.ruleId, 'both');
-  assert.equal(formatScore(m.score), 'address 50 + keywords 20');
-  // A "title or address" keyword stays a keyword condition, even when it matches in the address.
+  assert.equal(formatScore(m.score), 'URL 50 + keywords 20');
+  // A "title or URL" keyword stays a keyword condition, even when it matches in the URL.
   assert.equal(formatScore(win(rule('either', [cond('contains', 'videos')], 'E')).score), 'keywords 20');
 });
 
@@ -364,7 +364,7 @@ test('a ranking list decides between related rules; specificity only between unr
   const ccna = rule('ccna', [cond('contains', 'ccna')], 'Bookmarks Menu/Career', { createdAt: 1 });
   const inbox = { ...newCatchAll(['Other Bookmarks']), id: 'inbox', target: 'Other Bookmarks/Inbox', createdAt: 3 };
   const where = (rules) => Object.fromEntries(planMoves(flat, rules, roots).moves.map((m) => [m.bookmark.id, m.ruleId]));
-  assert.deepEqual(where([ccna, yt, inbox]), { v1: 'yt', v2: 'yt', n1: 'inbox' }, 'unrelated: the address match wins');
+  assert.deepEqual(where([ccna, yt, inbox]), { v1: 'yt', v2: 'yt', n1: 'inbox' }, 'unrelated: the URL match wins');
   assert.deepEqual(where([{ ...ccna, outranks: ['yt'] }, yt, inbox]), { v1: 'ccna', v2: 'yt', n1: 'inbox' }, 'CCNA ranks above YouTube');
   assert.deepEqual(where([ccna, yt, { ...inbox, outranks: ['yt'] }]), { v1: 'ccna', v2: 'inbox', n1: 'inbox' }, 'a list can put a catch-all above YouTube; CCNA is unrelated to it, so built-in ranking puts CCNA first');
 });
@@ -407,7 +407,7 @@ test('every matching rule is listed strongest first, each loser with why it lost
   assert.deepEqual(m.ranking.map((r) => [r.ruleId, formatScore(r.score), r.lost]), [
     ['subnet', 'keywords 40', null],
     ['ccna', 'keywords 20', 'less specific (keywords 20 vs keywords 40)'],
-    ['yt', 'address 50', 'ranked below “CCNA” by your rule order'],
+    ['yt', 'URL 50', 'ranked below “CCNA” by your rule order'],
     ['video', 'keywords 20', 'less specific (keywords 20 vs keywords 40)'],
     ['inbox', 'catch-all', 'catch-alls only take what no other rule matches'],
   ]);

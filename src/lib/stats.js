@@ -3,13 +3,13 @@
 // Second-level labels that belong to the country ending, so "bbc.co.uk" stays one site.
 const SECOND_LEVEL = new Set(['co', 'com', 'org', 'net', 'ac', 'gov', 'edu', 'ne', 'or']);
 
-// The site a bookmark belongs to: "docs.python.org" gives "python.org"; non-web addresses are grouped by kind.
+// The site a bookmark belongs to: "docs.python.org" gives "python.org"; non-web URLs are grouped by kind.
 export function siteOf(url) {
   let u;
   try {
     u = new URL(url);
   } catch {
-    return '(invalid address)';
+    return '(invalid URL)';
   }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return `(${u.protocol.replace(/:$/, '')})`;
   const host = u.hostname.toLowerCase();

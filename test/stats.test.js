@@ -2,14 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { siteOf, protocolOf, addedByMonth, treeStats } from '../src/lib/stats.js';
 
-test('sites group subdomains but keep country second levels and odd addresses apart', () => {
+test('sites group subdomains but keep country second levels and odd URLs apart', () => {
   assert.equal(siteOf('https://docs.python.org/3/'), 'python.org');
   assert.equal(siteOf('https://www.bbc.co.uk/news'), 'bbc.co.uk');
   assert.equal(siteOf('http://192.168.1.1/admin'), '192.168.1.1');
   assert.equal(siteOf('http://localhost:8080/'), 'localhost');
   assert.equal(siteOf('javascript:alert(1)'), '(javascript)');
   assert.equal(siteOf('place:sort=8'), '(place)');
-  assert.equal(siteOf('not a url'), '(invalid address)');
+  assert.equal(siteOf('not a url'), '(invalid URL)');
   assert.equal(protocolOf('https://a.test'), 'https');
 });
 

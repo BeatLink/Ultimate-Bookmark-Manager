@@ -1,4 +1,4 @@
-// Bookmarks whose address failed to load, grouped by kind of failure.
+// Bookmarks whose URL failed to load, grouped by kind of failure.
 
 import { h, confirmDialog, formatDate } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectionBar, selectAllToggle, bookmarkInfo, row } from '../components.js';

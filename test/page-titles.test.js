@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { loadTitles } from '../src/lib/page-titles.js';
 import { unhelpfulName, findUntitled } from '../src/lib/folders.js';
 
-test('names that are blank or just an address are flagged', () => {
+test('names that are blank or just a URL are flagged', () => {
   assert.equal(unhelpfulName('', 'https://a.test/'), 'blank');
   assert.equal(unhelpfulName('   ', 'https://a.test/'), 'blank');
-  assert.equal(unhelpfulName('https://a.test/page', 'https://a.test/page'), 'address');
-  assert.equal(unhelpfulName('www.Example.com/Docs/', 'https://example.com/docs'), 'address');
-  assert.equal(unhelpfulName('example.com/caf%C3%A9', 'https://example.com/café'), 'address');
-  assert.equal(unhelpfulName('http://other.test/x', 'https://a.test/'), 'address', 'any bare web address is unhelpful');
+  assert.equal(unhelpfulName('https://a.test/page', 'https://a.test/page'), 'url');
+  assert.equal(unhelpfulName('www.Example.com/Docs/', 'https://example.com/docs'), 'url');
+  assert.equal(unhelpfulName('example.com/caf%C3%A9', 'https://example.com/café'), 'url');
+  assert.equal(unhelpfulName('http://other.test/x', 'https://a.test/'), 'url', 'any bare URL is unhelpful');
   assert.equal(unhelpfulName('Example Docs', 'https://example.com/docs'), null);
   assert.equal(unhelpfulName('example.com', 'https://example.com/docs/page'), null, 'a site name for a deeper page is kept');
 });
@@ -20,7 +20,7 @@ test('findUntitled tags each bookmark with the reason', () => {
     { id: '2', type: 'bookmark', title: 'https://b.test/', url: 'https://b.test/' },
     { id: '3', type: 'bookmark', title: 'Good', url: 'https://c.test/' },
   ];
-  assert.deepEqual(findUntitled(flat).map((b) => [b.id, b.reason]), [['1', 'blank'], ['2', 'address']]);
+  assert.deepEqual(findUntitled(flat).map((b) => [b.id, b.reason]), [['1', 'blank'], ['2', 'url']]);
 });
 
 // A stand-in browser where each page "loads" after a delay and then shows a title set by the table.

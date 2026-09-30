@@ -25,7 +25,7 @@ export default {
     const dupeIds = new Set(scans.duplicates(ctx).groups.flatMap((g) => g.items.map((i) => i.id)));
     const sel = ctx.selection('all', bookmarks.map((b) => b.id));
 
-    const search = h('input', { type: 'search', value: view.query, placeholder: 'Search name, address or folder', 'aria-label': 'Search', oninput: () => { view.query = search.value; view.shown = PAGE; draw(); } });
+    const search = h('input', { type: 'search', value: view.query, placeholder: 'Search name, URL or folder', 'aria-label': 'Search', oninput: () => { view.query = search.value; view.shown = PAGE; draw(); } });
     const filter = h('select', { 'aria-label': 'Show', onchange: () => { view.filter = filter.value; view.shown = PAGE; draw(); } },
       h('option', { value: 'all', text: 'All', selected: view.filter === 'all' }),
       h('option', { value: 'dupes', text: 'Only duplicates', selected: view.filter === 'dupes' }),

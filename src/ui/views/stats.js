@@ -37,7 +37,7 @@ export default {
     const notChecked = 'Not checked yet';
 
     const tidy = h('div', { class: 'stat-row' },
-      statTile({ label: 'Duplicate copies', value: dupes, href: '#duplicates', note: 'extra copies of the same address', muted: !dupes }),
+      statTile({ label: 'Duplicate copies', value: dupes, href: '#duplicates', note: 'extra copies of the same URL', muted: !dupes }),
       statTile({ label: 'No useful name', value: scans.untitled(ctx).length, href: '#untitled', muted: !scans.untitled(ctx).length }),
       statTile({ label: 'Empty folders', value: scans.emptyFolders(ctx).length, href: '#empty-folders', muted: !scans.emptyFolders(ctx).length }),
       statTile({ label: 'Same-name folders', value: scans.sameNameFolders(ctx).length, href: '#same-name', note: 'sets that could be merged', muted: !scans.sameNameFolders(ctx).length }),
@@ -84,8 +84,8 @@ export default {
     });
 
     const protocolsCard = chartCard({
-      title: 'Address types',
-      subtitle: 'Plain http addresses are not encrypted; other types include bookmarklets and Firefox’s own pages.',
+      title: 'URL types',
+      subtitle: 'Plain http URLs are not encrypted; other types include bookmarklets and Firefox’s own pages.',
       chart: barList(s.protocols, { total: s.bookmarks }),
       columns: ['Type', 'Bookmarks'],
       rows: s.protocols.map((x) => [x.name, x.count]),

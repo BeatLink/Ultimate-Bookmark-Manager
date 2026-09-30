@@ -51,8 +51,8 @@ export function findSameNameFolders(root, ignoredIds = new Set()) {
   return out;
 }
 
-// An address reduced to what a reader would compare: no scheme, no "www.", no trailing slash, any case.
-function looseAddress(text) {
+// A URL reduced to what a reader would compare: no scheme, no "www.", no trailing slash, any case.
+function looseUrl(text) {
   let t = text.trim().toLowerCase();
   try {
     t = decodeURI(t);
@@ -62,12 +62,12 @@ function looseAddress(text) {
   return t.replace(/^[a-z][a-z0-9+.-]*:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
 }
 
-// Says why a bookmark's name does not help: "blank", or "address" when the name is just a web address.
+// Says why a bookmark's name does not help: "blank", or "url" when the name is just a URL.
 export function unhelpfulName(title, url) {
   const t = (title ?? '').trim();
   if (!t) return 'blank';
-  if (/^[a-z][a-z0-9+.-]*:\/\/\S+$/i.test(t)) return 'address';
-  if (url && looseAddress(t) === looseAddress(url)) return 'address';
+  if (/^[a-z][a-z0-9+.-]*:\/\/\S+$/i.test(t)) return 'url';
+  if (url && looseUrl(t) === looseUrl(url)) return 'url';
   return null;
 }
 

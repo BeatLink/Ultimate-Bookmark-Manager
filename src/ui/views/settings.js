@@ -97,7 +97,7 @@ const MATCHING = [
   ['ignoreTrailingSlash', 'Ignore a trailing slash'],
   ['ignoreFragment', 'Ignore the part after “#”'],
   ['ignoreQuery', 'Ignore the query string (after “?”)'],
-  ['ignoreCase', 'Ignore letter case in the whole address'],
+  ['ignoreCase', 'Ignore letter case in the whole URL'],
 ];
 
 const PRESETS = [
@@ -108,7 +108,7 @@ const PRESETS = [
 
 function ruleRow(rule, onRemove, error) {
   const field = h('select', { 'aria-label': 'Match against', hidden: rule.kind !== 'filter', onchange: (e) => { rule.field = e.target.value; } },
-    ['url', 'title', 'name'].map((v) => h('option', { value: v, text: { url: 'address', title: 'name', name: 'folder path/name' }[v], selected: (rule.field ?? 'url') === v })));
+    ['url', 'title', 'name'].map((v) => h('option', { value: v, text: { url: 'URL', title: 'name', name: 'folder path/name' }[v], selected: (rule.field ?? 'url') === v })));
   const replacement = h('input', { type: 'text', placeholder: 'replace with', value: rule.replacement ?? '', hidden: rule.kind !== 'replace', 'aria-label': 'Replacement', oninput: (e) => { rule.replacement = e.target.value; } });
   return h('li', { class: 'rule' },
     h('input', { type: 'checkbox', checked: rule.enabled !== false, 'aria-label': 'Enabled', onchange: (e) => { rule.enabled = e.target.checked; } }),
@@ -116,7 +116,7 @@ function ruleRow(rule, onRemove, error) {
       rule.kind = e.target.value;
       field.hidden = rule.kind !== 'filter';
       replacement.hidden = rule.kind !== 'replace';
-    } }, h('option', { value: 'filter', text: 'Exclude if', selected: rule.kind === 'filter' }), h('option', { value: 'replace', text: 'In address, replace', selected: rule.kind === 'replace' })),
+    } }, h('option', { value: 'filter', text: 'Exclude if', selected: rule.kind === 'filter' }), h('option', { value: 'replace', text: 'In URL, replace', selected: rule.kind === 'replace' })),
     field,
     h('input', { type: 'text', class: 'mono grow', placeholder: 'regular expression', value: rule.pattern ?? '', 'aria-label': 'Pattern', oninput: (e) => { rule.pattern = e.target.value; } }),
     h('input', { type: 'text', class: 'mono flags', placeholder: 'flags', value: rule.flags ?? '', 'aria-label': 'Flags', oninput: (e) => { rule.flags = e.target.value; } }),
@@ -149,7 +149,7 @@ export default {
     });
 
     const matching = h('fieldset', {}, h('legend', { text: 'Duplicate matching' }),
-      h('p', { class: 'muted', text: 'Two bookmarks are duplicates when their addresses match after these adjustments.' }),
+      h('p', { class: 'muted', text: 'Two bookmarks are duplicates when their URLs match after these adjustments.' }),
       MATCHING.map(([key, label]) => h('label', { class: 'check-line' },
         h('input', { type: 'checkbox', checked: s.matching[key], onchange: (e) => { s.matching[key] = e.target.checked; } }), label)));
 
@@ -160,7 +160,7 @@ export default {
     const addRule = (rule) => { s.rules.push({ enabled: true, ...rule }); drawRules(); };
     const rulesBox = h('fieldset', {}, h('legend', { text: 'Custom duplicate rules (expert)' }),
       h('p', { class: 'muted' },
-        '“Exclude” rules leave matching bookmarks out of the duplicate check. “Replace” rules rewrite the address before comparing (the bookmark itself is not changed). ',
+        '“Exclude” rules leave matching bookmarks out of the duplicate check. “Replace” rules rewrite the URL before comparing (the bookmark itself is not changed). ',
         'Replacements may use ', h('code', { text: '$&' }), ', ', h('code', { text: '$1' }), '…, ', h('code', { text: '$URL' }), ', ', h('code', { text: '$NAME' }), ' (folder path and name), ',
         h('code', { text: '$TITLE' }), ', and may start with ', h('code', { text: '\\L' }), ' or ', h('code', { text: '\\U' }), ' to lower- or upper-case the result.'),
       rules,

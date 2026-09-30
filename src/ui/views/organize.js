@@ -3,7 +3,7 @@
 import { h, Selection, toast, confirmDialog } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, tagInput, pickFolder, marked } from '../components.js';
 import { saveSettings } from '../../lib/settings.js';
-import { WORD_OPS, ADDRESS_OPS, OPERATORS, FIELDS, MODES, newRule, newCatchAll, newCondition, newGroup, isGroup, keywords, duplicateRule, planMoves, resolveTarget, maxScore, rankingWarnings } from '../../lib/organize.js';
+import { WORD_OPS, URL_OPS, OPERATORS, FIELDS, MODES, newRule, newCatchAll, newCondition, newGroup, isGroup, keywords, duplicateRule, planMoves, resolveTarget, maxScore, rankingWarnings } from '../../lib/organize.js';
 import { eligibleToOutrank } from '../../lib/rule-order.js';
 import { formatScore } from '../../lib/specificity.js';
 
@@ -42,7 +42,7 @@ function conditionRow(cond, onRemove, changed) {
   // Off, "cat" also matches inside "category"; on, only the word itself.
   const whole = h('label', { class: 'check-line small', title: 'Only match whole words, so “cat” does not match “category”', hidden: !WORD_OPS.has(cond.op) },
     h('input', { type: 'checkbox', checked: !!cond.wholeWords, 'aria-label': 'Whole words', onchange: (e) => { cond.wholeWords = e.target.checked; changed(); } }), 'Whole words');
-  field.hidden = ADDRESS_OPS.has(cond.op);
+  field.hidden = URL_OPS.has(cond.op);
   const makeTags = () => tagInput({
     values: cond.values,
     onchange: changed,
@@ -56,7 +56,7 @@ function conditionRow(cond, onRemove, changed) {
     field,
     select(OPERATORS, cond.op, (v) => {
       cond.op = v;
-      field.hidden = ADDRESS_OPS.has(v);
+      field.hidden = URL_OPS.has(v);
       whole.hidden = !WORD_OPS.has(v);
       const next = makeTags();
       tags.replaceWith(next);
@@ -142,15 +142,15 @@ const folderOpen = new Map();
 // The folder search and the "only folders with rules" switch survive refreshes.
 const treeView = { query: '', onlyWithRules: false };
 
-const PART_NAMES = { title: 'title', url: 'address', host: 'site name', path: 'path', query: 'query string', fragment: 'part after #' };
+const PART_NAMES = { title: 'title', url: 'URL', host: 'site name', path: 'path', query: 'query string', fragment: 'part after #' };
 
-// "“ccna” in title, “youtube.com” in address" for a rule's match explanation.
+// "“ccna” in title, “youtube.com” in URL" for a rule's match explanation.
 function matchedText(why) {
   return why.terms.map((t) => `“${t.value}” in ${t.on.map((o) => PART_NAMES[o] ?? o).join(' and ')}`).join(', ');
 }
 
 // Every rule that matched a bookmark, strongest first, each with its standing and, below the winner, why it lost.
-// Selecting a rule re-highlights the bookmark's title and address with what that rule matched.
+// Selecting a rule re-highlights the bookmark's title and URL with what that rule matched.
 function rankingList(move) {
   const show = (r, button) => {
     const box = button.closest('.bm');
@@ -183,7 +183,7 @@ function rankingList(move) {
 // How many rows each preview group shows before a "Show more" button.
 const PREVIEW_ROWS = 100;
 
-const SPECIFICITY_HELP = 'Most this rule can score when every condition matches; only conditions that match a bookmark count. Conditions on the address always outrank keywords: exact address 1000, address path 100 + 10 per segment, exact query string 80, subdomain or query parameter with value 60, domain 50, query parameter 30, other address text 20. Keyword conditions (title, or title or address): exact title 40, keyword 20, regex 15.';
+const SPECIFICITY_HELP = 'Most this rule can score when every condition matches; only conditions that match a bookmark count. Conditions on the URL always outrank keywords: exact URL 1000, URL path 100 + 10 per segment, exact query string 80, subdomain or query parameter with value 60, domain 50, query parameter 30, other URL text 20. Keyword conditions (title, or title or URL): exact title 40, keyword 20, regex 15.';
 
 const ruleLabel = (r) => `${r.name || 'Unnamed rule'} → ${r.target ? r.target.split('/').join(' › ') : 'no folder yet'}`;
 
@@ -213,7 +213,7 @@ function ranksAbovePicker(rule, rules, redraw) {
           } })))
         : [h('span', { class: 'muted', text: 'No rules' })]),
       menu),
-    h('p', { class: 'muted small', text: 'When this rule and one listed here both match a bookmark, this rule wins. Rules no list relates are ranked by how specific their match is, address conditions first.' }),
+    h('p', { class: 'muted small', text: 'When this rule and one listed here both match a bookmark, this rule wins. Rules no list relates are ranked by how specific their match is, URL conditions first.' }),
     blocked.length > 0 && h('p', { class: 'muted small', text: `Not offered, as it would make a loop: ${blocked.map((r) => `“${r.name || 'Unnamed rule'}”`).join(', ')} (already ranked above this rule).` }),
     above.length > 0 && h('p', { class: 'small', text: `Ranked below: ${above.map((r) => `“${r.name || 'Unnamed rule'}”`).join(', ')}` }));
 }
@@ -552,7 +552,7 @@ export default {
     };
 
     section.append(
-      viewHeader('Organize', 'Each folder lists the rules that file bookmarks into it. When several rules match a bookmark, a rule wins over any it ranks above (set in each rule’s “Ranks above” list). Between rules no list relates, the most specific match wins, with address conditions always ahead of keywords, then the newest rule; catch-alls only take what nothing else matches. Bookmarks already inside the winning rule’s folder stay where they are.',
+      viewHeader('Organize', 'Each folder lists the rules that file bookmarks into it. When several rules match a bookmark, a rule wins over any it ranks above (set in each rule’s “Ranks above” list). Between rules no list relates, the most specific match wins, with URL conditions always ahead of keywords, then the newest rule; catch-alls only take what nothing else matches. Bookmarks already inside the winning rule’s folder stay where they are.',
         dirtyNote,
         h('button', { class: 'small', text: 'Discard changes', onclick: () => { draft = null; ctx.render(); } }),
         h('button', { class: 'primary', text: 'Save rules', onclick: () => save() })),

@@ -1,4 +1,4 @@
-// Bookmarks whose name is blank or just their address, which can be renamed from the title their page shows.
+// Bookmarks whose name is blank or just their URL, which can be renamed from the title their page shows.
 
 import { h, confirmDialog, toast } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectionBar, selectAllToggle, bookmarkInfo, row } from '../components.js';
@@ -6,7 +6,7 @@ import { addToWhitelist } from '../../lib/settings.js';
 import { loadTitles } from '../../lib/page-titles.js';
 import * as scans from '../scans.js';
 
-const REASONS = { blank: 'Name is blank', address: 'Name is just an address' };
+const REASONS = { blank: 'Name is blank', url: 'Name is just a URL' };
 
 // The running title fetch and the pages it could not name; kept here so switching views does not lose them.
 const job = { running: false, done: 0, total: 0, controller: null, failures: new Map(), bars: new Set() };
@@ -73,7 +73,7 @@ export default {
     const items = scans.untitled(ctx);
     const sel = ctx.selection('untitled', items.map((b) => b.id));
     const header = viewHeader('Bookmarks without a useful name',
-      'Bookmarks whose name is blank or just their address. “Fetch page titles” opens each page in a minimized window and uses the title it shows once loaded.');
+      'Bookmarks whose name is blank or just their URL. “Fetch page titles” opens each page in a minimized window and uses the title it shows once loaded.');
     if (!items.length) return h('section', {}, header, emptyState('Every bookmark has a useful name.'));
 
     const progress = h('div', { class: 'progress', hidden: true },
