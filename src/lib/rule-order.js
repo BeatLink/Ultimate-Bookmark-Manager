@@ -39,13 +39,26 @@ function loopGroups(rules, byId) {
   return groups;
 }
 
-// Everything each rule ranks above, following the lists through other rules; links inside a loop are left out.
+// A rule set to rank above all other rules sits in the top tier, one set below them in the bottom tier, and the rest between.
+export function tierOf(rule) {
+  return rule.rankAll === 'above' ? 2 : rule.rankAll === 'below' ? 0 : 1;
+}
+
+// Everything each rule ranks above, following the lists through other rules. Links inside a loop are left out,
+// and so are links that go against the tiers, such as a rule listing one that ranks above all other rules.
 export function buildOrder(rules) {
   const byId = new Map(rules.map((r) => [r.id, r]));
   const loops = loopGroups(rules, byId);
   const loopOf = new Map();
   loops.forEach((group, i) => group.forEach((id) => loopOf.set(id, i)));
-  const direct = new Map(rules.map((r) => [r.id, (r.outranks ?? []).filter((id) => byId.has(id) && id !== r.id && !(loopOf.has(r.id) && loopOf.get(r.id) === loopOf.get(id)))]));
+  const against = [];
+  const keeps = (r, id) => {
+    if (!byId.has(id) || id === r.id || (loopOf.has(r.id) && loopOf.get(r.id) === loopOf.get(id))) return false;
+    if (tierOf(r) >= tierOf(byId.get(id))) return true;
+    against.push([r, byId.get(id)]);
+    return false;
+  };
+  const direct = new Map(rules.map((r) => [r.id, (r.outranks ?? []).filter((id) => keeps(r, id))]));
   const below = new Map();
   const reach = (id) => {
     if (below.has(id)) return below.get(id);
@@ -60,15 +73,23 @@ export function buildOrder(rules) {
   for (const r of rules) reach(r.id);
   return {
     loops: loops.map((group) => group.map((id) => byId.get(id))),
+    // Pairs [higher, lower] where the higher rule lists one in a tier above its own; those links are ignored.
+    against,
     ranksAbove: (a, b) => below.get(a)?.has(b) ?? false,
   };
 }
 
-// Rules that may be added to `rule`'s list without making a loop: not itself, not already listed, and not ranked above it.
+// Rules `rule` may be set to rank above without making a loop or going against the tiers.
 export function eligibleToOutrank(rule, rules) {
   const order = buildOrder(rules);
   const listed = new Set(rule.outranks ?? []);
-  return rules.filter((r) => r.id !== rule.id && !listed.has(r.id) && !order.ranksAbove(r.id, rule.id));
+  return rules.filter((r) => r.id !== rule.id && !listed.has(r.id) && !order.ranksAbove(r.id, rule.id) && tierOf(rule) >= tierOf(r));
+}
+
+// Rules `rule` may be set to rank below, which adds it to their lists, on the same terms.
+export function eligibleToRankBelow(rule, rules) {
+  const order = buildOrder(rules);
+  return rules.filter((r) => r.id !== rule.id && !(r.outranks ?? []).includes(rule.id) && !order.ranksAbove(rule.id, r.id) && tierOf(r) >= tierOf(rule));
 }
 
 // The built-in ranking, used only between rules that no list relates: a rule with conditions over a catch-all,
@@ -85,12 +106,14 @@ export function builtInBeats(a, b) {
   return a.index > b.index;
 }
 
-// Candidates strongest first: at each step, of those no remaining candidate ranks above, the built-in ranking picks one.
+// Candidates strongest first: at each step, of those in the highest tier left that no remaining candidate ranks above,
+// the built-in ranking picks one.
 export function rankCandidates(candidates, order) {
   const left = [...candidates];
   const out = [];
   while (left.length) {
-    const open = left.filter((c) => !left.some((o) => o !== c && order.ranksAbove(o.rule.id, c.rule.id)));
+    const tier = Math.max(...left.map((c) => tierOf(c.rule)));
+    const open = left.filter((c) => tierOf(c.rule) === tier && !left.some((o) => o !== c && order.ranksAbove(o.rule.id, c.rule.id)));
     const pick = open.reduce((best, c) => (!best || builtInBeats(c, best) ? c : best), null);
     out.push(pick);
     left.splice(left.indexOf(pick), 1);
@@ -100,6 +123,9 @@ export function rankCandidates(candidates, order) {
 
 // Why a matching rule lost to the winner, naming the rule order when a list decided it.
 export function lostBecause(loser, winner, candidates, order, formatScore) {
+  if (tierOf(winner.rule) > tierOf(loser.rule)) {
+    return winner.rule.rankAll === 'above' ? `“${winner.rule.name || 'Unnamed rule'}” ranks above all other rules` : 'this rule ranks below all other rules';
+  }
   const above = [winner, ...candidates].find((c) => c !== loser && order.ranksAbove(c.rule.id, loser.rule.id));
   if (above) return `ranked below “${above.rule.name || 'Unnamed rule'}” by your rule order`;
   if (loser.rule.catchAll && !winner.rule.catchAll) return 'catch-alls only take what no other rule matches';

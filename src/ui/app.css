@@ -77,7 +77,7 @@ button.link { border: 0; background: none; color: var(--accent); padding: 0 .3em
 .badge:empty { display: none; }
 .compact-nav { display: none; gap: .5em; }
 .compact-nav select { flex: 1; }
-main { padding: 1.5em 2em; max-width: 1100px; width: 100%; outline: none; }
+main { padding: 1.5em 2em; width: 100%; box-sizing: border-box; min-width: 0; outline: none; }
 body.busy main { opacity: .6; pointer-events: none; }
 
 .view-header { display: flex; justify-content: space-between; gap: 1em; align-items: flex-start; flex-wrap: wrap; margin-bottom: .75em; }
@@ -241,6 +241,9 @@ dialog.folder-picker::backdrop { background: rgb(0 0 0 / .35); }
 }
 .query-editor .ruleGroup .ruleGroup { --rqb-background-color: var(--surface); }
 .query-editor .ruleGroup-header .ruleGroup-remove, .query-editor .rule .rule-remove { margin-left: auto; }
+.query-editor .queryBuilder-dragHandle { cursor: grab; color: var(--muted); user-select: none; padding: 0 .1em; }
+.query-editor .ruleGroup-header .ruleGroup-cloneGroup { margin-left: auto; }
+.query-editor .ruleGroup-header .ruleGroup-cloneGroup + .ruleGroup-remove { margin-left: 0; }
 /* Fixed widths line the columns up from one condition to the next. */
 .query-editor .rule-fields { width: 9.5em; flex: none; }
 .query-editor .rule-operators { width: 13em; flex: none; }
@@ -336,7 +339,11 @@ mark { background: var(--mark-bg); color: var(--text); border-radius: 2px; paddi
 .ranking-pick { border: 1px solid transparent; background: none; padding: .1em .4em; border-radius: var(--radius); text-align: left; font: inherit; color: inherit; margin-left: -.4em; }
 .ranking-pick:hover { background: var(--hover); }
 .ranking-pick[aria-pressed="true"] { border-color: var(--accent); background: var(--hover); }
-.ranks-above select { max-width: 24em; }
+.rank-rows { flex-basis: 100%; display: flex; flex-direction: column; gap: .4em; }
+.rank-rows:empty { display: none; }
+.rank-row { display: flex; gap: .4em; align-items: center; }
+.rank-row .rank-relation { width: 9.5em; flex: none; }
+.rank-row .rank-target { flex: 1; min-width: 0; max-width: 32em; }
 
 /* Help links and the Help page */
 .title-row { display: flex; align-items: center; gap: .5em; }

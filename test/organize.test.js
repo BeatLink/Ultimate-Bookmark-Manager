@@ -487,3 +487,38 @@ test('an inverted "all" group holds unless every condition in it does', () => {
   assert.ok(ruleMatches(notBoth(['rust', 'python']), b));
   assert.ok(!ruleMatches(notBoth(['rust', 'news']), b));
 });
+
+test('rules can rank above or below all other rules, and links against those tiers are flagged and ignored', async () => {
+  const { buildOrder, eligibleToOutrank, eligibleToRankBelow, rankCandidates, lostBecause } = await import('../src/lib/rule-order.js');
+  const { rankingWarnings } = await import('../src/lib/organize.js');
+  const top = { id: 't', name: 'Top', rankAll: 'above', outranks: [] };
+  const top2 = { id: 't2', name: 'Top 2', rankAll: 'above', outranks: ['t'] };
+  const mid = { id: 'm', name: 'Mid', outranks: [] };
+  const low = { id: 'l', name: 'Low', rankAll: 'below', outranks: [] };
+  const rules = [top, top2, mid, low];
+  const cand = (rule, score) => ({ rule, score, index: 0 });
+  const ranked = rankCandidates([cand(low, 900), cand(mid, 500), cand(top, 10), cand(top2, 5)], buildOrder(rules));
+  assert.deepEqual(ranked.map((x) => x.rule.id), ['t2', 't', 'm', 'l'], 'tiers first, then links within a tier, then score');
+  assert.match(lostBecause(ranked[2], ranked[0], ranked, buildOrder(rules), String), /“Top 2” ranks above all other rules/);
+  assert.match(lostBecause(ranked[3], ranked[2], ranked, buildOrder(rules), String), /ranks below all other rules/);
+
+  assert.deepEqual(eligibleToOutrank(mid, rules).map((r) => r.id), ['l'], 'a middle rule cannot rank above a top one');
+  assert.deepEqual(eligibleToRankBelow(mid, rules).map((r) => r.id), ['t', 't2'], 'but it can rank below one');
+  assert.deepEqual(eligibleToOutrank(top, rules).map((r) => r.id), ['m', 'l'], 'Top 2 already ranks above Top, so Top cannot list it');
+
+  const against = { ...mid, outranks: ['t'] };
+  const order = buildOrder([top, against]);
+  assert.ok(!order.ranksAbove('m', 't'), 'a link against the tiers is ignored');
+  assert.match(rankingWarnings([top, against]).get('m')[0], /“Mid” is set to rank above “Top”, but “Top” ranks above all other rules/);
+  assert.ok(rankingWarnings([top, against]).has('t'), 'both rules show the note');
+});
+
+test('a catch-all set to rank above all other rules beats rules with conditions', async () => {
+  const { newCatchAll } = await import('../src/lib/organize.js');
+  const flat = [{ id: 'of', type: 'folder', title: 'Other Bookmarks', path: [] }, bm('v', 'Rust video', 'https://www.youtube.com/watch?v=1', ['Other Bookmarks'])];
+  const yt = rule('yt', [cond('domain', 'youtube.com')], 'Bookmarks Menu/YouTube');
+  const inbox = { ...newCatchAll(['Other Bookmarks']), id: 'inbox', target: 'Other Bookmarks/Inbox' };
+  assert.equal(planMoves(flat, [yt, inbox], roots).moves[0].ruleId, 'yt');
+  assert.equal(planMoves(flat, [yt, { ...inbox, rankAll: 'above' }], roots).moves[0].ruleId, 'inbox');
+  assert.equal(planMoves(flat, [{ ...yt, rankAll: 'below' }, inbox], roots).moves[0].ruleId, 'inbox', 'a rule below all others loses even to a catch-all');
+});

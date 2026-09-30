@@ -521,12 +521,19 @@ export function validateRules(rules, rootFolders, flat = null) {
   return problems;
 }
 
-// Rules caught in a ranking loop, each with a note; the rules still run, only the links forming the loop are ignored.
+// Rules caught in a ranking loop or a link against the tiers, each with a note; the rules still run, only those links are ignored.
 export function rankingWarnings(rules) {
   const warnings = new Map();
-  for (const loop of buildOrder(rules).loops) {
+  const order = buildOrder(rules);
+  const add = (r, text) => warnings.set(r.id, [...(warnings.get(r.id) ?? []), text]);
+  for (const loop of order.loops) {
     const names = loop.map((r) => `“${r.name || 'Unnamed rule'}”`).join(', ');
-    for (const r of loop) warnings.set(r.id, [`${names} rank above each other in a loop, so those links are ignored until one is removed.`]);
+    for (const r of loop) add(r, `${names} rank above each other in a loop, so those links are ignored until one is removed.`);
+  }
+  const name = (r) => `“${r.name || 'Unnamed rule'}”`;
+  for (const [high, low] of order.against) {
+    const why = low.rankAll === 'above' ? `${name(low)} ranks above all other rules` : `${name(high)} ranks below all other rules`;
+    for (const r of [high, low]) add(r, `${name(high)} is set to rank above ${name(low)}, but ${why}, so that link is ignored.`);
   }
   return warnings;
 }

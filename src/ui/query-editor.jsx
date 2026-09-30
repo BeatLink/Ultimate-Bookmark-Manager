@@ -2,6 +2,9 @@
 
 import { createRoot } from 'react-dom/client';
 import { QueryBuilder, update, remove } from 'react-querybuilder';
+import { QueryBuilderDnD } from '@react-querybuilder/dnd';
+import * as ReactDnD from 'react-dnd';
+import * as ReactDndHtml5Backend from 'react-dnd-html5-backend';
 import { OPERATORS, FIELDS, FIELD_OPERATORS, WORD_OPS, FOLDER_OPS, newCondition } from '../lib/organize.js';
 import { pickFolder } from './components.js';
 import 'react-querybuilder/dist/query-builder.css';
@@ -115,6 +118,9 @@ const translations = {
   addGroup: { label: '+ Group', title: 'Add a group with its own rule setting' },
   removeRule: { label: '×', title: 'Remove condition' },
   removeGroup: { label: 'Remove group', title: 'Remove group' },
+  cloneRule: { label: 'Copy', title: 'Add a copy of this condition' },
+  cloneRuleGroup: { label: 'Copy group', title: 'Add a copy of this group' },
+  dragHandle: { label: '⠿', title: 'Drag to move, into another group too' },
 };
 
 // react-querybuilder's own layout, with branch lines joining each condition to its group.
@@ -124,10 +130,16 @@ const classNames = {
   addGroup: 'small',
   removeRule: 'small',
   removeGroup: 'small',
+  cloneRule: 'small',
+  cloneGroup: 'small',
 };
+
+// Drag and drop between groups, through react-querybuilder's own add-on.
+const dnd = { ...ReactDnD, ...ReactDndHtml5Backend };
 
 function Editor({ query, onChange, context }) {
   return (
+    <QueryBuilderDnD dnd={dnd}>
     <QueryBuilder
       fields={fields}
       defaultQuery={query}
@@ -143,7 +155,9 @@ function Editor({ query, onChange, context }) {
       context={context}
       controlClassnames={classNames}
       translations={translations}
+      showCloneButtons
     />
+    </QueryBuilderDnD>
   );
 }
 

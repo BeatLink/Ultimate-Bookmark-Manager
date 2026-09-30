@@ -5,7 +5,7 @@ import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, 
 import { mountQueryEditor } from '../query-editor.bundle.js';
 import { saveSettings } from '../../lib/settings.js';
 import { newRule, newCatchAll, duplicateRule, planMoves, resolveTarget, maxScore, rankingWarnings } from '../../lib/organize.js';
-import { eligibleToOutrank } from '../../lib/rule-order.js';
+import { eligibleToOutrank, eligibleToRankBelow } from '../../lib/rule-order.js';
 import { formatScore } from '../../lib/specificity.js';
 
 // Unsaved edits live here so they survive the re-render that follows any other action.
@@ -105,34 +105,63 @@ const SPECIFICITY_HELP = 'Most this rule can score when every condition matches;
 
 const ruleLabel = (r) => `${r.name || 'Unnamed rule'} → ${r.target ? r.target.split('/').join(' › ') : 'no folder yet'}`;
 
-// The rules this one ranks above, as removable chips, and a menu offering only rules that would not make a loop.
-function ranksAbovePicker(rule, rules, redraw) {
+const ALL = '*';
+const RELATIONS = { above: 'ranks above', below: 'ranks below' };
+
+// The rule's ranking as rows of "ranks above / below" a rule or all other rules. "Ranks below X" is stored in X's list,
+// so both rules always agree; the menus offer only rules that would not make a loop or go against the tiers.
+function rankingEditor(rule, rules, redraw) {
   const byId = new Map(rules.map((r) => [r.id, r]));
-  const listed = (rule.outranks ?? []).filter((id) => byId.has(id));
-  const offered = eligibleToOutrank(rule, rules);
-  const blocked = rules.filter((r) => r !== rule && !listed.includes(r.id) && !offered.includes(r));
-  const above = rules.filter((r) => r.outranks?.includes(rule.id));
-  // Rules left out of the menu because listing them would make a loop are named in its tooltip.
-  const menu = h('select', { 'aria-label': 'Add a rule this one ranks above',
-    title: blocked.length ? `Not offered, as it would make a loop: ${blocked.map((r) => `“${r.name || 'Unnamed rule'}”`).join(', ')}` : null, onchange: (e) => {
-    if (!e.target.value) return;
-    rule.outranks = [...listed, e.target.value];
+  const links = [
+    ...(rule.rankAll ? [{ rel: rule.rankAll, target: ALL }] : []),
+    ...(rule.outranks ?? []).filter((id) => byId.has(id)).map((id) => ({ rel: 'above', target: id })),
+    ...rules.filter((r) => r.outranks?.includes(rule.id)).map((r) => ({ rel: 'below', target: r.id })),
+  ];
+  const remove = ({ rel, target }) => {
+    if (target === ALL) delete rule.rankAll;
+    else if (rel === 'above') rule.outranks = (rule.outranks ?? []).filter((id) => id !== target);
+    else byId.get(target).outranks = byId.get(target).outranks.filter((id) => id !== rule.id);
+  };
+  const add = ({ rel, target }) => {
+    if (target === ALL) rule.rankAll = rel;
+    else if (rel === 'above') rule.outranks = [...(rule.outranks ?? []), target];
+    else byId.get(target).outranks = [...(byId.get(target).outranks ?? []), rule.id];
+  };
+  const allowed = ({ rel, target }) => target === ALL ? !rule.rankAll
+    : (rel === 'above' ? eligibleToOutrank : eligibleToRankBelow)(rule, rules).some((r) => r.id === target);
+  // Swaps one link for another, putting the old one back when the new one is not allowed.
+  const change = (from, to) => {
+    if (from) remove(from);
+    if (to.target && allowed(to)) add(to);
+    else if (from) {
+      add(from);
+      toast(to.target === ALL ? 'This rule already ranks against all other rules.' : 'That would make a loop or go against a rule that ranks above or below all others.', 'error');
+    }
     redraw();
-  } },
-  h('option', { value: '', text: offered.length ? '+ Add a rule it ranks above…' : 'No other rules to add' }),
-  offered.map((r) => h('option', { value: r.id, text: ruleLabel(r) })));
-  menu.disabled = !offered.length;
-  return field([h('span', { text: 'Ranks above ' }), helpLink('When this rule and one listed here both match, this rule wins; unrelated rules are ranked by specificity', 'organize')],
-    h('span', { class: 'row wrap source-list' }, listed.length
-        ? listed.map((id) => h('span', { class: 'tag' },
-          h('span', { class: 'tag-text', text: ruleLabel(byId.get(id)) }),
-          h('button', { class: 'tag-remove', text: '×', 'aria-label': `Stop ranking above “${byId.get(id).name || 'Unnamed rule'}”`, onclick: () => {
-            rule.outranks = listed.filter((x) => x !== id);
-            redraw();
-          } })))
-        : [h('span', { class: 'muted', text: 'No rules' })]),
-    menu,
-    above.length > 0 && h('p', { class: 'small full', text: `Ranked below: ${above.map((r) => `“${r.name || 'Unnamed rule'}”`).join(', ')}` }));
+  };
+  const row = (link) => {
+    let rel = link?.rel ?? 'above';
+    const targets = () => [
+      ...(!rule.rankAll || link?.target === ALL ? [[ALL, 'all other rules']] : []),
+      ...(link && link.target !== ALL ? [[link.target, ruleLabel(byId.get(link.target))]] : []),
+      ...(rel === 'above' ? eligibleToOutrank : eligibleToRankBelow)(rule, rules).map((r) => [r.id, ruleLabel(r)]),
+    ];
+    const target = h('select', { class: 'rank-target', 'aria-label': 'Rule it ranks against', onchange: (e) => change(link, { rel, target: e.target.value }) },
+      !link && h('option', { value: '', text: 'Choose a rule…' }),
+      targets().map(([value, text]) => h('option', { value, text, selected: value === link?.target })));
+    const relation = h('select', { class: 'rank-relation', 'aria-label': 'Ranks above or below', onchange: (e) => {
+      rel = e.target.value;
+      if (link) return change(link, { rel, target: link.target });
+      target.replaceChildren(h('option', { value: '', text: 'Choose a rule…' }), ...targets().map(([value, text]) => h('option', { value, text })));
+    } }, Object.entries(RELATIONS).map(([value, text]) => h('option', { value, text, selected: value === rel })));
+    const el = h('div', { class: 'rank-row' }, relation, target,
+      h('button', { class: 'small', text: '×', title: 'Remove', 'aria-label': 'Remove ranking', onclick: () => (link ? (remove(link), redraw()) : el.remove()) }));
+    return el;
+  };
+  const list = h('div', { class: 'rank-rows' }, links.map(row));
+  return field([h('span', { text: 'Ranking ' }), helpLink('A rule ranked above another wins when both match; ranking above or below all other rules sets its tier; unranked rules are ordered by specificity', 'organize')],
+    list,
+    h('button', { class: 'small', text: '+ Ranking', onclick: () => list.append(row(null)) }));
 }
 
 // One labelled row of a rule's editor; the labels share a column, so every row's controls start at the same place.
@@ -153,7 +182,7 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
     rule.catchAll && field('', h('p', { class: 'muted small' }, 'Catch-all ', helpLink('Files whatever no other rule matches where its folder conditions hold; any matching rule beats it unless this one ranks above it', 'organize'))),
     field('Rule', queryEditor(ctx, rule, changed)),
     field('Destination folder', targetPicker(ctx, rule, redraw)),
-    ranksAbovePicker(rule, rules, redraw),
+    rankingEditor(rule, rules, redraw),
     field('', parts.info)).childNodes);
   if (isOpen) fillBody();
 
@@ -371,10 +400,11 @@ export default {
         const parts = cardParts.get(r.id);
         if (!parts) continue;
         const above = (r.outranks ?? []).filter((id) => rules.some((x) => x.id === id)).length;
+        const tier = r.rankAll === 'above' ? ' · above all' : r.rankAll === 'below' ? ' · below all' : '';
         const spec = maxScore(r);
-        parts.score.textContent = `${r.catchAll ? 'catch-all' : `≤ ${formatScore(spec)}`}${above ? ` · above ${above}` : ''}`;
-        parts.score.title = `${above ? `Ranks above ${above} rule(s) by your ranking lists. ` : ''}${r.catchAll ? 'A catch-all loses to any matching rule unless it is set to rank above it.' : SPECIFICITY_HELP}`;
-        parts.score.classList.toggle('prioritised', above > 0);
+        parts.score.textContent = `${r.catchAll ? 'catch-all' : `≤ ${formatScore(spec)}`}${tier}${above ? ` · above ${above}` : ''}`;
+        parts.score.title = `${r.rankAll ? `Ranks ${r.rankAll} all other rules. ` : ''}${above ? `Ranks above ${above} rule(s) by your ranking lists. ` : ''}${r.catchAll ? 'A catch-all loses to any matching rule unless it is set to rank above it.' : SPECIFICITY_HELP}`;
+        parts.score.classList.toggle('prioritised', above > 0 || !!r.rankAll);
         const issues = problems.get(r.id);
         if (issues) {
           parts.info.replaceChildren(...issues.map((x) => h('p', { class: 'error small', text: x })));
