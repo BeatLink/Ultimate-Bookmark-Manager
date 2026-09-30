@@ -1,7 +1,6 @@
 // Persistent settings, whitelist and saved link-check results in storage.local.
 
 import { DEFAULT_MATCHING } from './duplicates.js';
-import { DEFAULT_AI } from './ai-organize.js';
 
 export const DEFAULT_SETTINGS = {
   matching: { ...DEFAULT_MATCHING },
@@ -17,7 +16,6 @@ export const DEFAULT_SETTINGS = {
     rules: [],
     autoApply: false,
   },
-  ai: { ...DEFAULT_AI },
 };
 
 export function merge(defaults, stored) {

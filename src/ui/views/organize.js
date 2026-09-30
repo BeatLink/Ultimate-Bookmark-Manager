@@ -3,7 +3,6 @@
 import { h, Selection, toast, confirmDialog } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, tagInput, pickFolder } from '../components.js';
 import { saveSettings } from '../../lib/settings.js';
-import { ruleSuggestionsPanel, openRuleSuggestions } from '../rule-suggestions.js';
 import { OPERATORS, FIELDS, MODES, newRule, newCondition, newGroup, isGroup, keywords, duplicateRule, describeRule, planMoves, ruleApplies } from '../../lib/organize.js';
 
 // Unsaved edits live here so they survive the re-render that follows any other action.
@@ -369,17 +368,9 @@ export default {
       h('label', { class: 'check-line' },
         h('input', { type: 'checkbox', checked: draft.autoApply, onchange: (e) => { draft.autoApply = e.target.checked; changed(); } }),
         'Organize new bookmarks automatically (a few seconds after they are added; skipped if you pick a folder yourself or many arrive at once, as during an import or sync)'),
-      ruleSuggestionsPanel(ctx, {
-        rules,
-        onAdd: (added) => {
-          rules.push(...added);
-          ctx.render();
-        },
-      }),
       bulk,
       rulesList,
       h('div', { class: 'row wrap' },
-        h('button', { text: 'Suggest rules…', title: 'Propose rules from how your bookmarks are already filed', onclick: () => { openRuleSuggestions(); ctx.render(); } }),
         h('button', { text: '+ Add rule', onclick: () => {
           const r = newRule();
           expanded.add(r.id);

@@ -14,7 +14,6 @@ const VIEWS = {
   broken: 'Broken links',
   redirects: 'Redirects',
   organize: 'Organize',
-  ai: 'AI organizer',
   all: 'All bookmarks',
   history: 'Undo history & backup',
   settings: 'Settings',
@@ -28,10 +27,16 @@ async function openDashboard(view = 'duplicates') {
 
 browser.action.onClicked.addListener(() => openDashboard());
 
-// The AI organizer restarts the add-on to switch models; reopen it so the run can carry on.
-browser.storage.local.get('aiResume').then(({ aiResume }) => {
-  if (aiResume && Date.now() - aiResume < 60 * 1000) browser.tabs.create({ url: browser.runtime.getURL('src/ui/app.html#ai') });
-});
+// Clears what the removed AI organizer left in storage: its settings, saved page summaries and restart marker.
+async function removeAiLeftovers() {
+  await browser.storage.local.remove(['aiSummaries', 'aiResume']);
+  const { settings } = await browser.storage.local.get('settings');
+  if (settings && 'ai' in settings) {
+    delete settings.ai;
+    await browser.storage.local.set({ settings });
+  }
+}
+browser.runtime.onInstalled.addListener(() => removeAiLeftovers().catch((err) => console.error('Cleanup failed', err)));
 
 browser.commands.onCommand.addListener((command) => {
   if (command === 'open-dashboard') openDashboard();

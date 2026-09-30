@@ -12,12 +12,11 @@ import untitled from './views/untitled.js';
 import broken from './views/broken.js';
 import redirects from './views/redirects.js';
 import organize from './views/organize.js';
-import aiView from './views/ai.js';
 import all from './views/all.js';
 import history from './views/history.js';
 import settings from './views/settings.js';
 
-const VIEWS = [duplicates, emptyFolders, sameName, untitled, broken, redirects, organize, aiView, all, history, settings];
+const VIEWS = [duplicates, emptyFolders, sameName, untitled, broken, redirects, organize, all, history, settings];
 const isSidebar = new URLSearchParams(location.search).has('sidebar');
 document.body.classList.toggle('sidebar', isSidebar);
 
