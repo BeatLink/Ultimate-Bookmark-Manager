@@ -4,6 +4,7 @@ A Firefox add-on for finding and cleaning up problem bookmarks. Every change it 
 
 ## Features
 
+- **Help** (last in the navigation): the full explanation of every page. Each page title has a **?** whose tooltip sums the page up in one line and which opens that page's section of Help; other controls carry short tooltips instead of paragraphs on the page.
 - **Dashboard** (the page the add-on opens on): total bookmarks, then tiles for what needs tidying (duplicate copies, missing names, empty and same-name folders, broken links and redirects from the last check, bookmarks your rules would move, ignored items), each linking to its page. Charts show bookmarks by site (select a site to list its bookmarks), added per month, per top-level folder, the largest folders and URL types; each chart has a Table view with the full numbers. It also shows the oldest and newest bookmark, the deepest folder level and the number of separators.
 - **Duplicates**: bookmarks that point to the same URL, grouped and numbered by the order they were added. You can select every copy except the oldest or the newest, then remove them or move them to a “Dupes” folder.
 - **Matching options**: you can choose to treat http/https, `www.`, trailing slashes, fragments, query strings or letter case as the same.

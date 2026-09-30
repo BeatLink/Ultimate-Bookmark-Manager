@@ -1,7 +1,10 @@
 // Settings: duplicate matching, custom rules, link-check tuning, skip list and whitelist.
 
 import { h, toast, confirmDialog } from '../dom.js';
-import { viewHeader, emptyState } from '../components.js';
+import { viewHeader, emptyState, helpLink } from '../components.js';
+
+// A section heading with its help link.
+const legend = (text, tip) => h('legend', {}, text, ' ', helpLink(tip, 'settings'));
 import { saveSettings, removeFromWhitelist } from '../../lib/settings.js';
 import { compileRules } from '../../lib/duplicates.js';
 import { buildExport, parseImport, applyImport } from '../../lib/transfer.js';
@@ -77,18 +80,16 @@ function syncAndBackup(ctx) {
     if (area === 'local' && ('syncState' in changes || 'syncEnabled' in changes)) showStatus();
   };
   browser.storage.onChanged.addListener(onChange);
-  return h('fieldset', {}, h('legend', { text: 'Sync & backup' }),
+  return h('fieldset', {}, legend('Sync & backup', 'Needs Firefox signed in to a Mozilla account, with Add-ons ticked in Firefox’s Sync settings'),
     h('label', { class: 'check-line' }, toggle, 'Sync settings, organize rules and ignored items with Firefox Sync'),
     status,
-    h('p', { class: 'muted small', text: 'Syncing needs Firefox signed in to a Mozilla account, with Add-ons ticked in Firefox’s Sync settings.' }),
     h('div', { class: 'row wrap' },
-      h('button', { text: 'Export settings…', onclick: async () => {
+      h('button', { text: 'Export settings…', title: 'Saves settings, organize rules and ignored items to a file; undo history stays on this device', onclick: async () => {
         download(await buildExport(), `bookmark-manager-settings-${new Date().toISOString().slice(0, 10)}.json`);
         toast('Settings exported.', 'success');
       } }),
       h('button', { text: 'Import settings…', onclick: () => file.click() }),
-      file),
-    h('p', { class: 'muted small', text: 'A settings file holds your settings, organize rules and ignored items. Undo history stays on this device.' }));
+      file));
 }
 
 const MATCHING = [
@@ -109,7 +110,7 @@ const PRESETS = [
 function ruleRow(rule, onRemove, error) {
   const field = h('select', { 'aria-label': 'Match against', hidden: rule.kind !== 'filter', onchange: (e) => { rule.field = e.target.value; } },
     ['url', 'title', 'name'].map((v) => h('option', { value: v, text: { url: 'URL', title: 'name', name: 'folder path/name' }[v], selected: (rule.field ?? 'url') === v })));
-  const replacement = h('input', { type: 'text', placeholder: 'replace with', value: rule.replacement ?? '', hidden: rule.kind !== 'replace', 'aria-label': 'Replacement', oninput: (e) => { rule.replacement = e.target.value; } });
+  const replacement = h('input', { type: 'text', placeholder: 'replace with', title: 'May use $& (the match), $1… (groups), $URL, $NAME (folder path and name) and $TITLE; start with \\L or \\U to lower- or upper-case the result', value: rule.replacement ?? '', hidden: rule.kind !== 'replace', 'aria-label': 'Replacement', oninput: (e) => { rule.replacement = e.target.value; } });
   return h('li', { class: 'rule' },
     h('input', { type: 'checkbox', checked: rule.enabled !== false, 'aria-label': 'Enabled', onchange: (e) => { rule.enabled = e.target.checked; } }),
     h('select', { 'aria-label': 'Rule type', onchange: (e) => {
@@ -148,8 +149,7 @@ export default {
       toast('Settings saved.', 'success');
     });
 
-    const matching = h('fieldset', {}, h('legend', { text: 'Duplicate matching' }),
-      h('p', { class: 'muted', text: 'Two bookmarks are duplicates when their URLs match after these adjustments.' }),
+    const matching = h('fieldset', {}, legend('Duplicate matching', 'Two bookmarks are duplicates when their URLs match after these adjustments'),
       MATCHING.map(([key, label]) => h('label', { class: 'check-line' },
         h('input', { type: 'checkbox', checked: s.matching[key], onchange: (e) => { s.matching[key] = e.target.checked; } }), label)));
 
@@ -158,18 +158,14 @@ export default {
     const drawRules = () => rules.replaceChildren(...s.rules.map((r, i) => ruleRow(r, () => { s.rules.splice(i, 1); drawRules(); }, errors.get(i))));
     drawRules();
     const addRule = (rule) => { s.rules.push({ enabled: true, ...rule }); drawRules(); };
-    const rulesBox = h('fieldset', {}, h('legend', { text: 'Custom duplicate rules (expert)' }),
-      h('p', { class: 'muted' },
-        '“Exclude” rules leave matching bookmarks out of the duplicate check. “Replace” rules rewrite the URL before comparing (the bookmark itself is not changed). ',
-        'Replacements may use ', h('code', { text: '$&' }), ', ', h('code', { text: '$1' }), '…, ', h('code', { text: '$URL' }), ', ', h('code', { text: '$NAME' }), ' (folder path and name), ',
-        h('code', { text: '$TITLE' }), ', and may start with ', h('code', { text: '\\L' }), ' or ', h('code', { text: '\\U' }), ' to lower- or upper-case the result.'),
+    const rulesBox = h('fieldset', {}, legend('Custom duplicate rules (expert)', 'Exclude rules leave bookmarks out of the duplicate check; Replace rules rewrite a URL before comparing'),
       rules,
       h('div', { class: 'row wrap' },
         h('button', { class: 'small', text: 'Add rule', onclick: () => addRule({ kind: 'filter', field: 'url', pattern: '', flags: 'i' }) }),
         PRESETS.map((p) => h('button', { class: 'small', text: `+ ${p.name}`, onclick: () => addRule(structuredClone(p.rule)) }))));
 
     const lc = s.linkCheck;
-    const linkBox = h('fieldset', {}, h('legend', { text: 'Link checking' }),
+    const linkBox = h('fieldset', {}, legend('Link checking', 'How the broken-link check runs, and domains it never checks'),
       h('label', { class: 'field' }, 'Parallel requests',
         h('input', { type: 'number', min: 1, max: 32, value: String(lc.concurrency), onchange: (e) => { lc.concurrency = Math.min(32, Math.max(1, Number(e.target.value) || 6)); } })),
       h('label', { class: 'field' }, 'Timeout (seconds)',
@@ -184,8 +180,7 @@ export default {
         h('input', { type: 'number', min: 1, max: 500, value: String(s.historyLimit), onchange: (e) => { s.historyLimit = Math.min(500, Math.max(1, Number(e.target.value) || 50)); } })));
 
     const entries = Object.entries(ctx.state.whitelist);
-    const whitelist = h('fieldset', {}, h('legend', { text: `Ignored items (${entries.length})` }),
-      h('p', { class: 'muted', text: 'Ignored bookmarks and folders are skipped by every check.' }),
+    const whitelist = h('fieldset', {}, legend(`Ignored items (${entries.length})`, 'Ignored bookmarks and folders are skipped by every check'),
       entries.length
         ? h('ul', { class: 'items' }, entries.map(([id, e]) => h('li', { class: 'item' },
           h('div', { class: 'bm grow' }, h('div', { class: 'bm-title', text: e.title || '(no name)' }), e.url && h('div', { class: 'bm-url', text: e.url })),
@@ -193,7 +188,7 @@ export default {
         : emptyState('Nothing is ignored.'));
 
     return h('section', { class: 'settings' },
-      viewHeader('Settings', null,
+      viewHeader('Settings', 'Matching, sync, link checks and ignored items',
         h('button', { class: 'small', text: 'Discard changes', onclick: () => { draft = null; ctx.render(); } }),
         h('button', { class: 'primary', text: 'Save settings', onclick: save })),
       syncAndBackup(ctx), matching, rulesBox, linkBox, general,

@@ -14,7 +14,7 @@ export default {
   render(ctx) {
     const folders = scans.emptyFolders(ctx);
     const sel = ctx.selection('empty-folders', folders.map((f) => f.id));
-    const header = viewHeader('Empty folders', 'Folders that contain no bookmarks, only empty subfolders or separators. Removing one removes what is inside it.');
+    const header = viewHeader('Empty folders', 'Folders with no bookmarks anywhere inside');
     if (!folders.length) return h('section', {}, header, emptyState('No empty folders.'));
 
     const bar = selectionBar(sel, [

@@ -17,9 +17,9 @@ export default {
     const pick = (fn) => { sel.clear(); sel.set(groups.flatMap((g) => g.items.filter((i) => fn(i, g)).map((i) => i.id)), true); };
     const folder = ctx.state.settings.dupesFolderName;
 
-    const header = viewHeader('Duplicates',
-      `${groups.length} URL(s) bookmarked more than once, ${all.length - groups.length} extra cop${all.length - groups.length === 1 ? 'y' : 'ies'}. Numbers show the order they were added (1 = oldest).`,
+    const header = viewHeader('Duplicates', 'Bookmarks that point to the same URL',
       h('button', { class: 'small', text: 'Matching options…', onclick: () => ctx.go('settings') }));
+    header.append(h('p', { class: 'muted', text: `${groups.length} URL(s) bookmarked more than once, ${all.length - groups.length} extra cop${all.length - groups.length === 1 ? 'y' : 'ies'}.` }));
     if (errors.length) {
       header.append(h('p', { class: 'error', text: `${errors.length} custom rule(s) are invalid and were skipped — see Settings.` }));
     }

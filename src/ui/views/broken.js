@@ -12,7 +12,7 @@ export function checkControls(ctx, title, description) {
   const checker = ctx.linkChecker;
   const summary = saved
     ? `Last check ${formatDate(saved.time)} ${new Date(saved.time).toLocaleTimeString()}: ${saved.checked} checked, ${saved.skipped} skipped${saved.cancelled ? ' (cancelled part-way)' : ''}.`
-    : 'Links have not been checked yet. Checking asks for permission to access websites.';
+    : 'Links have not been checked yet.';
   return h('div', {},
     viewHeader(title, description,
       h('button', { class: 'primary', text: saved ? 'Check again' : 'Check all links', disabled: checker.running, onclick: () => checker.start() })),
@@ -26,7 +26,7 @@ export default {
   badge: (ctx) => scans.linkResults(ctx)?.results.filter((r) => r.status !== 'redirect').length,
 
   render(ctx) {
-    const header = checkControls(ctx, 'Broken links', 'Bookmarks whose page did not load. “Access denied” and “rate limited” often still work in the browser, so look before removing them.');
+    const header = checkControls(ctx, 'Broken links', 'Bookmarks whose page did not load');
     const saved = scans.linkResults(ctx);
     if (!saved) return h('section', {}, header);
     const items = saved.results.filter((r) => r.status !== 'redirect');

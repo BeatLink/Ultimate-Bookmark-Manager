@@ -21,7 +21,7 @@ export default {
         ctx.done(`Merged ${n} folder(s). Merged folders can now hold same-name subfolders of their own; they appear here if so.`);
       });
     };
-    const header = viewHeader('Same-name folders', 'Folders in the same place with the same name. Merging keeps the first one and moves the others’ contents into it.',
+    const header = viewHeader('Same-name folders', 'Sibling folders with the same name, which can be merged',
       groups.length > 0 && h('button', { class: 'primary', text: `Merge all (${groups.length})`, onclick: () => merge(groups) }));
     if (!groups.length) return h('section', {}, header, emptyState('No same-name folders.'));
 

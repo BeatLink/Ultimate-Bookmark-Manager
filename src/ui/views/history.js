@@ -27,8 +27,7 @@ export default {
   label: 'History & backup',
 
   render(ctx) {
-    const section = h('section', {}, viewHeader('History & backup',
-      'Every change made here is recorded before it happens, so it can be undone. Undo works newest first.',
+    const section = h('section', {}, viewHeader('History & backup', 'Undo changes made here, newest first',
       h('button', { text: 'Download full backup (JSON)', onclick: download })));
     const list = h('div', {}, h('p', { class: 'muted', text: 'Loading…' }));
     section.append(list);

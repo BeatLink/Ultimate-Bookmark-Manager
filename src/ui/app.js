@@ -16,8 +16,9 @@ import organize from './views/organize.js';
 import all from './views/all.js';
 import history from './views/history.js';
 import settings from './views/settings.js';
+import help from './views/help.js';
 
-const VIEWS = [stats, duplicates, emptyFolders, sameName, untitled, broken, redirects, organize, all, history, settings];
+const VIEWS = [stats, duplicates, emptyFolders, sameName, untitled, broken, redirects, organize, all, history, settings, help];
 const isSidebar = new URLSearchParams(location.search).has('sidebar');
 document.body.classList.toggle('sidebar', isSidebar);
 
@@ -114,9 +115,11 @@ function render() {
   document.title = `${current.label} — Bookmark Manager`;
 }
 
+// "#organize" shows a page; "#help:organize" shows the Help page at that page's section.
 function route() {
-  const id = location.hash.slice(1);
+  const [id, section = ''] = location.hash.slice(1).split(':');
   current = VIEWS.find((v) => v.id === id) ?? VIEWS[0];
+  ctx.section = section;
   render();
 }
 

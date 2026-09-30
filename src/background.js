@@ -18,6 +18,7 @@ const VIEWS = {
   all: 'All bookmarks',
   history: 'Undo history & backup',
   settings: 'Settings',
+  help: 'Help',
 };
 
 // Focuses an open dashboard tab if there is one, otherwise opens a new one.

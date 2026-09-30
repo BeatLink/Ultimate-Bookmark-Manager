@@ -1,7 +1,7 @@
 // Organize rules: edit rules that file bookmarks into folders, preview the moves, then apply them.
 
 import { h, Selection, toast, confirmDialog } from '../dom.js';
-import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, tagInput, pickFolder, marked } from '../components.js';
+import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, tagInput, pickFolder, marked, helpLink } from '../components.js';
 import { saveSettings } from '../../lib/settings.js';
 import { WORD_OPS, URL_OPS, OPERATORS, FIELDS, MODES, newRule, newCatchAll, newCondition, newGroup, isGroup, keywords, duplicateRule, planMoves, resolveTarget, maxScore, rankingWarnings } from '../../lib/organize.js';
 import { eligibleToOutrank } from '../../lib/rule-order.js';
@@ -167,7 +167,6 @@ function rankingList(move) {
   const details = h('details', { class: 'ranking', ontoggle: () => {
     if (!details.open || details.childElementCount > 1) return;
     details.append(
-      h('p', { class: 'small muted', text: 'Select a rule to highlight what it matched.' }),
       h('ol', {}, move.ranking.map((r) => h('li', { class: r.lost ? 'lost' : 'won' },
       h('button', { class: 'ranking-pick', type: 'button', 'aria-pressed': String(!r.lost), title: 'Highlight what this rule matched', onclick: (e) => show(r, e.currentTarget) },
         h('strong', { text: r.ruleName || 'Unnamed rule' }),
@@ -176,7 +175,7 @@ function rankingList(move) {
         [r.catchAll ? 'catch-all' : formatScore(r.score),
           r.why?.terms.length ? `matched ${matchedText(r.why)}` : ''].filter(Boolean).join(' · ')),
       h('div', { class: 'small' }, r.lost ? h('span', { class: 'lost-reason', text: `Lost: ${r.lost}` }) : h('strong', { class: 'won-label', text: 'Wins' }))))));
-  } }, h('summary', { text: `All ${move.others + 1} matching rules` }));
+  } }, h('summary', { text: `All ${move.others + 1} matching rules`, title: 'Strongest first; select a rule to highlight what it matched' }));
   return details;
 }
 
@@ -194,7 +193,9 @@ function ranksAbovePicker(rule, rules, redraw) {
   const offered = eligibleToOutrank(rule, rules);
   const blocked = rules.filter((r) => r !== rule && !listed.includes(r.id) && !offered.includes(r));
   const above = rules.filter((r) => r.outranks?.includes(rule.id));
-  const menu = h('select', { 'aria-label': 'Add a rule this one ranks above', onchange: (e) => {
+  // Rules left out of the menu because listing them would make a loop are named in its tooltip.
+  const menu = h('select', { 'aria-label': 'Add a rule this one ranks above',
+    title: blocked.length ? `Not offered, as it would make a loop: ${blocked.map((r) => `“${r.name || 'Unnamed rule'}”`).join(', ')}` : null, onchange: (e) => {
     if (!e.target.value) return;
     rule.outranks = [...listed, e.target.value];
     redraw();
@@ -203,7 +204,7 @@ function ranksAbovePicker(rule, rules, redraw) {
   offered.map((r) => h('option', { value: r.id, text: ruleLabel(r) })));
   menu.disabled = !offered.length;
   return h('div', { class: 'ranks-above' },
-    h('div', { class: 'row wrap' }, h('span', { text: 'Ranks above' }),
+    h('div', { class: 'row wrap' }, h('span', { text: 'Ranks above' }), helpLink('When this rule and one listed here both match, this rule wins; unrelated rules are ranked by specificity', 'organize'),
       h('span', { class: 'row wrap source-list' }, listed.length
         ? listed.map((id) => h('span', { class: 'tag' },
           h('span', { class: 'tag-text', text: ruleLabel(byId.get(id)) }),
@@ -213,8 +214,6 @@ function ranksAbovePicker(rule, rules, redraw) {
           } })))
         : [h('span', { class: 'muted', text: 'No rules' })]),
       menu),
-    h('p', { class: 'muted small', text: 'When this rule and one listed here both match a bookmark, this rule wins. Rules no list relates are ranked by how specific their match is, URL conditions first.' }),
-    blocked.length > 0 && h('p', { class: 'muted small', text: `Not offered, as it would make a loop: ${blocked.map((r) => `“${r.name || 'Unnamed rule'}”`).join(', ')} (already ranked above this rule).` }),
     above.length > 0 && h('p', { class: 'small', text: `Ranked below: ${above.map((r) => `“${r.name || 'Unnamed rule'}”`).join(', ')}` }));
 }
 
@@ -229,7 +228,7 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
       h('input', { type: 'text', class: 'grow rule-name', value: rule.name, placeholder: 'Rule name (optional)', 'aria-label': 'Rule name', oninput: (e) => { rule.name = e.target.value; changed(); } })),
     sourcesPicker(ctx, rule, changed),
     rule.catchAll
-      ? h('p', { class: 'muted small', text: 'Moves every bookmark in the folders above that no other rule matches. Any matching rule beats it unless this one is set to rank above it.' })
+      ? h('p', { class: 'muted small' }, 'Catch-all: no conditions ', helpLink('Files whatever no other rule matches in its source folders; any matching rule beats it unless this one ranks above it', 'organize'))
       : groupEditor(rule, changed, null),
     h('div', { class: 'row wrap target' }, 'Destination folder', targetPicker(ctx, rule, redraw)),
     ranksAbovePicker(rule, rules, redraw),
@@ -419,8 +418,7 @@ export default {
       const visible = tree.filter(shown);
       treeBox.replaceChildren(
         orphans.length > 0 && h('section', { class: 'orphan-rules' },
-          h('h2', { text: 'Rules for folders that do not exist yet' }),
-          h('p', { class: 'muted small', text: 'A missing folder is created when its rule first moves something into it. Rules still choosing a folder are here too.' }),
+          h('h2', {}, 'Rules for folders that do not exist yet ', helpLink('A missing folder is created when its rule first moves something into it; rules still choosing a folder are here too', 'organize')),
           h('ul', { class: 'folder-children' }, orphans.map(card))),
         visible.length ? h('ul', { class: 'folder-tree-list' }, visible.map(node)) : emptyState('No folders match.'));
     };
@@ -552,13 +550,13 @@ export default {
     };
 
     section.append(
-      viewHeader('Organize', 'Each folder lists the rules that file bookmarks into it. When several rules match a bookmark, a rule wins over any it ranks above (set in each rule’s “Ranks above” list). Between rules no list relates, the most specific match wins, with URL conditions always ahead of keywords, then the newest rule; catch-alls only take what nothing else matches. Bookmarks already inside the winning rule’s folder stay where they are.',
+      viewHeader('Organize', 'Rules that file bookmarks into folders',
         dirtyNote,
         h('button', { class: 'small', text: 'Discard changes', onclick: () => { draft = null; ctx.render(); } }),
         h('button', { class: 'primary', text: 'Save rules', onclick: () => save() })),
-      h('label', { class: 'check-line' },
+      h('label', { class: 'check-line', title: 'A few seconds after each is added; skipped if you pick a folder yourself, or when many arrive at once as during an import or sync' },
         h('input', { type: 'checkbox', checked: draft.autoApply, onchange: (e) => { draft.autoApply = e.target.checked; changed(); } }),
-        'Organize new bookmarks automatically (a few seconds after they are added; skipped if you pick a folder yourself or many arrive at once, as during an import or sync)'),
+        'Organize new bookmarks automatically'),
       h('div', { class: 'row wrap filters' },
         search,
         h('label', { class: 'check-line small' },

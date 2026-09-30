@@ -309,3 +309,17 @@ mark { background: var(--mark-bg); color: var(--text); border-radius: 2px; paddi
 .ranking-pick[aria-pressed="true"] { border-color: var(--accent); background: var(--hover); }
 .ranks-above { display: flex; flex-direction: column; gap: .3em; width: 100%; }
 .ranks-above select { max-width: 24em; }
+
+/* Help links and the Help page */
+.title-row { display: flex; align-items: center; gap: .5em; }
+.help-link { display: inline-grid; place-items: center; width: 1.3em; height: 1.3em; border-radius: 50%; border: 1px solid var(--border); color: var(--muted); font-size: .8rem; font-weight: 600; text-decoration: none; line-height: 1; vertical-align: middle; flex: none; }
+.help-link:hover, .help-link:focus-visible { color: var(--accent); border-color: var(--accent); }
+.help { max-width: 48em; }
+.help-toc ul { list-style: none; padding: 0; margin: 0 0 1.5em; display: flex; flex-wrap: wrap; gap: .3em .9em; }
+.help-section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .8em 1.1em; margin-bottom: 1em; scroll-margin-top: 1em; }
+.help-section h2 { display: flex; justify-content: space-between; align-items: baseline; gap: 1em; font-size: 1.1em; margin-bottom: .4em; }
+.help-section h3 { font-size: 1em; margin: 1em 0 .2em; }
+.help-section p, .help-section li { line-height: 1.55; }
+.help-section ul { padding-left: 1.3em; margin: .3em 0; }
+.help-open { font-weight: normal; }
+kbd { font-family: ui-monospace, monospace; font-size: .85em; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 .3em; }

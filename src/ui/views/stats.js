@@ -25,7 +25,7 @@ export default {
 
   render(ctx) {
     const s = ctx.memo('stats', () => treeStats(ctx.state.flat));
-    const header = viewHeader('Dashboard', 'An overview of your bookmarks. Select a number to open the page that deals with it.');
+    const header = viewHeader('Dashboard', 'Select a number to open the page that deals with it');
     if (!s.bookmarks) return h('section', {}, header, emptyState('No bookmarks yet.'));
 
     const dupes = scans.duplicates(ctx).groups.reduce((n, g) => n + g.items.length - 1, 0);
@@ -37,20 +37,21 @@ export default {
     const notChecked = 'Not checked yet';
 
     const tidy = h('div', { class: 'stat-row' },
-      statTile({ label: 'Duplicate copies', value: dupes, href: '#duplicates', note: 'extra copies of the same URL', muted: !dupes }),
+      statTile({ label: 'Duplicate copies', value: dupes, href: '#duplicates', tip: 'Extra copies of the same URL', muted: !dupes }),
       statTile({ label: 'No useful name', value: scans.untitled(ctx).length, href: '#untitled', muted: !scans.untitled(ctx).length }),
       statTile({ label: 'Empty folders', value: scans.emptyFolders(ctx).length, href: '#empty-folders', muted: !scans.emptyFolders(ctx).length }),
-      statTile({ label: 'Same-name folders', value: scans.sameNameFolders(ctx).length, href: '#same-name', note: 'sets that could be merged', muted: !scans.sameNameFolders(ctx).length }),
+      statTile({ label: 'Same-name folders', value: scans.sameNameFolders(ctx).length, href: '#same-name', tip: 'Sets of sibling folders that could be merged', muted: !scans.sameNameFolders(ctx).length }),
       statTile({ label: 'Broken links', value: broken ?? '–', href: '#broken', note: links ? `checked ${formatDate(links.time)}` : notChecked, muted: !broken }),
       statTile({ label: 'Redirects', value: redirects ?? '–', href: '#redirects', note: links ? `checked ${formatDate(links.time)}` : notChecked, muted: !redirects }),
-      statTile({ label: 'Waiting to be organized', value: organize, href: '#organize', note: 'bookmarks your rules would move', muted: !organize }),
-      statTile({ label: 'Ignored', value: ignored, href: '#settings', note: 'skipped by every check', muted: !ignored }));
+      statTile({ label: 'Waiting to be organized', value: organize, href: '#organize', tip: 'Bookmarks your rules would move', muted: !organize }),
+      statTile({ label: 'Ignored', value: ignored, href: '#settings', tip: 'Skipped by every check', muted: !ignored }));
 
     const topSites = s.sites.slice(0, TOP_SITES);
     const shownShare = Math.round((100 * topSites.reduce((n, x) => n + x.count, 0)) / s.bookmarks);
     const sitesCard = chartCard({
       title: 'Bookmarks by site',
-      subtitle: `Top ${topSites.length} of ${fmt(s.sites.length)} sites, holding ${shownShare}% of all bookmarks. Select a site to list its bookmarks.`,
+      subtitle: `Top ${topSites.length} of ${fmt(s.sites.length)} sites, holding ${shownShare}% of all bookmarks.`,
+      tip: 'Subdomains count as their site; select a site to list its bookmarks',
       chart: barList(topSites, { total: s.bookmarks, onSelect: (site) => showInAll(ctx, site.name.startsWith('(') ? '' : site.name), selectHint: 'List these bookmarks' }),
       columns: ['Site', 'Bookmarks', 'Share'],
       rows: s.sites.map((x) => [x.name, x.count, `${((100 * x.count) / s.bookmarks).toFixed(1)}%`]),
@@ -68,7 +69,7 @@ export default {
 
     const rootsCard = chartCard({
       title: 'Where they are',
-      subtitle: 'Bookmarks under each top-level folder, subfolders included.',
+      tip: 'Bookmarks under each top-level folder, subfolders included',
       chart: barList(s.roots, { total: s.bookmarks }),
       columns: ['Folder', 'Bookmarks'],
       rows: s.roots.map((x) => [x.name, x.count]),
@@ -77,7 +78,8 @@ export default {
     const topFolders = s.largestFolders.slice(0, TOP_FOLDERS);
     const foldersCard = chartCard({
       title: 'Largest folders',
-      subtitle: `Bookmarks directly inside each folder; top ${topFolders.length} of ${fmt(s.largestFolders.length)} folders that hold any.`,
+      subtitle: `Top ${topFolders.length} of ${fmt(s.largestFolders.length)} folders that hold any.`,
+      tip: 'Bookmarks directly inside each folder, not counting subfolders',
       chart: barList(topFolders, { total: s.bookmarks }),
       columns: ['Folder', 'Bookmarks'],
       rows: s.largestFolders.map((x) => [x.name, x.count]),
@@ -85,7 +87,7 @@ export default {
 
     const protocolsCard = chartCard({
       title: 'URL types',
-      subtitle: 'Plain http URLs are not encrypted; other types include bookmarklets and Firefox’s own pages.',
+      tip: 'Plain http URLs are not encrypted; other types include bookmarklets and Firefox’s own pages',
       chart: barList(s.protocols, { total: s.bookmarks }),
       columns: ['Type', 'Bookmarks'],
       rows: s.protocols.map((x) => [x.name, x.count]),

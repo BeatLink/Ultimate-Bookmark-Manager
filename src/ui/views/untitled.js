@@ -72,8 +72,7 @@ export default {
   render(ctx) {
     const items = scans.untitled(ctx);
     const sel = ctx.selection('untitled', items.map((b) => b.id));
-    const header = viewHeader('Bookmarks without a useful name',
-      'Bookmarks whose name is blank or just their URL. “Fetch page titles” opens each page in a minimized window and uses the title it shows once loaded.');
+    const header = viewHeader('Bookmarks without a useful name', 'Names that are blank or just a URL');
     if (!items.length) return h('section', {}, header, emptyState('Every bookmark has a useful name.'));
 
     const progress = h('div', { class: 'progress', hidden: true },

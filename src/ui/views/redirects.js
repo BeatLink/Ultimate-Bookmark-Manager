@@ -12,7 +12,7 @@ export default {
   badge: (ctx) => scans.linkResults(ctx)?.results.filter((r) => r.status === 'redirect').length,
 
   render(ctx) {
-    const header = checkControls(ctx, 'Redirects', 'Bookmarks that lead somewhere else now. Fixing replaces the saved URL with the one it redirects to. Check where it goes first: sites sometimes redirect dead pages to their home or login page.');
+    const header = checkControls(ctx, 'Redirects', 'Bookmarks whose URL now leads somewhere else');
     const saved = scans.linkResults(ctx);
     if (!saved) return h('section', {}, header);
     const items = saved.results.filter((r) => r.status === 'redirect');

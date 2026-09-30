@@ -62,6 +62,6 @@ export default {
 
     bindCheckboxes(list, sel);
     draw();
-    return h('section', {}, viewHeader('All bookmarks', null), h('div', { class: 'row wrap filters' }, search, filter), count, bar, list, more);
+    return h('section', {}, viewHeader('All bookmarks', 'Search every bookmark by name, URL or folder'), h('div', { class: 'row wrap filters' }, search, filter), count, bar, list, more);
   },
 };

@@ -2,6 +2,7 @@
 // that switches between a chart and a table of the same numbers.
 
 import { h } from './dom.js';
+import { helpLink } from './components.js';
 
 export const fmt = (n) => n.toLocaleString();
 const compactFormat = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
@@ -45,9 +46,10 @@ function withTip(el, value, label) {
 }
 
 // A headline number: label, value and an optional note; a link when it leads somewhere.
-export function statTile({ label, value, note, href, hero = false, muted = false }) {
+export function statTile({ label, value, note, tip, href, hero = false, muted = false }) {
   const shown = typeof value === 'number' ? compact(value) : value;
-  return h(href ? 'a' : 'div', { class: `stat-tile${hero ? ' hero' : ''}${muted ? ' muted-tile' : ''}`, href, title: typeof value === 'number' ? fmt(value) : null },
+  const title = [tip, typeof value === 'number' && shown !== fmt(value) ? fmt(value) : ''].filter(Boolean).join(' · ') || null;
+  return h(href ? 'a' : 'div', { class: `stat-tile${hero ? ' hero' : ''}${muted ? ' muted-tile' : ''}`, href, title },
     h('span', { class: 'stat-label', text: label }),
     h('span', { class: 'stat-value', text: shown }),
     note && h('span', { class: 'stat-note', text: note }));
@@ -98,7 +100,7 @@ export function columnChart(items, { labelOf, shortLabelOf, unit = 'added' }) {
 }
 
 // A titled card holding a chart, with a Table switch that shows the same numbers as a table.
-export function chartCard({ title, subtitle, chart, columns, rows, wide = false }) {
+export function chartCard({ title, subtitle, tip, chart, columns, rows, wide = false }) {
   const table = h('table', { class: 'viz-table', hidden: true },
     h('thead', {}, h('tr', {}, columns.map((c) => h('th', { text: c, scope: 'col' })))),
     h('tbody', {}, rows.map((r) => h('tr', {}, r.map((cell) => h('td', { class: typeof cell === 'number' ? 'num' : null, text: typeof cell === 'number' ? fmt(cell) : cell }))))));
@@ -112,7 +114,7 @@ export function chartCard({ title, subtitle, chart, columns, rows, wide = false 
   } });
   return h('section', { class: `viz-card${wide ? ' wide' : ''}` },
     h('header', { class: 'viz-head' },
-      h('div', {}, h('h2', { text: title }), subtitle && h('p', { class: 'muted small', text: subtitle })),
+      h('div', {}, h('h2', {}, title, tip && ' ', tip && helpLink(tip, 'stats')), subtitle && h('p', { class: 'muted small', text: subtitle })),
       toggle),
     body,
     h('div', { class: 'viz-table-wrap' }, table));

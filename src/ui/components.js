@@ -4,9 +4,15 @@ import { h, formatDate } from './dom.js';
 import { formatPath } from '../lib/tree.js';
 import { byText } from '../lib/text.js';
 
-export function viewHeader(title, description, ...actions) {
+// A small "?" with a short tip on hover that opens the matching section of the Help page; a link, so it works from the keyboard.
+export function helpLink(tip, topic = location.hash.slice(1).split(':')[0] || 'stats') {
+  return h('a', { class: 'help-link', href: `#help:${topic}`, title: tip ? `${tip} — select for help` : 'Help', 'aria-label': tip ? `Help: ${tip}` : 'Help', text: '?' });
+}
+
+// A page title with its help link; the longer explanation lives on the Help page.
+export function viewHeader(title, tip, ...actions) {
   return h('header', { class: 'view-header' },
-    h('div', {}, h('h1', { text: title }), description && h('p', { class: 'muted', text: description })),
+    h('div', { class: 'title-row' }, h('h1', { text: title }), helpLink(tip)),
     h('div', { class: 'row wrap' }, actions),
   );
 }
@@ -99,8 +105,7 @@ export function bookmarkInfo(b, ctx, { editable = true, meta = [], highlight = n
       title, url,
       h('div', { class: 'row' },
         h('button', { type: 'submit', class: 'primary small', text: 'Save' }),
-        h('button', { type: 'button', class: 'small', text: 'Cancel', onclick: show })),
-      h('p', { class: 'muted small', text: 'Esc cancels' }),
+        h('button', { type: 'button', class: 'small', text: 'Cancel', title: 'Or press Esc', onclick: show })),
     ));
     box.addEventListener('keydown', (e) => e.key === 'Escape' && show(), { once: true });
     title.focus();
