@@ -12,6 +12,10 @@ export const DEFAULT_SETTINGS = {
     skipDomains: ['localhost', '127.0.0.1'],
   },
   historyLimit: 50,
+  organize: {
+    rules: [],
+    autoApply: false,
+  },
 };
 
 function merge(defaults, stored) {

@@ -1,4 +1,9 @@
-// Entry points: toolbar button, keyboard shortcut, Tools menu and the "bm" address-bar keyword.
+// Entry points (toolbar button, keyboard shortcut, Tools menu, "bm" address-bar keyword) and automatic organizing.
+
+import { loadSettings, loadWhitelist } from './lib/settings.js';
+import { planMoves } from './lib/organize.js';
+import { flatten } from './lib/tree.js';
+import { Actions } from './lib/actions.js';
 
 const VIEWS = {
   duplicates: 'Duplicates',
@@ -7,6 +12,7 @@ const VIEWS = {
   untitled: 'Bookmarks without a name',
   broken: 'Broken links',
   redirects: 'Redirects',
+  organize: 'Organize',
   all: 'All bookmarks',
   history: 'Undo history & backup',
   settings: 'Settings',
@@ -52,3 +58,38 @@ browser.omnibox.onInputEntered.addListener((text) => {
   const match = Object.keys(VIEWS).find((id) => id === q) ?? Object.keys(VIEWS).find((id) => id.startsWith(q));
   openDashboard(match ?? 'duplicates');
 });
+
+// New bookmarks wait this long before being organized, so a folder picked in the star panel wins.
+const AUTO_DELAY_MS = 4000;
+// More new bookmarks than this at once means an import, sync or "bookmark all tabs", which is left alone.
+const BURST_LIMIT = 20;
+const pending = new Map();
+let autoTimer;
+
+browser.bookmarks.onCreated.addListener((id, node) => {
+  if (!node.url) return;
+  pending.set(id, node.parentId);
+  clearTimeout(autoTimer);
+  autoTimer = setTimeout(() => autoOrganize().catch((err) => console.error('Auto-organize failed', err)), AUTO_DELAY_MS);
+});
+
+async function autoOrganize() {
+  const batch = new Map(pending);
+  pending.clear();
+  if (batch.size > BURST_LIMIT) return;
+  const settings = await loadSettings();
+  if (!settings.organize.autoApply || !settings.organize.rules.length) return;
+
+  // Bookmarks brought back by an undo appear in the history's id map and must not be moved again.
+  const { history } = await browser.storage.local.get('history');
+  const restored = new Set(Object.values(history?.idMap ?? {}));
+  const [root] = await browser.bookmarks.getTree();
+  const fresh = flatten(root).filter((b) => batch.get(b.id) === b.parentId && !restored.has(b.id));
+  const rootFolders = root.children.map((c) => ({ id: c.id, title: c.title }));
+  const ignored = new Set(Object.keys(await loadWhitelist()));
+  const { moves } = planMoves(fresh, settings.organize.rules, rootFolders, ignored);
+  if (!moves.length) return;
+
+  const label = moves.length === 1 ? `Auto-organized “${moves[0].bookmark.title || moves[0].bookmark.url}”` : `Auto-organized ${moves.length} new bookmarks`;
+  await new Actions({ limit: settings.historyLimit }).organize(moves.map((m) => ({ id: m.bookmark.id, target: m.target })), label);
+}

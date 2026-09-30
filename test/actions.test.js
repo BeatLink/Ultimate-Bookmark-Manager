@@ -58,3 +58,17 @@ test('undo of an older entry follows ids remapped by a newer undo', async () => 
   await actions.undoLatest();
   assert.deepEqual(await shape(bookmarks), before);
 });
+
+test('organize creates missing nested folders, reuses existing ones, and undo removes what it created', async () => {
+  const bookmarks = fakeBookmarks(spec());
+  const actions = new Actions({ bookmarks, storage: fakeStorage() });
+  const before = await shape(bookmarks);
+  const target = { rootId: 'unfiled_____', segments: ['Dev', 'Web'] };
+  await actions.organize([{ id: 'a', target }, { id: 'b', target }, { id: 'c', target: { rootId: 'menu________', segments: ['Folder'] } }]);
+  const [dev] = await bookmarks.getChildren('unfiled_____');
+  const [web] = await bookmarks.getChildren(dev.id);
+  assert.deepEqual((await bookmarks.getChildren(web.id)).map((n) => n.title), ['A', 'B']);
+  assert.deepEqual((await bookmarks.getChildren('f')).map((n) => n.title), ['C']);
+  await actions.undoLatest();
+  assert.deepEqual(await shape(bookmarks), before);
+});

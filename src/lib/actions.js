@@ -63,6 +63,26 @@ export class Actions {
     });
   }
 
+  // Moves each bookmark to its resolved target folder, creating any folders on the way that do not exist yet.
+  organize(moves, label = `Organized ${moves.length} bookmark(s) by rule`) {
+    return this.run(label, async (rec) => {
+      const folders = new Map();
+      const ensure = async ({ rootId, segments }) => {
+        let parentId = rootId;
+        for (const [i, name] of segments.entries()) {
+          const key = `${rootId}/${segments.slice(0, i + 1).join('/')}`;
+          if (!folders.has(key)) {
+            const found = (await this.bookmarks.getChildren(parentId)).find((n) => nodeType(n) === 'folder' && n.title === name);
+            folders.set(key, found ? found.id : await rec.createFolder(parentId, name));
+          }
+          parentId = folders.get(key);
+        }
+        return parentId;
+      };
+      for (const { id, target } of moves) await rec.move(id, { parentId: await ensure(target) });
+    });
+  }
+
   // Moves everything from the later folders of each group into the first, then removes the emptied folders.
   mergeFolders(groups, label = `Merged ${groups.length} set(s) of same-name folders`) {
     return this.run(label, async (rec) => {
