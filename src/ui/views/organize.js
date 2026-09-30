@@ -1,7 +1,7 @@
 // Organize rules: edit rules that file bookmarks into folders, preview the moves, then apply them.
 
 import { h, Selection, toast, confirmDialog } from '../dom.js';
-import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, tagInput, pickFolder } from '../components.js';
+import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, tagInput, pickFolder, marked } from '../components.js';
 import { saveSettings } from '../../lib/settings.js';
 import { WORD_OPS, OPERATORS, FIELDS, MODES, newRule, newCatchAll, newCondition, newGroup, isGroup, keywords, duplicateRule, describeRule, planMoves, ruleApplies, resolveTarget, maxScore } from '../../lib/organize.js';
 
@@ -132,6 +132,38 @@ const expanded = new Set();
 const folderOpen = new Map();
 // The folder search and the "only folders with rules" switch survive refreshes.
 const treeView = { query: '', onlyWithRules: false };
+
+// "“ccna” in title, “youtube.com” in address" for a rule's match explanation.
+function matchedText(why) {
+  return why.terms.map((t) => `“${t.value}” in ${t.on.map((o) => (o === 'url' ? 'address' : 'title')).join(' and ')}`).join(', ');
+}
+
+// Every rule that matched a bookmark, strongest first, each with its standing and, below the winner, why it lost.
+// Selecting a rule re-highlights the bookmark's title and address with what that rule matched.
+function rankingList(move) {
+  const show = (r, button) => {
+    const box = button.closest('.bm');
+    const { title, url } = move.bookmark;
+    const link = box.querySelector('.bm-title a');
+    if (link && title) link.replaceChildren(...marked(title, r.why?.title));
+    box.querySelector('.bm-url')?.replaceChildren(...marked(url, r.why?.url));
+    const note = box.querySelector('.matched');
+    if (note) note.hidden = false;
+    if (note) note.textContent = r.why?.terms.length ? `${r.lost ? `${r.ruleName || 'Unnamed rule'} matched` : 'Matched'} ${matchedText(r.why)}` : `${r.ruleName || 'Unnamed rule'} is a catch-all: nothing to highlight`;
+    for (const b of box.querySelectorAll('.ranking-pick')) b.setAttribute('aria-pressed', String(b === button));
+  };
+  return h('details', { class: 'ranking' },
+    h('summary', { text: `All ${move.ranking.length} matching rules` }),
+    h('p', { class: 'small muted', text: 'Select a rule to highlight what it matched.' }),
+    h('ol', {}, move.ranking.map((r) => h('li', { class: r.lost ? 'lost' : 'won' },
+      h('button', { class: 'ranking-pick', type: 'button', 'aria-pressed': String(!r.lost), title: 'Highlight what this rule matched', onclick: (e) => show(r, e.currentTarget) },
+        h('strong', { text: r.ruleName || 'Unnamed rule' }),
+        h('span', { class: 'muted', text: ` → ${r.target.path.join(' › ')}` })),
+      h('div', { class: 'small muted' },
+        [r.priority ? `priority ${r.priority}` : '', r.catchAll ? 'catch-all' : r.fallback ? 'fallback' : '', r.catchAll ? '' : `specificity ${r.score}`,
+          r.why?.terms.length ? `matched ${matchedText(r.why)}` : ''].filter(Boolean).join(' · ')),
+      h('div', { class: 'small' }, r.lost ? h('span', { class: 'lost-reason', text: `Lost: ${r.lost}` }) : h('strong', { class: 'won-label', text: 'Wins' }))))));
+}
 
 const SPECIFICITY_HELP = 'Specificity if every condition matches (only the ones that match a bookmark count): exact address 1000, address path 100 + 10 per segment, subdomain 60, domain 50, exact title 40, keyword 20, regex 15.';
 
@@ -411,8 +443,9 @@ export default {
         h('ul', { class: 'items' }, group.map((m) => row(sel, m.bookmark.id, bookmarkInfo(m.bookmark, ctx, {
           editable: false,
           highlight: m.why,
-          meta: [m.why?.terms.length > 0 && h('span', { class: 'matched', text: `Matched ${m.why.terms.map((t) => `“${t.value}” in ${t.on.map((o) => (o === 'url' ? 'address' : 'title')).join(' and ')}`).join(', ')}` }),
-            h('span', { text: `Rule: ${m.ruleName || 'unnamed'}${m.priority ? ` · priority ${m.priority}` : ''}${m.score >= 0 ? `${m.fallback ? ' · fallback' : ''} · specificity ${m.score}` : ' · catch-all'}${m.others ? ` · beat ${m.others} other matching rule(s)` : ''}` })],
+          meta: [h('span', { class: 'matched', text: m.why?.terms.length ? `Matched ${matchedText(m.why)}` : '', hidden: !m.why?.terms.length }),
+            h('span', { text: `Rule: ${m.ruleName || 'unnamed'}${m.priority ? ` · priority ${m.priority}` : ''}${m.score >= 0 ? `${m.fallback ? ' · fallback' : ''} · specificity ${m.score}` : ' · catch-all'}${m.others ? ` · beat ${m.others} other matching rule(s)` : ''}` }),
+            m.ranking.length > 1 && rankingList(m)],
         })))))));
       bindCheckboxes(list, sel);
       previewBox.replaceChildren(

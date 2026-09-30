@@ -297,6 +297,19 @@ export function beats(a, b) {
   return a.index > b.index;
 }
 
+// Why a matching rule ranks below the winner, in terms of the first thing that separates them.
+export function lostBecause(loser, winner) {
+  const pl = Number(loser.rule.priority) || 0;
+  const pw = Number(winner.rule.priority) || 0;
+  if (pl !== pw) return `lower priority (${pl} vs ${pw})`;
+  if (tierOf(loser.rule) !== tierOf(winner.rule)) {
+    return loser.rule.catchAll ? 'catch-alls only take what no other rule matches' : 'fallback rules give way to normal rules';
+  }
+  if (loser.score !== winner.score) return `less specific (${loser.score} vs ${winner.score})`;
+  if ((loser.rule.createdAt ?? 0) !== (winner.rule.createdAt ?? 0)) return 'older rule, equally specific';
+  return 'earlier in the list, equally specific';
+}
+
 function groupMatches(group, bookmark) {
   const test = (item) => (isGroup(item) ? groupMatches(item, bookmark) : conditionMatches(item, bookmark));
   const items = activeItems(group);
@@ -410,20 +423,28 @@ export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree
   for (const b of flat) {
     if (b.type !== 'bookmark' || ignoredIds.has(b.id)) continue;
     let best = null;
-    let matched = 0;
+    const candidates = [];
     for (const u of usable) {
       if (!inScope(u.sources, u.rule.sourceSubfolders !== false, b)) continue;
       const score = ruleScore(u.rule, b);
       if (score === null) continue;
-      matched++;
       const candidate = { ...u, score };
+      candidates.push(candidate);
       if (!best || beats(candidate, best)) best = candidate;
     }
     if (!best) continue;
+    const matched = candidates.length;
     wins.set(best.rule.id, (wins.get(best.rule.id) ?? 0) + 1);
     // The winning rule decides even when the bookmark is already where it says, so a weaker rule cannot move it away.
     if (startsWithPath(b.path, best.target.path)) continue;
-    moves.push({ bookmark: b, ruleId: best.rule.id, ruleName: best.rule.name, target: best.target, score: best.score, priority: Number(best.rule.priority) || 0, fallback: !!best.rule.fallback, others: matched - 1, why: explainMatch(best.rule, b) });
+    moves.push({ bookmark: b, ruleId: best.rule.id, ruleName: best.rule.name, target: best.target, score: best.score, priority: Number(best.rule.priority) || 0, fallback: !!best.rule.fallback, others: matched - 1, why: explainMatch(best.rule, b),
+      // Every matching rule, strongest first, each with what it matched and, below the winner, why it lost.
+      ranking: candidates
+        .sort((x, y) => (beats(x, y) ? -1 : beats(y, x) ? 1 : 0))
+        .map((c) => ({
+          ruleId: c.rule.id, ruleName: c.rule.name, target: c.target, score: c.score, priority: Number(c.rule.priority) || 0,
+          fallback: !!c.rule.fallback, catchAll: !!c.rule.catchAll, why: explainMatch(c.rule, b), lost: c === best ? null : lostBecause(c, best),
+        })) });
   }
   return { moves, problems, wins };
 }

@@ -304,3 +304,11 @@ button.bar-row { cursor: pointer; }
 
 mark { background: var(--mark-bg); color: var(--text); border-radius: 2px; padding: 0 1px; }
 .bm-meta .matched { color: var(--text); }
+.ranking { flex-basis: 100%; margin-top: .2em; }
+.ranking ol { margin: .3em 0 0; padding-left: 1.6em; display: flex; flex-direction: column; gap: .35em; }
+.ranking li.won::marker { font-weight: 600; }
+.ranking .won-label { color: var(--ok); }
+.ranking li.lost { opacity: .85; }
+.ranking-pick { border: 1px solid transparent; background: none; padding: .1em .4em; border-radius: var(--radius); text-align: left; font: inherit; color: inherit; margin-left: -.4em; }
+.ranking-pick:hover { background: var(--hover); }
+.ranking-pick[aria-pressed="true"] { border-color: var(--accent); background: var(--hover); }

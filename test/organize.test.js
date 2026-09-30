@@ -289,3 +289,25 @@ test('the winning rule explains what matched and where', () => {
   const all = rule('a', [cond('contains', 'cisco', { field: 'title' }), { type: 'group', match: 'none', conditions: [cond('contains', 'webex')] }], 'Z', { match: 'all' });
   assert.deepEqual(planMoves([b], [all], roots).moves[0].why.terms, [{ value: 'cisco', on: ['title'] }], 'exclusions add nothing to highlight');
 });
+
+test('every matching rule is listed strongest first, each loser with why it lost', async () => {
+  const { newCatchAll } = await import('../src/lib/organize.js');
+  const flat = [{ id: 'of', type: 'folder', title: 'Other Bookmarks', path: [] }, bm('v', 'CCNA subnetting video', 'https://www.youtube.com/watch?v=1', ['Other Bookmarks'])];
+  const ccna = rule('ccna', [cond('contains', 'ccna')], 'Bookmarks Menu/Career', { createdAt: 5 });
+  const video = rule('video', [cond('contains', 'video')], 'Bookmarks Menu/Videos', { createdAt: 1 });
+  const subnet = rule('subnet', [cond('contains', 'subnetting,ccna', { match: 'any' })], 'Bookmarks Menu/Networking', { createdAt: 2 });
+  const yt = rule('yt', [cond('domain', 'youtube.com')], 'Bookmarks Menu/YouTube', { fallback: true, createdAt: 3 });
+  const pinned = rule('pinned', [cond('contains', 'video')], 'Bookmarks Menu/Pinned', { priority: -1, createdAt: 9 });
+  const inbox = { ...newCatchAll(['Other Bookmarks']), id: 'inbox', target: 'Other Bookmarks/Inbox' };
+  const [m] = planMoves(flat, [inbox, yt, video, pinned, ccna, subnet], roots).moves;
+  assert.deepEqual(m.ranking.map((r) => [r.ruleId, r.score, r.lost]), [
+    ['subnet', 40, null],
+    ['ccna', 20, 'less specific (20 vs 40)'],
+    ['video', 20, 'less specific (20 vs 40)'],
+    ['yt', 50, 'fallback rules give way to normal rules'],
+    ['inbox', -1, 'catch-alls only take what no other rule matches'],
+    ['pinned', 20, 'lower priority (-1 vs 0)'],
+  ]);
+  assert.equal(m.ruleId, 'subnet');
+  assert.deepEqual(m.ranking[1].why.terms, [{ value: 'ccna', on: ['title'] }]);
+});
