@@ -37,6 +37,14 @@ export function newRule() {
   };
 }
 
+// Copies a rule under a new id so it can be edited separately; the copy's name is marked as such.
+export function duplicateRule(rule) {
+  const copy = structuredClone(rule);
+  copy.id = crypto.randomUUID();
+  copy.name = rule.name ? `${rule.name} (copy)` : '';
+  return copy;
+}
+
 // The condition's keywords; a plain comma-separated `value` string is still read for older rules.
 export function keywords(cond) {
   const list = Array.isArray(cond.values) ? cond.values : String(cond.value ?? '').split(',');

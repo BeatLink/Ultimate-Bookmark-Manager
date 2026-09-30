@@ -3,7 +3,7 @@
 import { h, Selection, toast, confirmDialog } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, tagInput, pickFolder } from '../components.js';
 import { saveSettings } from '../../lib/settings.js';
-import { OPERATORS, FIELDS, newRule, newCondition, keywords, planMoves, ruleMatches } from '../../lib/organize.js';
+import { OPERATORS, FIELDS, newRule, newCondition, keywords, duplicateRule, planMoves, ruleMatches } from '../../lib/organize.js';
 
 // Unsaved edits live here so they survive the re-render that follows any other action.
 let draft = null;
@@ -87,6 +87,15 @@ function ruleCard(ctx, rule, i, rules, redraw, changed, info) {
       h('input', { type: 'text', class: 'grow rule-name', value: rule.name, placeholder: 'Rule name (optional)', 'aria-label': 'Rule name', oninput: (e) => { rule.name = e.target.value; changed(); } }),
       h('button', { class: 'small', text: '↑', title: 'Move up', 'aria-label': 'Move rule up', disabled: i === 0, onclick: () => move(-1) }),
       h('button', { class: 'small', text: '↓', title: 'Move down', 'aria-label': 'Move rule down', disabled: i === rules.length - 1, onclick: () => move(1) }),
+      h('button', { class: 'small', text: 'Duplicate', title: 'Add an editable copy of this rule below it', onclick: (e) => {
+        const list = e.currentTarget.closest('.rule-list');
+        rules.splice(i + 1, 0, duplicateRule(rule));
+        redraw();
+        const name = list.children[i + 1]?.querySelector('.rule-name');
+        name?.scrollIntoView?.({ block: 'nearest' });
+        name?.focus();
+        name?.select();
+      } }),
       h('button', { class: 'small danger', text: 'Delete', onclick: () => { rules.splice(i, 1); redraw(); } })),
     h('div', { class: 'row wrap' }, 'When', select({ any: 'any', all: 'all' }, rule.match, (v) => { rule.match = v; changed(); }, 'Match'), 'of these are true:'),
     conds,

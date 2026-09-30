@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { conditionMatches, ruleMatches, resolveTarget, planMoves, validateRules } from '../src/lib/organize.js';
+import { conditionMatches, ruleMatches, resolveTarget, planMoves, validateRules, duplicateRule } from '../src/lib/organize.js';
 
 const roots = [
   { id: 'menu________', title: 'Bookmarks Menu' },
@@ -76,4 +76,15 @@ test('regex conditions match when any pattern does, and each bad pattern is repo
   assert.ok(conditionMatches({ field: 'title', op: 'regex', values: ['^PR', '\\d{3,4}$'] }, b));
   const bad = rule('bad', [{ field: 'title', op: 'regex', values: ['(', 'ok', '['] }], 'X');
   assert.equal(validateRules([bad], roots).get('bad').length, 2);
+});
+
+test('a duplicated rule is an independent copy with its own id', () => {
+  const original = rule('orig', [cond('contains', 'rust')], 'Dev', { name: 'Rust' });
+  const copy = duplicateRule(original);
+  assert.notEqual(copy.id, original.id);
+  assert.equal(copy.name, 'Rust (copy)');
+  assert.equal(copy.target, 'Dev');
+  copy.conditions[0].values.push('go');
+  assert.deepEqual(original.conditions[0].values, ['rust'], 'editing the copy leaves the original alone');
+  assert.equal(duplicateRule(rule('x', [], 'A', { name: '' })).name, '', 'an unnamed rule stays unnamed');
 });
