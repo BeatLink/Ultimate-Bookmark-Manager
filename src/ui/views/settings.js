@@ -1,9 +1,95 @@
 // Settings: duplicate matching, custom rules, link-check tuning, skip list and whitelist.
 
-import { h, toast } from '../dom.js';
+import { h, toast, confirmDialog } from '../dom.js';
 import { viewHeader, emptyState } from '../components.js';
 import { saveSettings, removeFromWhitelist } from '../../lib/settings.js';
 import { compileRules } from '../../lib/duplicates.js';
+import { buildExport, parseImport, applyImport } from '../../lib/transfer.js';
+import { isSyncEnabled, syncStatus, hasConflictingRemote, enableSync, disableSync, guarded } from '../../lib/sync.js';
+
+function download(data, name) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = h('a', { href: URL.createObjectURL(blob), download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+// Sync toggle and status, plus exporting and importing settings files.
+function syncAndBackup(ctx) {
+  const local = browser.storage.local;
+  const sync = browser.storage.sync;
+  const toggle = h('input', { type: 'checkbox', disabled: true });
+  const status = h('p', { class: 'muted small', text: 'Checking sync…' });
+
+  const showStatus = async () => {
+    const [enabled, state] = await Promise.all([isSyncEnabled(local), syncStatus(local)]);
+    toggle.checked = enabled;
+    toggle.disabled = false;
+    const lines = [];
+    if (!enabled) lines.push(h('span', { text: 'Sync is off; settings stay on this device.' }));
+    else if (state.time) lines.push(h('span', { text: `Last synced ${new Date(state.time).toLocaleString()}.` }));
+    else lines.push(h('span', { text: 'Waiting for the first sync.' }));
+    if (enabled && state.partial) lines.push(h('span', { class: 'warn', text: ' The ignore list is too large to sync, so only settings and rules are synced.' }));
+    if (enabled && state.error) lines.push(h('span', { class: 'error', text: ` Last sync failed: ${state.error}` }));
+    status.replaceChildren(...lines);
+  };
+
+  toggle.addEventListener('change', () => ctx.run(async () => {
+    if (!toggle.checked) {
+      await disableSync(local);
+      toast('Sync turned off.', 'success');
+      return;
+    }
+    const conflict = await guarded(local, () => hasConflictingRemote(local, sync));
+    const preferRemote = conflict === true && await confirmDialog(
+      'Another device has already synced different settings. Use those here? Cancel keeps this device’s settings and replaces the synced ones.',
+      'Use synced settings', false);
+    const result = await guarded(local, () => enableSync(local, sync, { preferRemote }));
+    if (result !== 'error') toast(preferRemote ? 'Sync turned on; synced settings applied.' : 'Sync turned on; settings uploaded.', 'success');
+  }));
+
+  const file = h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: async () => {
+    const [chosen] = file.files;
+    file.value = '';
+    if (!chosen) return;
+    let parsed;
+    try {
+      parsed = parseImport(await chosen.text());
+    } catch (err) {
+      toast(`Could not import: ${err.message}`, 'error');
+      return;
+    }
+    const ignored = Object.keys(parsed.whitelist).length;
+    if (!(await confirmDialog(`Replace your settings with the ones in “${chosen.name}” (${parsed.rules} organize rule(s))?${ignored ? ` Its ${ignored} ignored item(s) are added to yours.` : ''}`, 'Import', false))) return;
+    await ctx.run(async () => {
+      await applyImport(parsed);
+      draft = null;
+      toast('Settings imported.', 'success');
+    });
+  } });
+
+  showStatus();
+  // Background syncs update the status line while the page is open; the listener retires once the view is replaced.
+  const onChange = (changes, area) => {
+    if (!status.isConnected) return browser.storage.onChanged.removeListener(onChange);
+    if (area === 'local' && ('syncState' in changes || 'syncEnabled' in changes)) showStatus();
+  };
+  browser.storage.onChanged.addListener(onChange);
+  return h('fieldset', {}, h('legend', { text: 'Sync & backup' }),
+    h('label', { class: 'check-line' }, toggle, 'Sync settings, organize rules and ignored items with Firefox Sync'),
+    status,
+    h('p', { class: 'muted small', text: 'Syncing needs Firefox signed in to a Mozilla account, with Add-ons ticked in Firefox’s Sync settings.' }),
+    h('div', { class: 'row wrap' },
+      h('button', { text: 'Export settings…', onclick: async () => {
+        download(await buildExport(), `bookmark-manager-settings-${new Date().toISOString().slice(0, 10)}.json`);
+        toast('Settings exported.', 'success');
+      } }),
+      h('button', { text: 'Import settings…', onclick: () => file.click() }),
+      file),
+    h('p', { class: 'muted small', text: 'A settings file holds your settings, organize rules and ignored items. Undo history stays on this device.' }));
+}
 
 const MATCHING = [
   ['ignoreProtocol', 'Treat http and https as the same'],
@@ -39,14 +125,26 @@ function ruleRow(rule, onRemove, error) {
     error && h('p', { class: 'error full', text: error }));
 }
 
+// Unsaved edits survive a refresh; an untouched draft follows the saved settings when they change.
+let draft = null;
+let draftBase = null;
+
 export default {
   id: 'settings',
   label: 'Settings',
 
   render(ctx) {
-    const s = structuredClone(ctx.state.settings);
+    const saved = JSON.stringify(ctx.state.settings);
+    if (draft && JSON.stringify(draft) === draftBase && draftBase !== saved) draft = null;
+    if (!draft) {
+      draft = structuredClone(ctx.state.settings);
+      draftBase = saved;
+    }
+    const s = draft;
     const save = () => ctx.run(async () => {
-      await saveSettings(s);
+      // Organize rules are edited in their own view, so keep whatever is saved for them.
+      await saveSettings({ ...s, organize: ctx.state.settings.organize });
+      draft = null;
       toast('Settings saved.', 'success');
     });
 
@@ -95,8 +193,10 @@ export default {
         : emptyState('Nothing is ignored.'));
 
     return h('section', { class: 'settings' },
-      viewHeader('Settings', null, h('button', { class: 'primary', text: 'Save settings', onclick: save })),
-      matching, rulesBox, linkBox, general,
+      viewHeader('Settings', null,
+        h('button', { class: 'small', text: 'Discard changes', onclick: () => { draft = null; ctx.render(); } }),
+        h('button', { class: 'primary', text: 'Save settings', onclick: save })),
+      syncAndBackup(ctx), matching, rulesBox, linkBox, general,
       h('div', { class: 'row end' }, h('button', { class: 'primary', text: 'Save settings', onclick: save })),
       whitelist);
   },

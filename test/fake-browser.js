@@ -4,11 +4,15 @@ export function fakeStorage() {
   const data = {};
   return {
     data,
-    async get(key) {
-      return key in data ? { [key]: structuredClone(data[key]) } : {};
+    async get(keys) {
+      const list = keys === null || keys === undefined ? Object.keys(data) : [keys].flat();
+      return Object.fromEntries(list.filter((k) => k in data).map((k) => [k, structuredClone(data[k])]));
     },
     async set(obj) {
       Object.assign(data, structuredClone(obj));
+    },
+    async remove(keys) {
+      for (const k of [keys].flat()) delete data[k];
     },
   };
 }

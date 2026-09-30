@@ -18,7 +18,7 @@ export const DEFAULT_SETTINGS = {
   },
 };
 
-function merge(defaults, stored) {
+export function merge(defaults, stored) {
   if (!stored || typeof stored !== 'object' || Array.isArray(defaults)) return stored ?? defaults;
   const out = { ...defaults };
   for (const [k, v] of Object.entries(stored)) {

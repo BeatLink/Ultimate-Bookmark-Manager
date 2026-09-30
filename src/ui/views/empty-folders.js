@@ -1,6 +1,6 @@
 // Folders with no bookmarks anywhere inside them.
 
-import { h, Selection, confirmDialog } from '../dom.js';
+import { h, confirmDialog } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectionBar, selectAllToggle, row } from '../components.js';
 import { addToWhitelist } from '../../lib/settings.js';
 import { formatPath } from '../../lib/tree.js';
@@ -13,7 +13,7 @@ export default {
 
   render(ctx) {
     const folders = scans.emptyFolders(ctx);
-    const sel = new Selection();
+    const sel = ctx.selection('empty-folders', folders.map((f) => f.id));
     const header = viewHeader('Empty folders', 'Folders that contain no bookmarks, only empty subfolders or separators. Removing one removes what is inside it.');
     if (!folders.length) return h('section', {}, header, emptyState('No empty folders.'));
 

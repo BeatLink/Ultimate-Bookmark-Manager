@@ -1,6 +1,6 @@
 // Bookmarks whose name is blank.
 
-import { h, Selection, confirmDialog } from '../dom.js';
+import { h, confirmDialog } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectionBar, selectAllToggle, bookmarkInfo, row } from '../components.js';
 import { addToWhitelist } from '../../lib/settings.js';
 import * as scans from '../scans.js';
@@ -22,7 +22,7 @@ export default {
 
   render(ctx) {
     const items = scans.untitled(ctx);
-    const sel = new Selection();
+    const sel = ctx.selection('untitled', items.map((b) => b.id));
     const header = viewHeader('Bookmarks without a name', 'Give them a name with Edit, name them after their address, or remove them.');
     if (!items.length) return h('section', {}, header, emptyState('Every bookmark has a name.'));
 

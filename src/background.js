@@ -4,6 +4,7 @@ import { loadSettings, loadWhitelist } from './lib/settings.js';
 import { planMoves } from './lib/organize.js';
 import { flatten } from './lib/tree.js';
 import { Actions } from './lib/actions.js';
+import { push, pull, reconcile, isSyncEnabled, guarded } from './lib/sync.js';
 
 const VIEWS = {
   duplicates: 'Duplicates',
@@ -93,3 +94,23 @@ async function autoOrganize() {
   const label = moves.length === 1 ? `Auto-organized “${moves[0].bookmark.title || moves[0].bookmark.url}”` : `Auto-organized ${moves.length} new bookmarks`;
   await new Actions({ limit: settings.historyLimit }).organize(moves.map((m) => ({ id: m.bookmark.id, target: m.target })), label);
 }
+
+// Settings sync: local edits are uploaded and changes from other devices applied, each after a short pause.
+const local = browser.storage.local;
+const sync = browser.storage.sync;
+const syncTimers = {};
+
+function soon(name, step) {
+  clearTimeout(syncTimers[name]);
+  syncTimers[name] = setTimeout(async () => {
+    if (await isSyncEnabled(local)) await guarded(local, step);
+  }, 1000);
+}
+
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && ('settings' in changes || 'whitelist' in changes)) soon('push', () => push(local, sync));
+  if (area === 'sync' && Object.keys(changes).some((k) => k.startsWith('cfg_'))) soon('pull', () => pull(local, sync));
+});
+
+browser.runtime.onStartup.addListener(() => soon('reconcile', () => reconcile(local, sync)));
+browser.runtime.onInstalled.addListener(() => soon('reconcile', () => reconcile(local, sync)));

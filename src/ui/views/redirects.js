@@ -1,6 +1,6 @@
 // Bookmarks whose address now redirects elsewhere, with one-click correction to the final address.
 
-import { h, Selection } from '../dom.js';
+import { h } from '../dom.js';
 import { emptyState, bindCheckboxes, selectionBar, selectAllToggle, bookmarkInfo, row } from '../components.js';
 import { addToWhitelist } from '../../lib/settings.js';
 import { checkControls } from './broken.js';
@@ -23,7 +23,7 @@ export default {
       await ctx.actions.update(changes, `Updated ${changes.length} redirected address(es)`);
       ctx.done(`Updated ${changes.length} address(es).`);
     });
-    const sel = new Selection();
+    const sel = ctx.selection('redirects', items.map((b) => b.id));
     const bar = selectionBar(sel, [
       { label: 'Ignore', run: (ids) => ctx.run(() => addToWhitelist(items.filter((b) => ids.includes(b.id)))) },
       { label: 'Fix selected', primary: true, run: fix },

@@ -16,6 +16,8 @@ A Firefox add-on for finding and cleaning up problem bookmarks. Every change it 
 - **All bookmarks**: search everything, with filters for only duplicates or only non-duplicates.
 - **Ignore list** (whitelist) and a **skip list** of domains the link check leaves alone.
 - **Undo history** and a **full JSON backup** download.
+- **Settings sync**: settings, organize rules and ignored items sync between your devices through Firefox Sync. This needs Add-ons ticked in Firefox's Sync settings, and can be turned off. The most recent change wins, and a new device adopts the synced settings instead of overwriting them.
+- **Export / import settings** as a JSON file. Importing replaces your settings and adds the file's ignored items to yours.
 
 ## Opening it
 

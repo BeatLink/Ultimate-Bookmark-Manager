@@ -140,7 +140,6 @@ dialog.confirm::backdrop { background: rgb(0 0 0 / .35); }
 .toast { background: var(--text); color: var(--bg); padding: .6em .9em; border-radius: var(--radius); box-shadow: 0 2px 8px rgb(0 0 0 / .25); display: flex; gap: .75em; align-items: center; justify-content: space-between; }
 .toast.error { background: var(--danger); }
 .toast button.link { color: inherit; font-weight: 600; }
-.stale { position: fixed; top: .75em; left: 50%; transform: translateX(-50%); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .4em .8em; box-shadow: 0 2px 8px rgb(0 0 0 / .2); z-index: 5; }
 
 /* Sidebar and narrow windows swap the navigation list for a drop-down. */
 @media (max-width: 720px) {
@@ -191,3 +190,4 @@ dialog.folder-picker::backdrop { background: rgb(0 0 0 / .35); }
 .folder-name.selected { background: var(--accent); color: var(--accent-text); }
 .folder-name.selected:hover { background: var(--accent); }
 .picked { font-weight: 500; overflow-wrap: anywhere; }
+.warn { color: var(--warn); }

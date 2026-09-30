@@ -1,6 +1,6 @@
 // Dashboard shell shared by the full-page tab and the sidebar: loads data, routes between views and runs actions.
 
-import { h, toast } from './dom.js';
+import { h, toast, Selection } from './dom.js';
 import { flatten } from '../lib/tree.js';
 import { Actions } from '../lib/actions.js';
 import { loadSettings, loadWhitelist, loadLinkResults } from '../lib/settings.js';
@@ -20,10 +20,12 @@ const VIEWS = [duplicates, emptyFolders, sameName, untitled, broken, redirects, 
 const isSidebar = new URLSearchParams(location.search).has('sidebar');
 document.body.classList.toggle('sidebar', isSidebar);
 
-const state = { root: null, flat: [], settings: null, whitelist: {}, linkResults: null, stale: false };
+const state = { root: null, flat: [], settings: null, whitelist: {}, linkResults: null };
 let current = VIEWS[0];
 let busy = 0;
-let quietUntil = 0;
+let refreshTimer;
+let refreshWaiting = false;
+const selections = new Map();
 let cache = new Map();
 
 const ctx = {
@@ -31,6 +33,15 @@ const ctx = {
   actions: new Actions(),
   isSidebar,
   ignoredIds: () => new Set(Object.keys(state.whitelist)),
+
+  // A view's selection, kept across re-renders so a refresh does not untick anything still on screen.
+  selection(key, ids) {
+    if (!selections.has(key)) selections.set(key, new Selection());
+    const sel = selections.get(key);
+    sel.resetListeners();
+    sel.retain(ids);
+    return sel;
+  },
 
   // Caches a computed result until the next reload, so badges and views share one scan.
   memo(key, fn) {
@@ -51,7 +62,6 @@ const ctx = {
       toast(`Something went wrong: ${err.message ?? err}`, 'error');
     } finally {
       busy--;
-      quietUntil = Date.now() + 1500;
       document.body.classList.toggle('busy', busy > 0);
       await load();
       if (rerender) render();
@@ -78,9 +88,8 @@ async function load() {
     browser.bookmarks.getTree(), loadSettings(), loadWhitelist(), loadLinkResults(),
   ]);
   cache = new Map();
-  Object.assign(state, { root, flat: flatten(root), settings: settingsValue, whitelist, linkResults, stale: false });
+  Object.assign(state, { root, flat: flatten(root), settings: settingsValue, whitelist, linkResults });
   ctx.actions.limit = settingsValue.historyLimit;
-  document.getElementById('stale').hidden = true;
 }
 
 function renderNav() {
@@ -110,23 +119,45 @@ function route() {
   render();
 }
 
-// Changes made elsewhere mark the results stale instead of re-rendering under the user's selection.
-function onBookmarksChanged() {
-  if (busy || Date.now() < quietUntil) return;
-  state.stale = true;
-  document.getElementById('stale').hidden = false;
+// True while the user is typing in a field or answering a dialog, when a re-render would get in their way.
+function isEditing() {
+  if (document.querySelector('dialog[open]')) return true;
+  const el = document.activeElement;
+  return Boolean(el?.closest?.('#main') && el.matches('textarea, select, input:not([type=checkbox]):not([type=radio]), [contenteditable]'));
+}
+
+// Changes made elsewhere are picked up automatically, once a burst of them has settled.
+function scheduleRefresh(delay = 500) {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(refresh, delay);
+}
+
+async function refresh() {
+  if (busy) return scheduleRefresh();
+  if (isEditing()) {
+    refreshWaiting = true;
+    return;
+  }
+  refreshWaiting = false;
+  await load();
+  render();
 }
 
 async function start() {
   await load();
   ctx.linkChecker = new LinkChecker(ctx);
   document.getElementById('nav-select').addEventListener('change', (e) => ctx.go(e.target.value));
-  document.getElementById('stale-refresh').addEventListener('click', () => ctx.run(async () => {}));
   document.getElementById('open-tab').addEventListener('click', () => {
     browser.tabs.create({ url: browser.runtime.getURL(`src/ui/app.html#${current.id}`) });
   });
   window.addEventListener('hashchange', route);
-  for (const ev of ['onCreated', 'onRemoved', 'onChanged', 'onMoved']) browser.bookmarks[ev].addListener(onBookmarksChanged);
+  for (const ev of ['onCreated', 'onRemoved', 'onChanged', 'onMoved']) browser.bookmarks[ev].addListener(() => scheduleRefresh());
+  browser.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && ('settings' in changes || 'whitelist' in changes)) scheduleRefresh();
+  });
+  // A refresh held back while the user was editing runs once they leave the field or close the dialog.
+  document.addEventListener('focusout', () => refreshWaiting && scheduleRefresh(100));
+  document.addEventListener('close', () => refreshWaiting && scheduleRefresh(100), true);
 
   browser.runtime.onMessage.addListener((msg) => {
     if (msg?.type !== 'focus-dashboard' || isSidebar) return undefined;

@@ -7,6 +7,10 @@ import { OPERATORS, FIELDS, newRule, newCondition, keywords, planMoves, ruleMatc
 
 // Unsaved edits live here so they survive the re-render that follows any other action.
 let draft = null;
+// The saved rules the draft started from; an untouched draft follows the saved rules when they change.
+let draftBase = null;
+// Moves the user unticked in the preview, so a refresh or an edited rule does not tick them again.
+const unticked = new Set();
 
 const rootFolders = (ctx) => ctx.state.root.children.map((c) => ({ id: c.id, title: c.title }));
 
@@ -97,7 +101,12 @@ export default {
   badge: (ctx) => ctx.memo('organize', () => plan(ctx, ctx.state.settings.organize.rules)).moves.length,
 
   render(ctx) {
-    draft ??= structuredClone(ctx.state.settings.organize);
+    const saved = JSON.stringify(ctx.state.settings.organize);
+    if (draft && JSON.stringify(draft) === draftBase && draftBase !== saved) draft = null;
+    if (!draft) {
+      draft = structuredClone(ctx.state.settings.organize);
+      draftBase = saved;
+    }
     const rules = draft.rules;
     const section = h('section', { class: 'organize' });
     const rulesList = h('ol', { class: 'rule-list' });
@@ -150,7 +159,10 @@ export default {
       if (!moves.length) return previewBox.replaceChildren(h('h2', { text: 'Preview' }), emptyState('Nothing to move: every matching bookmark is already in its folder.'));
 
       const sel = new Selection();
-      sel.set(moves.map((m) => m.bookmark.id), true);
+      sel.set(moves.map((m) => m.bookmark.id).filter((id) => !unticked.has(id)), true);
+      sel.onChange(() => {
+        for (const m of moves) sel.has(m.bookmark.id) ? unticked.delete(m.bookmark.id) : unticked.add(m.bookmark.id);
+      });
       const byTarget = new Map();
       for (const m of moves) {
         const key = m.target.path.join('/');

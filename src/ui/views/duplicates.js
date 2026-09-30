@@ -1,6 +1,6 @@
 // Duplicate bookmarks grouped by URL, with bulk selection helpers and remove or move-to-folder actions.
 
-import { h, Selection, confirmDialog } from '../dom.js';
+import { h, confirmDialog } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectionBar, bookmarkInfo, row } from '../components.js';
 import { addToWhitelist } from '../../lib/settings.js';
 import * as scans from '../scans.js';
@@ -12,8 +12,8 @@ export default {
 
   render(ctx) {
     const { groups, errors } = scans.duplicates(ctx);
-    const sel = new Selection();
     const all = groups.flatMap((g) => g.items);
+    const sel = ctx.selection('duplicates', all.map((b) => b.id));
     const pick = (fn) => { sel.clear(); sel.set(groups.flatMap((g) => g.items.filter((i) => fn(i, g)).map((i) => i.id)), true); };
     const folder = ctx.state.settings.dupesFolderName;
 

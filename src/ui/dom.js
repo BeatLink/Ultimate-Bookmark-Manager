@@ -68,6 +68,17 @@ export class Selection {
     this.#emit();
   }
 
+  // Drops ids no longer on screen, e.g. bookmarks removed since the last render.
+  retain(ids) {
+    const keep = new Set(ids);
+    for (const id of this.#ids) if (!keep.has(id)) this.#ids.delete(id);
+  }
+
+  // Forgets the previous render's listeners before the selection is reused by a new one.
+  resetListeners() {
+    this.#listeners.clear();
+  }
+
   onChange(fn) {
     this.#listeners.add(fn);
   }

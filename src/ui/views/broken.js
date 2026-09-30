@@ -1,6 +1,6 @@
 // Bookmarks whose address failed to load, grouped by kind of failure.
 
-import { h, Selection, confirmDialog, formatDate } from '../dom.js';
+import { h, confirmDialog, formatDate } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectionBar, selectAllToggle, bookmarkInfo, row } from '../components.js';
 import { addToWhitelist } from '../../lib/settings.js';
 import { CATEGORIES } from '../../lib/linkcheck.js';
@@ -32,7 +32,7 @@ export default {
     const items = saved.results.filter((r) => r.status !== 'redirect');
     if (!items.length) return h('section', {}, header, emptyState('No broken links found.'));
 
-    const sel = new Selection();
+    const sel = ctx.selection('broken', items.map((b) => b.id));
     const bar = selectionBar(sel, [
       { label: 'Check again', title: 'Re-check just the selected bookmarks', run: (ids) => ctx.linkChecker.start(ids) },
       { label: 'Ignore', run: (ids) => ctx.run(() => addToWhitelist(items.filter((b) => ids.includes(b.id)))) },

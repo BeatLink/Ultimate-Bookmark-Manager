@@ -18,7 +18,7 @@ export default {
       if (!(await confirmDialog(`Merge ${n} folder(s) into their first same-name sibling? Their contents are moved and the emptied folders removed.`, 'Merge', false))) return;
       await ctx.run(async () => {
         await ctx.actions.mergeFolders(list);
-        ctx.done(`Merged ${n} folder(s). Rescan: merged folders can now contain same-name subfolders.`);
+        ctx.done(`Merged ${n} folder(s). Merged folders can now hold same-name subfolders of their own; they appear here if so.`);
       });
     };
     const header = viewHeader('Same-name folders', 'Folders in the same place with the same name. Merging keeps the first one and moves the others’ contents into it.',

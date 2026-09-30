@@ -1,11 +1,14 @@
 // Every bookmark, searchable and filterable to only duplicates or only unique ones.
 
-import { h, Selection, confirmDialog } from '../dom.js';
+import { h, confirmDialog } from '../dom.js';
 import { viewHeader, bindCheckboxes, selectionBar, bookmarkInfo, row } from '../components.js';
 import { formatPath } from '../../lib/tree.js';
 import * as scans from '../scans.js';
 
 const PAGE = 200;
+
+// Search, filter and page size survive the re-render that follows a refresh.
+const view = { query: '', filter: 'all', shown: PAGE };
 
 export default {
   id: 'all',
@@ -14,17 +17,16 @@ export default {
   render(ctx) {
     const bookmarks = ctx.state.flat.filter((b) => b.type === 'bookmark');
     const dupeIds = new Set(scans.duplicates(ctx).groups.flatMap((g) => g.items.map((i) => i.id)));
-    const sel = new Selection();
-    let shown = PAGE;
+    const sel = ctx.selection('all', bookmarks.map((b) => b.id));
 
-    const search = h('input', { type: 'search', placeholder: 'Search name, address or folder', 'aria-label': 'Search', oninput: () => { shown = PAGE; draw(); } });
-    const filter = h('select', { 'aria-label': 'Show', onchange: () => { shown = PAGE; draw(); } },
-      h('option', { value: 'all', text: 'All' }),
-      h('option', { value: 'dupes', text: 'Only duplicates' }),
-      h('option', { value: 'unique', text: 'Only non-duplicates' }));
+    const search = h('input', { type: 'search', value: view.query, placeholder: 'Search name, address or folder', 'aria-label': 'Search', oninput: () => { view.query = search.value; view.shown = PAGE; draw(); } });
+    const filter = h('select', { 'aria-label': 'Show', onchange: () => { view.filter = filter.value; view.shown = PAGE; draw(); } },
+      h('option', { value: 'all', text: 'All', selected: view.filter === 'all' }),
+      h('option', { value: 'dupes', text: 'Only duplicates', selected: view.filter === 'dupes' }),
+      h('option', { value: 'unique', text: 'Only non-duplicates', selected: view.filter === 'unique' }));
     const count = h('p', { class: 'muted' });
     const list = h('ul', { class: 'items' });
-    const more = h('button', { text: 'Show more', onclick: () => { shown += PAGE; draw(); } });
+    const more = h('button', { text: 'Show more', onclick: () => { view.shown += PAGE; draw(); } });
 
     const matches = () => {
       const q = search.value.trim().toLowerCase();
@@ -37,8 +39,8 @@ export default {
     const draw = () => {
       const found = matches();
       count.textContent = `${found.length} of ${bookmarks.length} bookmarks`;
-      list.replaceChildren(...found.slice(0, shown).map((b) => row(sel, b.id, bookmarkInfo(b, ctx))));
-      more.hidden = found.length <= shown;
+      list.replaceChildren(...found.slice(0, view.shown).map((b) => row(sel, b.id, bookmarkInfo(b, ctx))));
+      more.hidden = found.length <= view.shown;
     };
 
     const bar = selectionBar(sel, [
@@ -49,7 +51,7 @@ export default {
           ctx.done(`Removed ${ids.length} bookmark(s).`);
         });
       } },
-    ], [h('button', { class: 'small', text: 'Select shown', onclick: () => sel.set(matches().slice(0, shown).map((b) => b.id), true) }),
+    ], [h('button', { class: 'small', text: 'Select shown', onclick: () => sel.set(matches().slice(0, view.shown).map((b) => b.id), true) }),
       h('button', { class: 'small', text: 'Clear', onclick: () => sel.clear() })]);
 
     bindCheckboxes(list, sel);
