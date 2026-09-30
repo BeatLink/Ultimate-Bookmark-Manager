@@ -37,8 +37,11 @@ export function isGroup(item) {
 }
 
 export function newCondition() {
-  return { field: 'either', op: 'contains', values: [], caseSensitive: false };
+  return { field: 'either', op: 'contains', values: [], caseSensitive: false, wholeWords: true };
 }
+
+// Operators where "whole words" applies; domains, regexes and exact matches already have their own edges.
+export const WORD_OPS = new Set(['contains', 'containsAll', 'notContains', 'startsWith', 'endsWith']);
 
 export function newRule() {
   return {
@@ -84,29 +87,61 @@ function hostOf(url) {
   }
 }
 
+const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// A letter or digit in any language; with "whole words" a keyword may not touch one on either side.
+const WORD = '[\\p{L}\\p{N}]';
+const patterns = new Map();
+
+// The pattern for one keyword under a condition's operator and options, built once and reused.
+function patternFor(cond, value) {
+  const whole = cond.wholeWords && WORD_OPS.has(cond.op);
+  const key = `${cond.op}|${cond.caseSensitive ? 1 : 0}|${whole ? 1 : 0}|${value}`;
+  if (patterns.has(key)) return patterns.get(key);
+  let re;
+  if (cond.op === 'regex') {
+    re = new RegExp(value, cond.caseSensitive ? 'g' : 'gi');
+  } else {
+    const v = escapeRe(value);
+    // An edge is only enforced where the keyword itself starts or ends with a letter or digit, so "/a" or "c++" still match.
+    const wordChar = /[\p{L}\p{N}]/u;
+    const before = whole && wordChar.test(value.at(0)) ? `(?<!${WORD})` : '';
+    const after = whole && wordChar.test(value.at(-1)) ? `(?!${WORD})` : '';
+    const flags = cond.caseSensitive ? 'gu' : 'giu';
+    if (cond.op === 'startsWith') re = new RegExp(`^${v}${after}`, flags);
+    else if (cond.op === 'endsWith') re = new RegExp(`${before}${v}$`, flags);
+    else if (cond.op === 'equals') re = new RegExp(`^${v}$`, flags);
+    else re = new RegExp(`${before}${v}${after}`, flags);
+  }
+  patterns.set(key, re);
+  return re;
+}
+
+// Where one keyword occurs in a text, as [start, end] pairs; empty when it does not occur.
+export function occurrences(cond, value, text) {
+  const re = patternFor(cond, value);
+  const out = [];
+  for (const m of text.matchAll(re)) {
+    if (!m[0].length) continue;
+    out.push([m.index, m.index + m[0].length]);
+  }
+  return out;
+}
+
+function domainHit(value, url) {
+  const host = hostOf(url);
+  const dom = value.toLowerCase().replace(/^\*?\./, '');
+  return host === dom || host.endsWith('.' + dom);
+}
+
 // Tests one condition against one text; throws on an invalid regex so callers can report it.
 function testText(cond, text, url) {
-  if (cond.op === 'regex') return keywords(cond).some((p) => new RegExp(p, cond.caseSensitive ? '' : 'i').test(text));
-  if (cond.op === 'domain') {
-    const host = hostOf(url);
-    return keywords(cond).some((d) => {
-      const dom = d.toLowerCase().replace(/^\*?\./, '');
-      return host === dom || host.endsWith('.' + dom);
-    });
-  }
-  const fold = (s) => (cond.caseSensitive ? s : s.toLowerCase());
-  const hay = fold(text);
-  const words = keywords(cond).map(fold);
+  const words = keywords(cond);
+  if (cond.op === 'domain') return words.some((d) => domainHit(d, url));
   if (!words.length) return false;
-  switch (cond.op) {
-    case 'contains': return words.some((w) => hay.includes(w));
-    case 'containsAll': return words.every((w) => hay.includes(w));
-    case 'notContains': return !words.some((w) => hay.includes(w));
-    case 'startsWith': return words.some((w) => hay.startsWith(w));
-    case 'endsWith': return words.some((w) => hay.endsWith(w));
-    case 'equals': return words.some((w) => hay === w);
-    default: return false;
-  }
+  const has = (w) => occurrences(cond, w, text).length > 0;
+  if (cond.op === 'containsAll') return words.every(has);
+  if (cond.op === 'notContains') return !words.some(has);
+  return words.some(has);
 }
 
 export function conditionMatches(cond, bookmark) {
@@ -170,6 +205,69 @@ export function maxScore(rule) {
   return group(rule);
 }
 
+// What made a condition hold: each keyword that matched, where, and the character ranges to highlight.
+// Null when the condition does not hold; an empty list for a "contains none of" that holds.
+function conditionHits(cond, bookmark) {
+  if (!conditionMatches(cond, bookmark)) return null;
+  if (cond.op === 'notContains') return [];
+  const text = { title: bookmark.title ?? '', url: bookmark.url ?? '' };
+  const hits = [];
+  for (const value of keywords(cond)) {
+    if (cond.op === 'domain') {
+      if (!domainHit(value, text.url)) continue;
+      const host = hostOf(text.url);
+      const dom = value.toLowerCase().replace(/^\*?\./, '');
+      const start = text.url.toLowerCase().indexOf(host) + host.length - dom.length;
+      hits.push({ value, on: 'url', ranges: [[start, start + dom.length]] });
+      continue;
+    }
+    const fields = cond.field === 'either' || !cond.field ? ['title', 'url'] : [cond.field];
+    for (const on of fields) {
+      const ranges = occurrences(cond, value, text[on]);
+      if (ranges.length) hits.push({ value, on, ranges });
+    }
+  }
+  return hits;
+}
+
+function groupHits(group, bookmark) {
+  const parts = activeItems(group).map((item) => (isGroup(item) ? groupHits(item, bookmark) : conditionHits(item, bookmark)));
+  if (group.match === 'all') return parts.includes(null) ? null : parts.flat();
+  if (group.match === 'none') return parts.every((x) => x === null) ? [] : null;
+  const hit = parts.filter((x) => x !== null);
+  return hit.length ? hit.flat() : null;
+}
+
+function mergeRanges(ranges) {
+  const sorted = [...ranges].sort((a, b) => a[0] - b[0]);
+  const out = [];
+  for (const r of sorted) {
+    const last = out.at(-1);
+    if (last && r[0] <= last[1]) last[1] = Math.max(last[1], r[1]);
+    else out.push([...r]);
+  }
+  return out;
+}
+
+// Why a rule matched a bookmark: the keywords that matched and where, plus merged ranges to highlight in the
+// title and the address. Null when the rule does not match; a catch-all matches with nothing to show.
+export function explainMatch(rule, bookmark) {
+  if (rule.catchAll) return { terms: [], title: [], url: [] };
+  if (!activeItems(rule).length) return null;
+  const hits = groupHits(rule, bookmark);
+  if (!hits) return null;
+  const terms = new Map();
+  for (const hit of hits) {
+    if (!terms.has(hit.value)) terms.set(hit.value, new Set());
+    terms.get(hit.value).add(hit.on);
+  }
+  return {
+    terms: [...terms].map(([value, on]) => ({ value, on: [...on] })),
+    title: mergeRanges(hits.filter((x) => x.on === 'title').flatMap((x) => x.ranges)),
+    url: mergeRanges(hits.filter((x) => x.on === 'url').flatMap((x) => x.ranges)),
+  };
+}
+
 // How specifically the rule matches the bookmark, or null when it does not match at all.
 export function ruleScore(rule, bookmark) {
   if (rule.catchAll) return CATCH_ALL_SCORE;
@@ -216,7 +314,9 @@ export function ruleMatches(rule, bookmark) {
 export function describeCondition(cond) {
   const list = keywords(cond).sort(byText).map((w) => `“${w}”`).join(', ');
   const subject = cond.op === 'domain' ? 'address' : FIELDS[cond.field] ?? FIELDS.either;
-  return `${subject} ${OPERATORS[cond.op] ?? cond.op} ${list}${cond.caseSensitive && cond.op !== 'domain' ? ' (exact case)' : ''}`;
+  // Matching inside words is the risky setting ("cat" in "category"), so the summary says when it is on.
+  const inside = WORD_OPS.has(cond.op) && !cond.wholeWords ? ' (also inside words)' : '';
+  return `${subject} ${OPERATORS[cond.op] ?? cond.op} ${list}${cond.caseSensitive && cond.op !== 'domain' ? ' (exact case)' : ''}${inside}`;
 }
 
 function describeGroup(group, nested) {
@@ -323,7 +423,7 @@ export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree
     wins.set(best.rule.id, (wins.get(best.rule.id) ?? 0) + 1);
     // The winning rule decides even when the bookmark is already where it says, so a weaker rule cannot move it away.
     if (startsWithPath(b.path, best.target.path)) continue;
-    moves.push({ bookmark: b, ruleId: best.rule.id, ruleName: best.rule.name, target: best.target, score: best.score, priority: Number(best.rule.priority) || 0, fallback: !!best.rule.fallback, others: matched - 1 });
+    moves.push({ bookmark: b, ruleId: best.rule.id, ruleName: best.rule.name, target: best.target, score: best.score, priority: Number(best.rule.priority) || 0, fallback: !!best.rule.fallback, others: matched - 1, why: explainMatch(best.rule, b) });
   }
   return { moves, problems, wins };
 }

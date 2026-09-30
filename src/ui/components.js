@@ -53,16 +53,30 @@ export function selectAllToggle(sel, ids, label = 'Select all') {
 }
 
 // Title, URL, folder path and date of one bookmark, with optional inline editing.
-export function bookmarkInfo(b, ctx, { editable = true, meta = [] } = {}) {
+// Text with the given [start, end] ranges wrapped in <mark>, built from text nodes so nothing is parsed as markup.
+export function marked(text, ranges = []) {
+  if (!ranges.length) return [text];
+  const out = [];
+  let at = 0;
+  for (const [start, end] of ranges) {
+    if (start > at) out.push(text.slice(at, start));
+    out.push(h('mark', { text: text.slice(start, end) }));
+    at = end;
+  }
+  if (at < text.length) out.push(text.slice(at));
+  return out;
+}
+
+export function bookmarkInfo(b, ctx, { editable = true, meta = [], highlight = null } = {}) {
   const box = h('div', { class: 'bm' });
   const show = () => {
     box.replaceChildren(
       h('div', { class: 'bm-title' },
-        b.url ? h('a', { href: b.url, target: '_blank', rel: 'noreferrer', text: b.title || '(no name)', class: b.title ? '' : 'untitled' })
+        b.url ? h('a', { href: b.url, target: '_blank', rel: 'noreferrer', class: b.title ? '' : 'untitled' }, b.title ? marked(b.title, highlight?.title) : '(no name)')
           : h('span', { text: b.title || '(no name)' }),
         editable && h('button', { class: 'link small', text: 'Edit', onclick: edit }),
       ),
-      b.url && h('div', { class: 'bm-url', text: b.url, title: b.url }),
+      b.url && h('div', { class: 'bm-url', title: b.url }, marked(b.url, highlight?.url)),
       h('div', { class: 'bm-meta muted' },
         h('span', { text: formatPath(b.path ?? []) }),
         b.dateAdded ? h('span', { text: `Added ${formatDate(b.dateAdded)}` }) : null,

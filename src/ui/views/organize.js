@@ -3,7 +3,7 @@
 import { h, Selection, toast, confirmDialog } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, tagInput, pickFolder } from '../components.js';
 import { saveSettings } from '../../lib/settings.js';
-import { OPERATORS, FIELDS, MODES, newRule, newCatchAll, newCondition, newGroup, isGroup, keywords, duplicateRule, describeRule, planMoves, ruleApplies, resolveTarget, maxScore } from '../../lib/organize.js';
+import { WORD_OPS, OPERATORS, FIELDS, MODES, newRule, newCatchAll, newCondition, newGroup, isGroup, keywords, duplicateRule, describeRule, planMoves, ruleApplies, resolveTarget, maxScore } from '../../lib/organize.js';
 
 // Unsaved edits live here so they survive the re-render that follows any other action.
 let draft = null;
@@ -29,6 +29,9 @@ function conditionRow(cond, onRemove, changed) {
   cond.values = keywords(cond);
   delete cond.value;
   const field = select(FIELDS, cond.field, (v) => { cond.field = v; changed(); }, 'Field');
+  // Off, "cat" also matches inside "category"; on, only the word itself.
+  const whole = h('label', { class: 'check-line small', title: 'Only match whole words, so “cat” does not match “category”', hidden: !WORD_OPS.has(cond.op) },
+    h('input', { type: 'checkbox', checked: !!cond.wholeWords, 'aria-label': 'Whole words', onchange: (e) => { cond.wholeWords = e.target.checked; changed(); } }), 'Whole words');
   field.hidden = cond.op === 'domain';
   const makeTags = () => tagInput({
     values: cond.values,
@@ -44,6 +47,7 @@ function conditionRow(cond, onRemove, changed) {
     select(OPERATORS, cond.op, (v) => {
       cond.op = v;
       field.hidden = v === 'domain';
+      whole.hidden = !WORD_OPS.has(v);
       const next = makeTags();
       tags.replaceWith(next);
       tags = next;
@@ -52,6 +56,7 @@ function conditionRow(cond, onRemove, changed) {
     tags,
     h('label', { class: 'check-line small', title: 'Match upper and lower case exactly' },
       h('input', { type: 'checkbox', checked: cond.caseSensitive, onchange: (e) => { cond.caseSensitive = e.target.checked; changed(); } }), 'Aa'),
+    whole,
     h('button', { class: 'small', text: '×', title: 'Remove condition', 'aria-label': 'Remove condition', onclick: onRemove }));
 }
 
@@ -405,7 +410,9 @@ export default {
         h('h2', { class: 'group-title sticky' }, h('span', { text: `→ ${path.replaceAll('/', ' › ')} — ${group.length}` }), selectAllToggle(sel, group.map((m) => m.bookmark.id), 'Select group')),
         h('ul', { class: 'items' }, group.map((m) => row(sel, m.bookmark.id, bookmarkInfo(m.bookmark, ctx, {
           editable: false,
-          meta: h('span', { text: `Rule: ${m.ruleName || 'unnamed'}${m.priority ? ` · priority ${m.priority}` : ''}${m.score >= 0 ? `${m.fallback ? ' · fallback' : ''} · specificity ${m.score}` : ' · catch-all'}${m.others ? ` · beat ${m.others} other matching rule(s)` : ''}` }),
+          highlight: m.why,
+          meta: [m.why?.terms.length > 0 && h('span', { class: 'matched', text: `Matched ${m.why.terms.map((t) => `“${t.value}” in ${t.on.map((o) => (o === 'url' ? 'address' : 'title')).join(' and ')}`).join(', ')}` }),
+            h('span', { text: `Rule: ${m.ruleName || 'unnamed'}${m.priority ? ` · priority ${m.priority}` : ''}${m.score >= 0 ? `${m.fallback ? ' · fallback' : ''} · specificity ${m.score}` : ' · catch-all'}${m.others ? ` · beat ${m.others} other matching rule(s)` : ''}` })],
         })))))));
       bindCheckboxes(list, sel);
       previewBox.replaceChildren(

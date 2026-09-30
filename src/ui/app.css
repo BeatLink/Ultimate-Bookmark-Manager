@@ -13,6 +13,7 @@
   --ok: #017a40;
   --radius: 6px;
   --viz-series: #2a78d6;
+  --mark-bg: #ffe08a;
   font: 14px/1.45 system-ui, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
@@ -29,6 +30,7 @@
     --warn: #ffbd4f;
     --ok: #54ffbd;
     --viz-series: #3987e5;
+    --mark-bg: #6b5300;
   }
 }
 
@@ -299,3 +301,6 @@ button.bar-row { cursor: pointer; }
   .stat-tile.hero .stat-value { font-size: 2.6em; }
 }
 .rule-card.fallback { border-left: 3px dashed var(--border); }
+
+mark { background: var(--mark-bg); color: var(--text); border-radius: 2px; padding: 0 1px; }
+.bm-meta .matched { color: var(--text); }

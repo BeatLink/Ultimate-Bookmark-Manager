@@ -8,7 +8,7 @@ const roots = [
   { id: 'unfiled_____', title: 'Other Bookmarks' },
 ];
 const bm = (id, title, url, path = ['Bookmarks Menu']) => ({ id, title, url, type: 'bookmark', path });
-const cond = (op, words, extra = {}) => ({ field: 'either', op, values: words ? words.split(',') : [], caseSensitive: false, ...extra });
+const cond = (op, words, extra = {}) => ({ field: 'either', op, values: words ? words.split(',') : [], caseSensitive: false, wholeWords: true, ...extra });
 const rule = (id, conditions, target, extra = {}) => ({ id, name: id, enabled: true, match: 'any', conditions, target, ...extra });
 
 test('contains matches any comma-separated word in title or address, ignoring case', () => {
@@ -133,7 +133,7 @@ test('rules are summed up in plain words', () => {
 });
 
 test('summaries list keywords alphabetically, ignoring case and ordering numbers by value', () => {
-  const r = rule('r', [{ field: 'title', op: 'contains', values: ['zeta', 'Alpha', 'item10', 'item2', 'beta'] }], 'X');
+  const r = rule('r', [{ field: 'title', op: 'contains', values: ['zeta', 'Alpha', 'item10', 'item2', 'beta'], wholeWords: true }], 'X');
   assert.equal(describeRule(r), 'title contains any of “Alpha”, “beta”, “item2”, “item10”, “zeta”');
 });
 
@@ -149,7 +149,7 @@ test('groups nest with any, all and none', () => {
   assert.ok(!ruleMatches(rustNotReddit, bm('3', 'Rust meme', 'https://x.test/')));
   assert.ok(!ruleMatches(rustNotReddit, bm('4', 'Go book', 'https://go.dev/')));
 
-  const either = rule('e', [group('all', [cond('contains', 'a', { field: 'title' }), cond('contains', 'b', { field: 'title' })]), cond('contains', 'z', { field: 'title' })], 'X');
+  const either = rule('e', [group('all', [cond('contains', 'a', { field: 'title', wholeWords: false }), cond('contains', 'b', { field: 'title', wholeWords: false })]), cond('contains', 'z', { field: 'title', wholeWords: false })], 'X');
   assert.ok(ruleMatches(either, bm('1', 'ab', 'https://q.test')));
   assert.ok(ruleMatches(either, bm('2', 'z', 'https://q.test')));
   assert.ok(!ruleMatches(either, bm('3', 'a', 'https://q.test')));
@@ -259,4 +259,33 @@ test('a fallback rule only takes what no normal rule matches, and still beats ca
   assert.deepEqual(where([{ ...ccna, priority: -1 }, youtube, inbox]), { v1: 'yt', v2: 'yt', n1: 'inbox' }, 'priority still comes first');
   const plan = planMoves(flat, [ccna, youtube, inbox], roots).moves.find((m) => m.bookmark.id === 'v2');
   assert.ok(plan.fallback);
+});
+
+test('whole words stops keywords matching inside other words', async () => {
+  const { occurrences, newCondition } = await import('../src/lib/organize.js');
+  const meraki = bm('m', 'Monitoring and Managing Multiple Organizations - Cisco Meraki Documentation', 'https://documentation.meraki.com/Platform_Management/Monitoring');
+  const men = (wholeWords) => rule('p', [cond('contains', 'men', { wholeWords })], 'X');
+  assert.notEqual(planMoves([meraki], [men(false)], roots).moves.length, 0, 'inside a word, as before, when the option is off');
+  assert.equal(planMoves([meraki], [men(true)], roots).moves.length, 0);
+  assert.equal(planMoves([bm('c', 'Clothing for men', 'https://x.test')], [men(true)], roots).moves.length, 1, 'the word on its own still matches');
+  const ww = (op) => ({ op, field: 'title', wholeWords: true });
+  assert.deepEqual(occurrences(ww('contains'), 'git', 'git rebase, github, Git!'), [[0, 3], [20, 23]]);
+  assert.deepEqual(occurrences(ww('contains'), 'c++', 'Learn C++ today'), [[6, 9]], 'keywords ending in symbols work');
+  assert.deepEqual(occurrences(ww('contains'), 'café', 'Le café, cafés'), [[3, 7]], 'letters in any language count as word characters');
+  assert.deepEqual(occurrences(ww('startsWith'), 'git', 'github guide'), []);
+  assert.deepEqual(occurrences(ww('startsWith'), 'git', 'git guide'), [[0, 3]]);
+  assert.deepEqual(occurrences(ww('endsWith'), 'news', 'BBC News'), [[4, 8]]);
+  assert.equal(newCondition().wholeWords, true, 'new conditions default to whole words');
+});
+
+test('the winning rule explains what matched and where', () => {
+  const b = bm('m', 'Cisco Meraki Documentation', 'https://documentation.meraki.com/x');
+  // Matching inside words, the case that needed explaining.
+  const r = rule('r', [cond('contains', 'men', { wholeWords: false })], 'X');
+  const { moves } = planMoves([b], [r], roots);
+  assert.deepEqual(moves[0].why, { terms: [{ value: 'men', on: ['title', 'url'] }], title: [[17, 20]], url: [[12, 15]] });
+  const dom = rule('d', [cond('domain', 'meraki.com')], 'Y');
+  assert.deepEqual(planMoves([b], [dom], roots).moves[0].why.url, [[22, 32]]);
+  const all = rule('a', [cond('contains', 'cisco', { field: 'title' }), { type: 'group', match: 'none', conditions: [cond('contains', 'webex')] }], 'Z', { match: 'all' });
+  assert.deepEqual(planMoves([b], [all], roots).moves[0].why.terms, [{ value: 'cisco', on: ['title'] }], 'exclusions add nothing to highlight');
 });
