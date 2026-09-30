@@ -92,15 +92,83 @@ export function newCatchAll(folders = []) {
 }
 
 // Copies a rule under a new id so it can be edited separately; the copy's name is marked as such.
+// A copy of a condition or group under new ids, as react-querybuilder needs every id on the page to be unique.
+function renumber(item) {
+  return { ...structuredClone(item), id: crypto.randomUUID(), ...(isGroup(item) && { rules: item.rules.map(renumber) }) };
+}
+
 export function duplicateRule(rule) {
   const copy = structuredClone(rule);
   copy.id = crypto.randomUUID();
   copy.createdAt = Date.now();
   copy.name = rule.name ? `${rule.name} (copy)` : '';
-  // react-querybuilder needs every rule and group id to be unique on the page.
-  const renumber = (item) => ({ ...item, id: crypto.randomUUID(), ...(isGroup(item) && { rules: item.rules.map(renumber) }) });
   copy.query = renumber(copy.query);
   return copy;
+}
+
+// The group without the item that has `id`, wherever it is nested.
+function without(group, id) {
+  return { ...group, rules: group.rules.filter((item) => item.id !== id).map((item) => (isGroup(item) ? without(item, id) : item)) };
+}
+
+function find(group, id) {
+  for (const item of group.rules) {
+    if (item.id === id) return item;
+    const inner = isGroup(item) && find(item, id);
+    if (inner) return inner;
+  }
+  return null;
+}
+
+// Moves one condition or group of a rule into a new rule placed after it, with the same destination and ranking.
+// Folder conditions that scope the whole rule go with it, so the new rule only looks where the old one did.
+// Returns the new list of rules and the new rule, or null when the item is not in the rule.
+export function moveToNewRule(rules, ruleId, itemId) {
+  const rule = rules.find((r) => r.id === ruleId);
+  const item = rule && find(rule.query, itemId);
+  if (!item) return null;
+  const scoped = rule.query.combinator === 'and' && !rule.query.not;
+  const folders = scoped ? rule.query.rules.filter((c) => !isGroup(c) && c.id !== itemId && FOLDER_OPS.has(c.operator) && valueOf(c)) : [];
+  const moved = renumber(item);
+  const query = folders.length ? { ...newGroup([...folders.map(renumber), moved]), combinator: 'and' }
+    : isGroup(moved) ? moved : newGroup([moved]);
+  const part = {
+    ...newRule(),
+    name: `${rule.name || 'Unnamed rule'} (part)`,
+    enabled: rule.enabled,
+    target: rule.target,
+    query,
+    outranks: [...(rule.outranks ?? [])],
+    ...(rule.rankAll && { rankAll: rule.rankAll }),
+  };
+  const out = rules.map((r) => {
+    if (r.id === ruleId) return { ...r, query: without(r.query, itemId) };
+    // Rules ranked above the old rule are ranked above the new one too.
+    return r.outranks?.includes(ruleId) ? { ...r, outranks: [...r.outranks, part.id] } : r;
+  });
+  out.splice(out.findIndex((r) => r.id === ruleId) + 1, 0, part);
+  return { rules: out, part };
+}
+
+// Rules `rule` can be merged with: any other rule, except that catch-alls only merge with catch-alls.
+export function mergeCandidates(rule, rules) {
+  return rules.filter((r) => r.id !== rule.id && !!r.catchAll === !!rule.catchAll);
+}
+
+// Merges `otherId` into `keepId`: the kept rule matches whatever either matched, keeps its own destination, name and
+// tiers, and takes on the other's ranking links. Returns the new list of rules, without the other rule.
+export function mergeRules(rules, keepId, otherId) {
+  const keep = rules.find((r) => r.id === keepId);
+  const other = rules.find((r) => r.id === otherId);
+  if (!keep || !other || keep === other) return rules;
+  // "Any" groups that are not inverted are joined directly rather than nested.
+  const parts = [keep.query, other.query].flatMap((q) => (q.combinator === 'or' && !q.not ? q.rules : [q]));
+  const outranks = [...new Set([...(keep.outranks ?? []), ...(other.outranks ?? [])])].filter((id) => id !== keepId && id !== otherId);
+  return rules.filter((r) => r !== other).map((r) => {
+    if (r === keep) return { ...keep, query: newGroup(parts), outranks };
+    if (!r.outranks?.includes(otherId)) return r;
+    return { ...r, outranks: [...new Set(r.outranks.map((id) => (id === otherId ? keepId : id)))] };
+  });
 }
 
 // The condition's keyword, or its folder path.

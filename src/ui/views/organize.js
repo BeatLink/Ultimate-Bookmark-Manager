@@ -4,7 +4,7 @@ import { h, Selection, toast, confirmDialog } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, pickFolder, marked, helpLink } from '../components.js';
 import { mountQueryEditor } from '../query-editor.bundle.js';
 import { saveSettings } from '../../lib/settings.js';
-import { newRule, newCatchAll, duplicateRule, planMoves, resolveTarget, maxScore, rankingWarnings } from '../../lib/organize.js';
+import { newRule, newCatchAll, duplicateRule, moveToNewRule, mergeRules, mergeCandidates, planMoves, resolveTarget, maxScore, rankingWarnings } from '../../lib/organize.js';
 import { eligibleToOutrank, eligibleToRankBelow } from '../../lib/rule-order.js';
 import { formatScore } from '../../lib/specificity.js';
 
@@ -47,10 +47,10 @@ function targetPicker(ctx, rule, changed) {
 const editors = new Map();
 
 // The rule's conditions in a react-querybuilder editor.
-function queryEditor(ctx, rule, changed) {
+function queryEditor(ctx, rule, changed, moveToNewRule) {
   const box = h('div', { class: 'query-box' });
   editors.get(rule.id)?.();
-  editors.set(rule.id, mountQueryEditor(box, rule.query, (query) => { rule.query = query; changed(); }, { root: ctx.state.root }));
+  editors.set(rule.id, mountQueryEditor(box, rule.query, (query) => { rule.query = query; changed(); }, { root: ctx.state.root, moveToNewRule }));
   return box;
 }
 
@@ -164,6 +164,23 @@ function rankingEditor(rule, rules, redraw) {
     h('button', { class: 'small', text: '+ Ranking', onclick: () => list.append(row(null)) }));
 }
 
+// A menu of rules to merge into this one; the chosen rule's conditions join this rule's and the chosen rule is removed.
+function mergeMenu(rule, rules, redraw) {
+  const others = mergeCandidates(rule, rules);
+  const menu = h('select', { class: 'merge-menu', 'aria-label': 'Merge another rule into this one', title: 'Merge another rule into this one', disabled: !others.length, onchange: async (e) => {
+    const other = others.find((r) => r.id === e.target.value);
+    e.target.value = '';
+    if (!other) return;
+    const name = (r) => `“${r.name || 'Unnamed rule'}”`;
+    const elsewhere = other.target !== rule.target ? ` Bookmarks it matches will go to ${rule.target ? rule.target.split('/').join(' › ') : 'this rule’s folder'} instead.` : '';
+    if (!(await confirmDialog(`Merge ${name(other)} into ${name(rule)}? This rule will match whatever either of them matched, and ${name(other)} is removed.${elsewhere}`, 'Merge', false))) return;
+    rules.splice(0, rules.length, ...mergeRules(rules, rule.id, other.id));
+    expanded.add(rule.id);
+    redraw();
+  } }, h('option', { value: '', text: 'Merge…' }), others.map((r) => h('option', { value: r.id, text: ruleLabel(r) })));
+  return menu;
+}
+
 // One labelled row of a rule's editor; the labels share a column, so every row's controls start at the same place.
 function field(label, ...controls) {
   return h('div', { class: 'field-row' }, h('span', { class: 'field-label' }, label), h('div', { class: 'field-value' }, ...controls));
@@ -180,7 +197,14 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
     h('label', { class: 'field-row' }, h('span', { class: 'field-label', text: 'Enabled' }), h('span', { class: 'field-value' },
       h('input', { type: 'checkbox', checked: rule.enabled !== false, 'aria-label': 'Rule enabled', onchange: (e) => { rule.enabled = e.target.checked; redraw(); } }))),
     rule.catchAll && field('', h('p', { class: 'muted small' }, 'Catch-all ', helpLink('Files whatever no other rule matches where its folder conditions hold; any matching rule beats it unless this one ranks above it', 'organize'))),
-    field('Rule', queryEditor(ctx, rule, changed)),
+    field('Rule', queryEditor(ctx, rule, changed, (itemId) => {
+      const moved = moveToNewRule(rules, rule.id, itemId);
+      if (!moved) return;
+      rules.splice(0, rules.length, ...moved.rules);
+      expanded.add(moved.part.id);
+      // Redrawn after the click is handled, as the redraw takes down the editor the click came from.
+      setTimeout(redraw);
+    })),
     field('Destination folder', targetPicker(ctx, rule, redraw)),
     rankingEditor(rule, rules, redraw),
     field('', parts.info)).childNodes);
@@ -222,6 +246,7 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
           name?.focus();
           name?.select();
         } }),
+        mergeMenu(rule, rules, redraw),
         h('button', { class: 'small danger', text: 'Delete', onclick: () => {
           expanded.delete(rule.id);
           rules.splice(rules.indexOf(rule), 1);

@@ -522,3 +522,49 @@ test('a catch-all set to rank above all other rules beats rules with conditions'
   assert.equal(planMoves(flat, [yt, { ...inbox, rankAll: 'above' }], roots).moves[0].ruleId, 'inbox');
   assert.equal(planMoves(flat, [{ ...yt, rankAll: 'below' }, inbox], roots).moves[0].ruleId, 'inbox', 'a rule below all others loses even to a catch-all');
 });
+
+test('a condition or group can move into a new rule that keeps the destination, folders and ranking', async () => {
+  const { moveToNewRule } = await import('../src/lib/organize.js');
+  const src = rule('src', [cond('contains', 'music', { field: 'title' }), cond('domain', 'youtube.com')], 'Bookmarks Menu/YouTube',
+    { match: 'all', sources: ['Other Bookmarks'], outranks: ['z'], rankAll: 'below', name: 'YouTube' });
+  const fan = rule('fan', [cond('contains', 'x')], 'X', { outranks: ['src'] });
+  const music = src.query.rules.find((c) => c.value === 'music');
+  const { rules, part } = moveToNewRule([src, fan], 'src', music.id);
+  assert.deepEqual(rules.map((r) => r.id), ['src', part.id, 'fan'], 'the new rule comes right after the old one');
+  const old = rules[0];
+  assert.ok(!old.query.rules.some((c) => c.value === 'music'), 'it leaves the old rule');
+  assert.equal(part.name, 'YouTube (part)');
+  assert.equal(part.target, 'Bookmarks Menu/YouTube');
+  assert.equal(part.rankAll, 'below');
+  assert.deepEqual(part.outranks, ['z']);
+  assert.deepEqual(rules[2].outranks, ['src', part.id], 'rules ranked above the old rule rank above the new one');
+  assert.equal(part.query.combinator, 'and');
+  assert.deepEqual(part.query.rules.map((c) => [c.field, c.value]), [['folder', 'Other Bookmarks'], ['title', 'music']], 'folder scope goes with it');
+  assert.notEqual(part.query.rules[1].id, music.id, 'with new ids');
+  const b = bm('1', 'Music mix', 'https://a.test', ['Other Bookmarks']);
+  assert.ok(ruleMatches(part, b));
+  assert.ok(!ruleMatches(part, { ...b, path: ['Bookmarks Menu'] }));
+  assert.equal(moveToNewRule([src], 'src', 'nope'), null);
+});
+
+test('merging rules joins their conditions with "any" and hands over the ranking', async () => {
+  const { mergeRules, mergeCandidates, newCatchAll } = await import('../src/lib/organize.js');
+  const a = rule('a', [cond('contains', 'rust')], 'Dev', { outranks: ['c'] });
+  const b = rule('b', [cond('contains', 'go'), cond('contains', 'zig')], 'Other', { outranks: ['d', 'a'], match: 'all' });
+  const c = rule('c', [cond('contains', 'c')], 'C', { outranks: ['b'] });
+  const d = rule('d', [cond('contains', 'd')], 'D');
+  const out = mergeRules([a, b, c, d], 'a', 'b');
+  assert.deepEqual(out.map((r) => r.id), ['a', 'c', 'd']);
+  const merged = out[0];
+  assert.equal(merged.target, 'Dev', 'the kept rule keeps its destination');
+  assert.deepEqual(merged.outranks, ['c', 'd'], 'it takes on the other rule\'s links, but never lists itself');
+  assert.deepEqual(out[1].outranks, ['a'], 'links to the other rule now point at the kept one');
+  assert.equal(merged.query.combinator, 'or');
+  assert.equal(merged.query.rules.length, 2, 'the "any" query is joined directly, the "all" one kept as a group');
+  const has = (title) => ruleMatches(merged, bm('1', title, 'https://a.test'));
+  assert.ok(has('rust'));
+  assert.ok(has('go zig'));
+  assert.ok(!has('go'));
+  const catchAll = { ...newCatchAll(['Other Bookmarks']), id: 'ca' };
+  assert.deepEqual(mergeCandidates(a, [a, b, catchAll]).map((r) => r.id), ['b'], 'catch-alls only merge with catch-alls');
+});

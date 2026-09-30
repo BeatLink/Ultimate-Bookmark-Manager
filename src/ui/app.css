@@ -243,11 +243,14 @@ dialog.folder-picker::backdrop { background: rgb(0 0 0 / .35); }
 .query-editor .ruleGroup-header .ruleGroup-remove, .query-editor .rule .rule-remove { margin-left: auto; }
 .query-editor .queryBuilder-dragHandle { cursor: grab; color: var(--muted); user-select: none; padding: 0 .1em; }
 .query-editor .ruleGroup-header .ruleGroup-cloneGroup { margin-left: auto; }
-.query-editor .ruleGroup-header .ruleGroup-cloneGroup + .ruleGroup-remove { margin-left: 0; }
+/* A nested group's copy, move and remove buttons sit together at the right. */
+.query-editor .ruleGroup-header .ruleGroup-remove { margin-left: 0; }
 /* Fixed widths line the columns up from one condition to the next. */
 .query-editor .rule-fields { width: 9.5em; flex: none; }
 .query-editor .rule-operators { width: 13em; flex: none; }
-.query-editor .rule-value { flex: 1; min-width: 0; display: flex; align-items: center; gap: .4em; }
+.query-editor .rule { flex-wrap: wrap; }
+/* The keyword and its switches drop to their own line when a row has no room for them. */
+.query-editor .rule-value { flex: 1 1 22em; min-width: 0; display: flex; align-items: center; gap: .4em; }
 .query-editor .rule-value .keyword, .query-editor .rule-value .folder-button { flex: 1; min-width: 8em; }
 .query-editor .rule-case, .query-editor .rule-words { flex: none; white-space: nowrap; }
 .query-editor .unused { visibility: hidden; }
@@ -365,7 +368,8 @@ kbd { font-family: ui-monospace, monospace; font-size: .85em; border: 1px solid 
 .rule-head .rule-name:focus { border-color: var(--accent); background: var(--surface); }
 .rule-head .rule-name::placeholder { color: var(--muted); font-weight: 500; }
 .keyword-with-remove { display: inline-flex; align-items: stretch; }
-.keyword-with-remove .keyword, .keyword-with-remove .folder-button { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.keyword-with-remove .keyword, .keyword-with-remove .folder-button { border-top-right-radius: 0; border-bottom-right-radius: 0; min-width: 0; flex: 1; }
 .keyword-with-remove .keyword-remove { border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 0 .55em; }
 .keyword-with-remove .keyword-remove:hover { color: var(--danger); }
 .query-editor .rule-value .keyword-with-remove { flex: 1; min-width: 8em; display: flex; }
+.merge-menu { width: 7em; }

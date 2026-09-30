@@ -1,7 +1,7 @@
 // A rule's conditions edited with react-querybuilder; esbuild bundles this file into query-editor.bundle.js.
 
 import { createRoot } from 'react-dom/client';
-import { QueryBuilder, update, remove } from 'react-querybuilder';
+import { QueryBuilder, ActionElement, update, remove } from 'react-querybuilder';
 import { QueryBuilderDnD } from '@react-querybuilder/dnd';
 import * as ReactDnD from 'react-dnd';
 import * as ReactDndHtml5Backend from 'react-dnd-html5-backend';
@@ -118,8 +118,8 @@ const translations = {
   addGroup: { label: '+ Group', title: 'Add a group with its own rule setting' },
   removeRule: { label: '×', title: 'Remove condition' },
   removeGroup: { label: 'Remove group', title: 'Remove group' },
-  cloneRule: { label: 'Copy', title: 'Add a copy of this condition' },
-  cloneRuleGroup: { label: 'Copy group', title: 'Add a copy of this group' },
+  cloneRule: { label: '⧉', title: 'Add a copy of this condition' },
+  cloneRuleGroup: { label: '⧉', title: 'Add a copy of this group' },
   dragHandle: { label: '⠿', title: 'Drag to move, into another group too' },
 };
 
@@ -133,6 +133,17 @@ const classNames = {
   cloneRule: 'small',
   cloneGroup: 'small',
 };
+
+// The Copy button of a condition or group, followed by one that moves it into a new rule of its own.
+function CopyAndMove(props) {
+  return (
+    <>
+      <ActionElement {...props} />
+      <button type="button" className="small" title="Move this into a new rule with the same destination, folders and ranking"
+        aria-label="Move to a new rule" onClick={() => props.context.moveToNewRule(props.ruleOrGroup.id)}>↗</button>
+    </>
+  );
+}
 
 // Drag and drop between groups, through react-querybuilder's own add-on.
 const dnd = { ...ReactDnD, ...ReactDndHtml5Backend };
@@ -151,7 +162,7 @@ function Editor({ query, onChange, context }) {
       getDefaultOperator="contains"
       getDefaultValue={() => ''}
       onAddRule={(rule) => ({ ...newCondition(rule.field, rule.operator), id: rule.id })}
-      controlElements={{ combinatorSelector: RuleSelector, fieldSelector: FieldSelector, valueEditor: KeywordEditor, removeRuleAction: () => null }}
+      controlElements={{ combinatorSelector: RuleSelector, fieldSelector: FieldSelector, valueEditor: KeywordEditor, cloneRuleAction: CopyAndMove, cloneGroupAction: CopyAndMove, removeRuleAction: () => null }}
       context={context}
       controlClassnames={classNames}
       translations={translations}
@@ -163,8 +174,9 @@ function Editor({ query, onChange, context }) {
 
 // Shows the editor for `query` in `element` and reports each change; `root` is the bookmark tree the folder picker shows.
 // Call the result to take it down again.
-export function mountQueryEditor(element, query, onChange, { root: tree }) {
+// `moveToNewRule` is called with the id of a condition or group to lift out into a new rule.
+export function mountQueryEditor(element, query, onChange, { root: tree, moveToNewRule }) {
   const root = createRoot(element);
-  root.render(<Editor query={query} onChange={onChange} context={{ root: tree }} />);
+  root.render(<Editor query={query} onChange={onChange} context={{ root: tree, moveToNewRule }} />);
   return () => root.unmount();
 }
