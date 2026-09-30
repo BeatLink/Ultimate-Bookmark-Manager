@@ -1,6 +1,7 @@
 // Persistent settings, whitelist and saved link-check results in storage.local.
 
 import { DEFAULT_MATCHING } from './duplicates.js';
+import { dropRetiredRanking } from './rule-order.js';
 
 export const DEFAULT_SETTINGS = {
   matching: { ...DEFAULT_MATCHING },
@@ -29,7 +30,10 @@ export function merge(defaults, stored) {
 
 export async function loadSettings(storage = browser.storage.local) {
   const { settings } = await storage.get('settings');
-  return merge(DEFAULT_SETTINGS, settings);
+  const loaded = merge(DEFAULT_SETTINGS, settings);
+  // Priority numbers and fallback flags are retired; ranking lists replace them.
+  loaded.organize.rules = dropRetiredRanking(loaded.organize.rules ?? []);
+  return loaded;
 }
 
 export async function saveSettings(settings, storage = browser.storage.local) {

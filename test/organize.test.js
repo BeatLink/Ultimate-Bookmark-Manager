@@ -82,16 +82,6 @@ test('only what matched counts: extra alternatives do not add specificity', () =
   assert.equal(moves[0].score, 20);
 });
 
-test('priority beats specificity, and catch-alls lose to any match unless given priority', async () => {
-  const { newCatchAll } = await import('../src/lib/organize.js');
-  const flat = [{ id: 'of', type: 'folder', title: 'Other Bookmarks', path: [] }, bm('a', 'Rust', 'https://doc.rust-lang.org/book/', ['Other Bookmarks'])];
-  const path = rule('path', [cond('startsWith', 'https://doc.rust-lang.org/book/', { field: 'url' })], 'Path');
-  const keyword = rule('kw', [cond('contains', 'rust')], 'Keyword');
-  const catchAll = { ...newCatchAll(['Other Bookmarks']), id: 'ca', target: 'Other Bookmarks/Inbox' };
-  assert.equal(planMoves(flat, [path, keyword, catchAll], roots).moves[0].ruleId, 'path');
-  assert.equal(planMoves(flat, [path, { ...keyword, priority: 1 }, catchAll], roots).moves[0].ruleId, 'kw');
-  assert.equal(planMoves(flat, [path, keyword, { ...catchAll, priority: 5 }], roots).moves[0].ruleId, 'ca');
-});
 
 test('invalid and disabled rules are left out of the plan', () => {
   const flat = [bm('a', 'x', 'https://a.test')];
@@ -242,24 +232,6 @@ test('a catch-all rule needs a source folder', async () => {
 });
 
 
-test('a fallback rule only takes what no normal rule matches, and still beats catch-alls', async () => {
-  const { newCatchAll } = await import('../src/lib/organize.js');
-  const flat = [
-    { id: 'of', type: 'folder', title: 'Other Bookmarks', path: [] },
-    bm('v1', 'CCNA subnetting explained', 'https://www.youtube.com/watch?v=abc', ['Other Bookmarks']),
-    bm('v2', 'Lo-fi beats', 'https://www.youtube.com/watch?v=xyz', ['Other Bookmarks']),
-    bm('n1', 'Random page', 'https://example.com/', ['Other Bookmarks']),
-  ];
-  const ccna = rule('ccna', [cond('contains', 'ccna')], 'Bookmarks Menu/Career', { createdAt: 1 });
-  const youtube = rule('yt', [cond('domain', 'youtube.com')], 'Bookmarks Menu/YouTube', { createdAt: 2, fallback: true });
-  const inbox = { ...newCatchAll(['Other Bookmarks']), id: 'inbox', target: 'Other Bookmarks/Inbox', createdAt: 3 };
-  const where = (rules) => Object.fromEntries(planMoves(flat, rules, roots).moves.map((m) => [m.bookmark.id, m.ruleId]));
-  assert.deepEqual(where([ccna, youtube, inbox]), { v1: 'ccna', v2: 'yt', n1: 'inbox' }, 'the more specific domain match still loses to a normal rule');
-  assert.deepEqual(where([ccna, { ...youtube, fallback: false }, inbox]), { v1: 'yt', v2: 'yt', n1: 'inbox' }, 'without the flag, domain (50) beats keyword (20)');
-  assert.deepEqual(where([{ ...ccna, priority: -1 }, youtube, inbox]), { v1: 'yt', v2: 'yt', n1: 'inbox' }, 'priority still comes first');
-  const plan = planMoves(flat, [ccna, youtube, inbox], roots).moves.find((m) => m.bookmark.id === 'v2');
-  assert.ok(plan.fallback);
-});
 
 test('whole words stops keywords matching inside other words', async () => {
   const { occurrences, newCondition } = await import('../src/lib/organize.js');
@@ -290,27 +262,6 @@ test('the winning rule explains what matched and where', () => {
   assert.deepEqual(planMoves([b], [all], roots).moves[0].why.terms, [{ value: 'cisco', on: ['title'] }], 'exclusions add nothing to highlight');
 });
 
-test('every matching rule is listed strongest first, each loser with why it lost', async () => {
-  const { newCatchAll } = await import('../src/lib/organize.js');
-  const flat = [{ id: 'of', type: 'folder', title: 'Other Bookmarks', path: [] }, bm('v', 'CCNA subnetting video', 'https://www.youtube.com/watch?v=1', ['Other Bookmarks'])];
-  const ccna = rule('ccna', [cond('contains', 'ccna')], 'Bookmarks Menu/Career', { createdAt: 5 });
-  const video = rule('video', [cond('contains', 'video')], 'Bookmarks Menu/Videos', { createdAt: 1 });
-  const subnet = rule('subnet', [cond('contains', 'subnetting,ccna', { match: 'any' })], 'Bookmarks Menu/Networking', { createdAt: 2 });
-  const yt = rule('yt', [cond('domain', 'youtube.com')], 'Bookmarks Menu/YouTube', { fallback: true, createdAt: 3 });
-  const pinned = rule('pinned', [cond('contains', 'video')], 'Bookmarks Menu/Pinned', { priority: -1, createdAt: 9 });
-  const inbox = { ...newCatchAll(['Other Bookmarks']), id: 'inbox', target: 'Other Bookmarks/Inbox' };
-  const [m] = planMoves(flat, [inbox, yt, video, pinned, ccna, subnet], roots).moves;
-  assert.deepEqual(m.ranking.map((r) => [r.ruleId, r.score, r.lost]), [
-    ['subnet', 40, null],
-    ['ccna', 20, 'less specific (20 vs 40)'],
-    ['video', 20, 'less specific (20 vs 40)'],
-    ['yt', 50, 'fallback rules give way to normal rules'],
-    ['inbox', -1, 'catch-alls only take what no other rule matches'],
-    ['pinned', 20, 'lower priority (-1 vs 0)'],
-  ]);
-  assert.equal(m.ruleId, 'subnet');
-  assert.deepEqual(m.ranking[1].why.terms, [{ value: 'ccna', on: ['title'] }]);
-});
 
 test('conditions can look at one part of the address', async () => {
   const { urlPart } = await import('../src/lib/organize.js');
@@ -374,4 +325,96 @@ test('the plan counts every bookmark each valid rule matches, disabled rules and
   assert.deepEqual(Object.fromEntries(matches), { rust: 2, video: 1, off: 1 });
   assert.deepEqual(Object.fromEntries(wins), { rust: 1, video: 1 });
   assert.equal(moves.length, 2);
+});
+
+test('an address condition always outranks keyword matches, however many', async () => {
+  const { formatScore } = await import('../src/lib/specificity.js');
+  const flat = [bm('v', 'CCNA subnetting and routing lab guide', 'https://www.youtube.com/@NetworkChuck/videos')];
+  const words = rule('words', [cond('contains', 'ccna,subnetting,routing,lab')], 'Words', { createdAt: 9 });
+  const addr = (id, c) => rule(id, [c], id, { createdAt: 1 });
+  const win = (...rs) => planMoves(flat, rs, roots).moves[0];
+  // The case reported: a site plus path typed into "address contains" scored 20 and lost to title keywords.
+  let m = win(words, addr('sitePath', cond('contains', 'youtube.com/@NetworkChuck', { field: 'url' })));
+  assert.equal(m.ruleId, 'sitePath');
+  assert.equal(formatScore(m.score), 'address 110');
+  assert.match(m.ranking[1].lost, /less specific \(keywords 80 vs address 110\)/);
+  // Even a bare word looked for only in the address outranks four title keywords.
+  m = win(words, addr('addrWord', cond('contains', 'videos', { field: 'url' })));
+  assert.equal(m.ruleId, 'addrWord');
+  assert.equal(formatScore(m.score), 'address 20');
+  // Structured address text scores by what it spells out.
+  assert.equal(formatScore(win(addr('host', cond('contains', 'youtube.com', { field: 'host' }))).score), 'address 50');
+  assert.equal(formatScore(win(addr('path', cond('contains', '/@NetworkChuck/videos', { field: 'path' }))).score), 'address 120');
+  // Within the address tier, more specific still wins; keywords only break ties between equal address scores.
+  const both = rule('both', [cond('domain', 'youtube.com'), cond('contains', 'ccna', { field: 'title' })], 'Both', { match: 'all', createdAt: 1 });
+  m = win(both, addr('dom', cond('domain', 'youtube.com')));
+  assert.equal(m.ruleId, 'both');
+  assert.equal(formatScore(m.score), 'address 50 + keywords 20');
+  // A "title or address" keyword stays a keyword condition, even when it matches in the address.
+  assert.equal(formatScore(win(rule('either', [cond('contains', 'videos')], 'E')).score), 'keywords 20');
+});
+
+test('a ranking list decides between related rules; specificity only between unrelated ones', async () => {
+  const { newCatchAll } = await import('../src/lib/organize.js');
+  const flat = [{ id: 'of', type: 'folder', title: 'Other Bookmarks', path: [] },
+    bm('v1', 'CCNA subnetting explained', 'https://www.youtube.com/watch?v=abc', ['Other Bookmarks']),
+    bm('v2', 'Lo-fi beats', 'https://www.youtube.com/watch?v=xyz', ['Other Bookmarks']),
+    bm('n1', 'Random page', 'https://example.com/', ['Other Bookmarks'])];
+  const yt = rule('yt', [cond('domain', 'youtube.com')], 'Bookmarks Menu/YouTube', { createdAt: 2 });
+  const ccna = rule('ccna', [cond('contains', 'ccna')], 'Bookmarks Menu/Career', { createdAt: 1 });
+  const inbox = { ...newCatchAll(['Other Bookmarks']), id: 'inbox', target: 'Other Bookmarks/Inbox', createdAt: 3 };
+  const where = (rules) => Object.fromEntries(planMoves(flat, rules, roots).moves.map((m) => [m.bookmark.id, m.ruleId]));
+  assert.deepEqual(where([ccna, yt, inbox]), { v1: 'yt', v2: 'yt', n1: 'inbox' }, 'unrelated: the address match wins');
+  assert.deepEqual(where([{ ...ccna, outranks: ['yt'] }, yt, inbox]), { v1: 'ccna', v2: 'yt', n1: 'inbox' }, 'CCNA ranks above YouTube');
+  assert.deepEqual(where([ccna, yt, { ...inbox, outranks: ['yt'] }]), { v1: 'ccna', v2: 'inbox', n1: 'inbox' }, 'a list can put a catch-all above YouTube; CCNA is unrelated to it, so built-in ranking puts CCNA first');
+});
+
+test('ranking lists follow through other rules, and loops are flagged and ignored', async () => {
+  const { buildOrder, eligibleToOutrank, rankCandidates } = await import('../src/lib/rule-order.js');
+  const { rankingWarnings } = await import('../src/lib/organize.js');
+  const a = { id: 'a', name: 'A', outranks: ['b'] };
+  const b = { id: 'b', name: 'B', outranks: ['c'] };
+  const c = { id: 'c', name: 'C', outranks: [] };
+  const d = { id: 'd', name: 'D', outranks: [] };
+  const order = buildOrder([a, b, c, d]);
+  assert.ok(order.ranksAbove('a', 'c'), 'A ranks above C through B');
+  assert.ok(!order.ranksAbove('c', 'a') && !order.ranksAbove('a', 'd'));
+  assert.deepEqual(eligibleToOutrank(c, [a, b, c, d]).map((r) => r.id), ['d'], 'C cannot list A or B: that would make a loop');
+  assert.deepEqual(eligibleToOutrank(a, [a, b, c, d]).map((r) => r.id), ['c', 'd'], 'already listed and itself are left out');
+  // Rank order: related rules by the list, unrelated ones by score.
+  const cand = (rule, score) => ({ rule, score, index: 0 });
+  const ranked = rankCandidates([cand(c, 900), cand(d, 50), cand(a, 20), cand(b, 10)], order);
+  assert.deepEqual(ranked.map((x) => x.rule.id), ['d', 'a', 'b', 'c'], 'C scores highest but A and B both rank above it');
+  // A loop that slipped in (say from an import) is reported, and its links ignored.
+  const loopA = { id: 'a', name: 'A', outranks: ['b'] };
+  const loopB = { id: 'b', name: 'B', outranks: ['a'] };
+  const loopOrder = buildOrder([loopA, loopB, c]);
+  assert.ok(!loopOrder.ranksAbove('a', 'b') && !loopOrder.ranksAbove('b', 'a'));
+  assert.match(rankingWarnings([loopA, loopB, c]).get('a')[0], /“A”, “B”|“B”, “A”/);
+  assert.equal(rankingWarnings([a, b, c]).size, 0);
+});
+
+test('every matching rule is listed strongest first, each loser with why it lost', async () => {
+  const { newCatchAll } = await import('../src/lib/organize.js');
+  const { formatScore } = await import('../src/lib/specificity.js');
+  const flat = [{ id: 'of', type: 'folder', title: 'Other Bookmarks', path: [] }, bm('v', 'CCNA subnetting video', 'https://www.youtube.com/watch?v=1', ['Other Bookmarks'])];
+  const ccna = rule('ccna', [cond('contains', 'ccna')], 'Bookmarks Menu/Career', { createdAt: 5, name: 'CCNA', outranks: ['yt'] });
+  const subnet = rule('subnet', [cond('contains', 'subnetting,video')], 'Bookmarks Menu/Networking', { createdAt: 2 });
+  const video = rule('video', [cond('contains', 'video')], 'Bookmarks Menu/Videos', { createdAt: 1 });
+  const yt = rule('yt', [cond('domain', 'youtube.com')], 'Bookmarks Menu/YouTube', { createdAt: 3 });
+  const inbox = { ...newCatchAll(['Other Bookmarks']), id: 'inbox', target: 'Other Bookmarks/Inbox' };
+  const [m] = planMoves(flat, [inbox, yt, video, ccna, subnet], roots).moves;
+  assert.deepEqual(m.ranking.map((r) => [r.ruleId, formatScore(r.score), r.lost]), [
+    ['subnet', 'keywords 40', null],
+    ['ccna', 'keywords 20', 'less specific (keywords 20 vs keywords 40)'],
+    ['yt', 'address 50', 'ranked below “CCNA” by your rule order'],
+    ['video', 'keywords 20', 'less specific (keywords 20 vs keywords 40)'],
+    ['inbox', 'catch-all', 'catch-alls only take what no other rule matches'],
+  ]);
+});
+
+test('retired priority numbers and fallback flags are dropped when settings load', async () => {
+  const { dropRetiredRanking } = await import('../src/lib/rule-order.js');
+  const out = dropRetiredRanking([{ id: 'a', priority: 3, fallback: true, outranks: ['b'] }, { id: 'b' }]);
+  assert.deepEqual(out, [{ id: 'a', outranks: ['b'] }, { id: 'b' }]);
 });

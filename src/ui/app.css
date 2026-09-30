@@ -242,7 +242,6 @@ dialog.folder-picker::backdrop { background: rgb(0 0 0 / .35); }
 .folder-toggle[aria-expanded="true"] .chevron::before { transform: rotate(90deg); }
 .score-chip { flex: none; font-size: .8em; font-family: ui-monospace, monospace; padding: .1em .5em; border-radius: 1em; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
 .score-chip.prioritised { border-color: var(--accent); color: var(--accent); font-weight: 600; }
-.priority-input { width: 5em; }
 .orphan-rules { border: 1px dashed var(--warn); border-radius: var(--radius); padding: .5em .75em; }
 .orphan-rules h2 { font-size: 1em; }
 
@@ -297,7 +296,6 @@ button.bar-row { cursor: pointer; }
   .viz-grid { grid-template-columns: minmax(0, 1fr); }
   .stat-tile.hero .stat-value { font-size: 2.6em; }
 }
-.rule-card.fallback { border-left: 3px dashed var(--border); }
 
 mark { background: var(--mark-bg); color: var(--text); border-radius: 2px; padding: 0 1px; }
 .bm-meta .matched { color: var(--text); }
@@ -309,3 +307,5 @@ mark { background: var(--mark-bg); color: var(--text); border-radius: 2px; paddi
 .ranking-pick { border: 1px solid transparent; background: none; padding: .1em .4em; border-radius: var(--radius); text-align: left; font: inherit; color: inherit; margin-left: -.4em; }
 .ranking-pick:hover { background: var(--hover); }
 .ranking-pick[aria-pressed="true"] { border-color: var(--accent); background: var(--hover); }
+.ranks-above { display: flex; flex-direction: column; gap: .3em; width: 100%; }
+.ranks-above select { max-width: 24em; }

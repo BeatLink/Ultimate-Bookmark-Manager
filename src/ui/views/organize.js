@@ -3,7 +3,9 @@
 import { h, Selection, toast, confirmDialog } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, tagInput, pickFolder, marked } from '../components.js';
 import { saveSettings } from '../../lib/settings.js';
-import { WORD_OPS, ADDRESS_OPS, OPERATORS, FIELDS, MODES, newRule, newCatchAll, newCondition, newGroup, isGroup, keywords, duplicateRule, planMoves, resolveTarget, maxScore } from '../../lib/organize.js';
+import { WORD_OPS, ADDRESS_OPS, OPERATORS, FIELDS, MODES, newRule, newCatchAll, newCondition, newGroup, isGroup, keywords, duplicateRule, planMoves, resolveTarget, maxScore, rankingWarnings } from '../../lib/organize.js';
+import { eligibleToOutrank } from '../../lib/rule-order.js';
+import { formatScore } from '../../lib/specificity.js';
 
 // Unsaved edits live here so they survive the re-render that follows any other action.
 let draft = null;
@@ -171,7 +173,7 @@ function rankingList(move) {
         h('strong', { text: r.ruleName || 'Unnamed rule' }),
         h('span', { class: 'muted', text: ` → ${r.target.path.join(' › ')}` })),
       h('div', { class: 'small muted' },
-        [r.priority ? `priority ${r.priority}` : '', r.catchAll ? 'catch-all' : r.fallback ? 'fallback' : '', r.catchAll ? '' : `specificity ${r.score}`,
+        [r.catchAll ? 'catch-all' : formatScore(r.score),
           r.why?.terms.length ? `matched ${matchedText(r.why)}` : ''].filter(Boolean).join(' · ')),
       h('div', { class: 'small' }, r.lost ? h('span', { class: 'lost-reason', text: `Lost: ${r.lost}` }) : h('strong', { class: 'won-label', text: 'Wins' }))))));
   } }, h('summary', { text: `All ${move.others + 1} matching rules` }));
@@ -181,14 +183,45 @@ function rankingList(move) {
 // How many rows each preview group shows before a "Show more" button.
 const PREVIEW_ROWS = 100;
 
-const SPECIFICITY_HELP = 'Specificity if every condition matches (only the ones that match a bookmark count): exact address 1000, address path 100 + 10 per segment (+10 more when exact), exact query string 80, subdomain 60, query parameter with value 60, domain 50, exact title 40, query parameter 30, keyword 20, regex 15.';
+const SPECIFICITY_HELP = 'Most this rule can score when every condition matches; only conditions that match a bookmark count. Conditions on the address always outrank keywords: exact address 1000, address path 100 + 10 per segment, exact query string 80, subdomain or query parameter with value 60, domain 50, query parameter 30, other address text 20. Keyword conditions (title, or title or address): exact title 40, keyword 20, regex 15.';
+
+const ruleLabel = (r) => `${r.name || 'Unnamed rule'} → ${r.target ? r.target.split('/').join(' › ') : 'no folder yet'}`;
+
+// The rules this one ranks above, as removable chips, and a menu offering only rules that would not make a loop.
+function ranksAbovePicker(rule, rules, redraw) {
+  const byId = new Map(rules.map((r) => [r.id, r]));
+  const listed = (rule.outranks ?? []).filter((id) => byId.has(id));
+  const offered = eligibleToOutrank(rule, rules);
+  const blocked = rules.filter((r) => r !== rule && !listed.includes(r.id) && !offered.includes(r));
+  const above = rules.filter((r) => r.outranks?.includes(rule.id));
+  const menu = h('select', { 'aria-label': 'Add a rule this one ranks above', onchange: (e) => {
+    if (!e.target.value) return;
+    rule.outranks = [...listed, e.target.value];
+    redraw();
+  } },
+  h('option', { value: '', text: offered.length ? '+ Add a rule it ranks above…' : 'No other rules to add' }),
+  offered.map((r) => h('option', { value: r.id, text: ruleLabel(r) })));
+  menu.disabled = !offered.length;
+  return h('div', { class: 'ranks-above' },
+    h('div', { class: 'row wrap' }, h('span', { text: 'Ranks above' }),
+      h('span', { class: 'row wrap source-list' }, listed.length
+        ? listed.map((id) => h('span', { class: 'tag' },
+          h('span', { class: 'tag-text', text: ruleLabel(byId.get(id)) }),
+          h('button', { class: 'tag-remove', text: '×', 'aria-label': `Stop ranking above “${byId.get(id).name || 'Unnamed rule'}”`, onclick: () => {
+            rule.outranks = listed.filter((x) => x !== id);
+            redraw();
+          } })))
+        : [h('span', { class: 'muted', text: 'No rules' })]),
+      menu),
+    h('p', { class: 'muted small', text: 'When this rule and one listed here both match a bookmark, this rule wins. Rules no list relates are ranked by how specific their match is, address conditions first.' }),
+    blocked.length > 0 && h('p', { class: 'muted small', text: `Not offered, as it would make a loop: ${blocked.map((r) => `“${r.name || 'Unnamed rule'}”`).join(', ')} (already ranked above this rule).` }),
+    above.length > 0 && h('p', { class: 'small', text: `Ranked below: ${above.map((r) => `“${r.name || 'Unnamed rule'}”`).join(', ')}` }));
+}
 
 // A rule as a one-line summary row that expands into its editor; `parts` receives the bits refreshed while editing.
 function ruleCard(ctx, rule, rules, redraw, changed, parts) {
   const bodyId = `rule-body-${rule.id}`;
   const isOpen = expanded.has(rule.id);
-  const priority = h('input', { type: 'number', step: 1, class: 'priority-input', value: String(Number(rule.priority) || 0), 'aria-label': 'Priority',
-    oninput: (e) => { rule.priority = Math.round(Number(e.target.value)) || 0; changed(); } });
   const body = h('div', { class: 'rule-body', id: bodyId, hidden: !isOpen });
   // The editor is only built the first time the rule is opened.
   const fillBody = () => body.append(
@@ -196,15 +229,10 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
       h('input', { type: 'text', class: 'grow rule-name', value: rule.name, placeholder: 'Rule name (optional)', 'aria-label': 'Rule name', oninput: (e) => { rule.name = e.target.value; changed(); } })),
     sourcesPicker(ctx, rule, changed),
     rule.catchAll
-      ? h('p', { class: 'muted small', text: 'Moves every bookmark in the folders above that no other rule matches. Any matching rule beats it unless you give this one a higher priority.' })
+      ? h('p', { class: 'muted small', text: 'Moves every bookmark in the folders above that no other rule matches. Any matching rule beats it unless this one is set to rank above it.' })
       : groupEditor(rule, changed, null),
-    !rule.catchAll && h('label', { class: 'check-line' },
-      h('input', { type: 'checkbox', checked: !!rule.fallback, 'aria-label': 'Fallback', onchange: (e) => { rule.fallback = e.target.checked; redraw(); } }),
-      h('span', {}, 'Fallback: only use this rule when no other rule matches',
-        h('span', { class: 'muted small', text: ' — for broad sites like YouTube or Reddit, so a more specific rule (say, CCNA) wins for the pages it covers. Catch-alls still come after it.' }))),
-    h('label', { class: 'row wrap' }, 'Priority', priority,
-      h('span', { class: 'muted small', text: 'A higher priority always wins. Leave it at 0 to let the most specific match decide.' })),
     h('div', { class: 'row wrap target' }, 'Destination folder', targetPicker(ctx, rule, redraw)),
+    ranksAbovePicker(rule, rules, redraw),
     parts.info);
   if (isOpen) fillBody();
 
@@ -223,7 +251,7 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
   }, h('span', { class: 'chevron', 'aria-hidden': 'true' }),
   h('span', { class: 'rule-headline' }, parts.title));
 
-  const card = h('li', { class: `rule-card${rule.enabled === false ? ' disabled' : ''}${isOpen ? ' open' : ''}${rule.catchAll ? ' catch-all' : ''}${rule.fallback && !rule.catchAll ? ' fallback' : ''}`, 'data-rule': rule.id },
+  const card = h('li', { class: `rule-card${rule.enabled === false ? ' disabled' : ''}${isOpen ? ' open' : ''}${rule.catchAll ? ' catch-all' : ''}`, 'data-rule': rule.id },
     h('div', { class: 'rule-head' },
       h('input', { type: 'checkbox', checked: rule.enabled !== false, 'aria-label': 'Rule enabled', title: 'Enabled', onchange: (e) => { rule.enabled = e.target.checked; redraw(); } }),
       parts.score,
@@ -241,7 +269,13 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
           name?.focus();
           name?.select();
         } }),
-        h('button', { class: 'small danger', text: 'Delete', onclick: () => { expanded.delete(rule.id); rules.splice(rules.indexOf(rule), 1); redraw(); } }))),
+        h('button', { class: 'small danger', text: 'Delete', onclick: () => {
+          expanded.delete(rule.id);
+          rules.splice(rules.indexOf(rule), 1);
+          // Other rules stop listing it.
+          for (const r of rules) if (r.outranks?.includes(rule.id)) r.outranks = r.outranks.filter((id) => id !== rule.id);
+          redraw();
+        } }))),
     body);
   return card;
 }
@@ -396,6 +430,7 @@ export default {
       refreshInfo(moves, problems, wins, matches);
     };
     const refreshInfo = (moves, problems, wins, matches) => {
+      const warnings = rankingWarnings(rules);
       const incoming = new Map();
       const moving = new Map();
       for (const m of moves) {
@@ -413,12 +448,11 @@ export default {
         if (!parts) continue;
         parts.title.textContent = r.name || 'Unnamed rule';
         parts.title.classList.toggle('muted', !r.name);
-        const p = Number(r.priority) || 0;
+        const above = (r.outranks ?? []).filter((id) => rules.some((x) => x.id === id)).length;
         const spec = maxScore(r);
-        parts.score.textContent = `${p ? `P${p} · ` : ''}${r.catchAll ? 'catch-all' : `${r.fallback ? 'fallback · ' : ''}≤ ${spec}`}`;
-        parts.score.title = `${p ? `Priority ${p}: beats every rule with a lower priority. ` : ''}${r.catchAll ? 'A catch-all loses to any matching rule of the same priority.'
-          : `${r.fallback ? 'Fallback: loses to any normal rule that also matches, of the same priority; beats catch-alls. ' : ''}${SPECIFICITY_HELP}`}`;
-        parts.score.classList.toggle('prioritised', p !== 0);
+        parts.score.textContent = `${r.catchAll ? 'catch-all' : `≤ ${formatScore(spec)}`}${above ? ` · above ${above}` : ''}`;
+        parts.score.title = `${above ? `Ranks above ${above} rule(s) by your ranking lists. ` : ''}${r.catchAll ? 'A catch-all loses to any matching rule unless it is set to rank above it.' : SPECIFICITY_HELP}`;
+        parts.score.classList.toggle('prioritised', above > 0);
         const issues = problems.get(r.id);
         if (issues) {
           parts.info.replaceChildren(...issues.map((x) => h('p', { class: 'error small', text: x })));
@@ -430,7 +464,8 @@ export default {
         const matched = matches.get(r.id) ?? 0;
         const won = wins.get(r.id) ?? 0;
         const moves = moving.get(r.id) ?? 0;
-        parts.info.replaceChildren(h('p', { class: 'muted small', text: `Matches ${matched} bookmark(s) and wins ${won}: ${moves} would move, the rest are already in place.${matched > won ? ` ${matched - won} go to ${r.fallback ? 'a normal (non-fallback) rule, a rule with a higher priority, or a more specific match' : 'a rule with a higher priority or a more specific match'}.` : ''}` }));
+        parts.info.replaceChildren(h('p', { class: 'muted small', text: `Matches ${matched} bookmark(s) and wins ${won}: ${moves} would move, the rest are already in place.${matched > won ? ` ${matched - won} go to a rule ranked above it, or to a more specific match.` : ''}` }),
+          ...(warnings.get(r.id) ?? []).map((x) => h('p', { class: 'warn small', text: x })));
         parts.badge.textContent = r.enabled === false ? 'Off' : `${moves} to move`;
         parts.badge.className = `rule-badge${moves && r.enabled !== false ? ' active' : ''}`;
         parts.badge.title = `Matches ${matched}, wins ${won}, ${moves} would move`;
@@ -477,7 +512,7 @@ export default {
         editable: false,
         highlight: m.why,
         meta: [h('span', { class: 'matched', text: m.why?.terms.length ? `Matched ${matchedText(m.why)}` : '', hidden: !m.why?.terms.length }),
-          h('span', { text: `Rule: ${m.ruleName || 'unnamed'}${m.priority ? ` · priority ${m.priority}` : ''}${m.score >= 0 ? `${m.fallback ? ' · fallback' : ''} · specificity ${m.score}` : ' · catch-all'}${m.others ? ` · beat ${m.others} other matching rule(s)` : ''}` }),
+          h('span', { text: `Rule: ${m.ruleName || 'unnamed'}${m.score >= 0 ? ` · ${formatScore(m.score)}` : ' · catch-all'}${m.others ? ` · beat ${m.others} other matching rule(s)` : ''}` }),
           m.others > 0 && rankingList(m)],
       }));
       // Long groups show their first rows until asked, since thousands of rows make every refresh slow; selection still covers them all.
@@ -517,7 +552,7 @@ export default {
     };
 
     section.append(
-      viewHeader('Organize', 'Each folder lists the rules that file bookmarks into it. When several rules match a bookmark, the highest priority wins, then normal rules over fallback rules over catch-alls, then the most specific match, then the newest rule. Bookmarks already inside the winning rule’s folder stay where they are.',
+      viewHeader('Organize', 'Each folder lists the rules that file bookmarks into it. When several rules match a bookmark, a rule wins over any it ranks above (set in each rule’s “Ranks above” list). Between rules no list relates, the most specific match wins, with address conditions always ahead of keywords, then the newest rule; catch-alls only take what nothing else matches. Bookmarks already inside the winning rule’s folder stay where they are.',
         dirtyNote,
         h('button', { class: 'small', text: 'Discard changes', onclick: () => { draft = null; ctx.render(); } }),
         h('button', { class: 'primary', text: 'Save rules', onclick: () => save() })),

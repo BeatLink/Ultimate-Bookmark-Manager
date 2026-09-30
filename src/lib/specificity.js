@@ -15,8 +15,26 @@ export const POINTS = {
   regex: 15,
 };
 
-// A catch-all scores below any rule that matched, so it only wins when nothing else does (or through priority).
+// A catch-all scores below any rule that matched, so it only wins when nothing else does (or a ranking list says so).
 export const CATCH_ALL_SCORE = -1;
+
+// Points from conditions on the address are worth this many keyword points, so any address match outranks any
+// number of title or keyword matches, while matches in the same tier still compare by points.
+export const ADDRESS_TIER = 10000;
+
+// A score split into its address and keyword parts.
+export function splitScore(score) {
+  if (score < 0) return { address: 0, keywords: 0, catchAll: true };
+  return { address: Math.floor(score / ADDRESS_TIER), keywords: score % ADDRESS_TIER, catchAll: false };
+}
+
+// A score as people read it: "address 110 + keywords 40", never the combined number.
+export function formatScore(score) {
+  const { address, keywords, catchAll } = splitScore(score);
+  if (catchAll) return 'catch-all';
+  const parts = [address && `address ${address}`, keywords && `keywords ${keywords}`].filter(Boolean);
+  return parts.length ? parts.join(' + ') : '0';
+}
 
 // Second-level labels that belong to the country ending, so "bbc.co.uk" is a domain and "news.bbc.co.uk" a subdomain.
 const SECOND_LEVEL = new Set(['co', 'com', 'org', 'net', 'ac', 'gov', 'edu', 'ne', 'or']);
@@ -45,9 +63,24 @@ export function prefixPoints(value) {
   return segments ? POINTS.path + segments * POINTS.pathSegment : domainPoints(u.hostname);
 }
 
+// "youtube.com/@channel" found in an address scores as a site plus a path; a plain word as a keyword.
+export function addressTextPoints(value) {
+  const text = String(value);
+  if (!/^[\w.-]+\.[a-z]{2,}(\/|$)/i.test(text.replace(/^[a-z][a-z0-9+.-]*:\/\//i, ''))) {
+    return text.startsWith('/') ? pathPoints(text) : POINTS.keyword;
+  }
+  return prefixPoints(text);
+}
+
 // Points for one keyword that matched, given which part of the bookmark it matched.
 export function valuePoints(op, value, on) {
   if (op === 'domain') return domainPoints(value);
+  // Text looked for in a part of the address scores by what it spells out, not as a single word.
+  if (op === 'contains' || op === 'containsAll' || op === 'startsWith') {
+    if (on === 'host' && String(value).includes('.')) return domainPoints(value);
+    if (on === 'path' && String(value).includes('/')) return pathPoints(value);
+    if (on === 'url' && /[./]/.test(String(value)) && op !== 'startsWith') return addressTextPoints(value);
+  }
   if (op === 'param') return String(value).includes('=') ? POINTS.paramValue : POINTS.param;
   if (op === 'regex') return POINTS.regex;
   if (op === 'equals') {

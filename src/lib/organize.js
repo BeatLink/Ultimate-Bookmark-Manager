@@ -1,7 +1,8 @@
 // Organize rules: match bookmarks by title, address or part of the address and plan moves into target folders.
 
 import { byText } from './text.js';
-import { valuePoints, CATCH_ALL_SCORE } from './specificity.js';
+import { valuePoints, CATCH_ALL_SCORE, ADDRESS_TIER, formatScore } from './specificity.js';
+import { buildOrder, rankCandidates, lostBecause } from './rule-order.js';
 
 export const OPERATORS = {
   contains: 'contains any of',
@@ -65,8 +66,8 @@ export function newRule() {
     target: '',
     sources: [],
     sourceSubfolders: true,
-    // Compared before specificity, so a higher number makes this rule win regardless.
-    priority: 0,
+    // The rules this one ranks above when both match; the built-in ranking only applies between unrelated rules.
+    outranks: [],
     createdAt: Date.now(),
   };
 }
@@ -259,7 +260,8 @@ function compileCondition(cond) {
       return found;
     };
   }
-  return { op: cond.op, values, fields, hit };
+  // Conditions aimed only at the address rank in the address tier; "title or address" stays a keyword condition.
+  return { op: cond.op, values, fields, hit, tier: fields.includes('title') ? 1 : ADDRESS_TIER };
 }
 
 // A rule's conditions prepared once per plan, with inactive items already dropped.
@@ -273,14 +275,15 @@ function conditionScore(c, text) {
   if (op === 'notContains') return fields.every((on) => !values.some((v) => hit(v, text, on))) ? 0 : null;
   if (op === 'containsAll') {
     // Every keyword has to be in the same part of the bookmark.
-    return fields.some((on) => values.every((v) => hit(v, text, on))) ? values.length * valuePoints('containsAll', '', 'title') : null;
+    const on = fields.find((f) => values.every((v) => hit(v, text, f)));
+    return on ? values.reduce((sum, v) => sum + valuePoints(op, v, on), 0) * c.tier : null;
   }
   let score = null;
   for (const v of values) {
     const on = fields.find((f) => hit(v, text, f));
     if (on) score = (score ?? 0) + valuePoints(op, v, on);
   }
-  return score;
+  return score === null ? null : score * c.tier;
 }
 
 function groupScore(group, text) {
@@ -312,7 +315,9 @@ export function maxScore(rule) {
   if (rule.catchAll) return CATCH_ALL_SCORE;
   const cond = (c) => {
     if (c.op === 'notContains') return 0;
-    return keywords(c).reduce((sum, v) => sum + Math.max(...fieldsOf(c).map((f) => valuePoints(c.op, v, f))), 0);
+    const fields = fieldsOf(c);
+    const tier = fields.includes('title') ? 1 : ADDRESS_TIER;
+    return keywords(c).reduce((sum, v) => sum + Math.max(...fields.map((f) => valuePoints(c.op, v, f))), 0) * tier;
   };
   const group = (g) => (g.match === 'none' ? 0 : activeItems(g).reduce((sum, item) => sum + (isGroup(item) ? group(item) : cond(item)), 0));
   return group(rule);
@@ -375,42 +380,6 @@ export function explainMatch(rule, bookmark) {
 // How specifically the rule matches the bookmark, or null when it does not match at all.
 export function ruleScore(rule, bookmark) {
   return scorer(rule)(bookmark);
-}
-
-// Normal rules outrank fallback rules, which outrank catch-alls; priority still comes first.
-export function tierOf(rule) {
-  if (rule.catchAll) return 0;
-  return rule.fallback ? 1 : 2;
-}
-
-// Whether candidate `a` beats `b`: higher priority, then a normal rule over a fallback over a catch-all,
-// then the more specific match, then the newer rule.
-export function beats(a, b) {
-  const pa = Number(a.rule.priority) || 0;
-  const pb = Number(b.rule.priority) || 0;
-  if (pa !== pb) return pa > pb;
-  const ta = tierOf(a.rule);
-  const tb = tierOf(b.rule);
-  if (ta !== tb) return ta > tb;
-  if (a.score !== b.score) return a.score > b.score;
-  const ca = a.rule.createdAt ?? 0;
-  const cb = b.rule.createdAt ?? 0;
-  if (ca !== cb) return ca > cb;
-  // Rules saved before creation times were recorded: later in the list counts as newer.
-  return a.index > b.index;
-}
-
-// Why a matching rule ranks below the winner, in terms of the first thing that separates them.
-export function lostBecause(loser, winner) {
-  const pl = Number(loser.rule.priority) || 0;
-  const pw = Number(winner.rule.priority) || 0;
-  if (pl !== pw) return `lower priority (${pl} vs ${pw})`;
-  if (tierOf(loser.rule) !== tierOf(winner.rule)) {
-    return loser.rule.catchAll ? 'catch-alls only take what no other rule matches' : 'fallback rules give way to normal rules';
-  }
-  if (loser.score !== winner.score) return `less specific (${loser.score} vs ${winner.score})`;
-  if ((loser.rule.createdAt ?? 0) !== (winner.rule.createdAt ?? 0)) return 'older rule, equally specific';
-  return 'earlier in the list, equally specific';
 }
 
 export function ruleMatches(rule, bookmark) {
@@ -503,11 +472,23 @@ export function validateRules(rules, rootFolders, flat = null) {
   return problems;
 }
 
-// Works out where each bookmark should go. Of the enabled, valid rules that match it and look in its folder,
-// the one with the highest priority wins, then the most specific match, then the newest rule.
+// Rules caught in a ranking loop, each with a note; the rules still run, only the links forming the loop are ignored.
+export function rankingWarnings(rules) {
+  const warnings = new Map();
+  for (const loop of buildOrder(rules).loops) {
+    const names = loop.map((r) => `“${r.name || 'Unnamed rule'}”`).join(', ');
+    for (const r of loop) warnings.set(r.id, [`${names} rank above each other in a loop, so those links are ignored until one is removed.`]);
+  }
+  return warnings;
+}
+
+// Works out where each bookmark should go. Of the enabled, valid rules that match it and look in its folder, a rule
+// wins over any it ranks above by the ranking lists; between rules no list relates, the more specific match wins
+// (address conditions before keywords), then the newer rule, and catch-alls only take what nothing else matches.
 // `tree` is the whole flattened tree, used to check source folders exist when `flat` holds only some bookmarks.
 export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree = flat) {
   const problems = validateRules(rules, rootFolders, tree);
+  const order = buildOrder(rules);
   // Disabled rules are still scored so the editor can say what they would match; they never win.
   const valid = rules
     .map((rule, index) => ({ rule, index }))
@@ -518,7 +499,6 @@ export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree
   const matches = new Map();
   for (const b of flat) {
     if (b.type !== 'bookmark' || ignoredIds.has(b.id)) continue;
-    let best = null;
     const candidates = [];
     for (const u of valid) {
       if (!inScope(u.sources, u.rule.sourceSubfolders !== false, b)) continue;
@@ -526,24 +506,23 @@ export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree
       if (score === null) continue;
       matches.set(u.rule.id, (matches.get(u.rule.id) ?? 0) + 1);
       if (!u.on) continue;
-      const candidate = { rule: u.rule, index: u.index, target: u.target, score };
-      candidates.push(candidate);
-      if (!best || beats(candidate, best)) best = candidate;
+      candidates.push({ rule: u.rule, index: u.index, target: u.target, score });
     }
-    if (!best) continue;
+    if (!candidates.length) continue;
+    // Ranking lists decide between related rules; the built-in ranking only between rules no list relates.
+    const ranked = candidates.length > 1 ? rankCandidates(candidates, order) : candidates;
+    const best = ranked[0];
     wins.set(best.rule.id, (wins.get(best.rule.id) ?? 0) + 1);
     // The winning rule decides even when the bookmark is already where it says, so a weaker rule cannot move it away.
     if (startsWithPath(b.path, best.target.path)) continue;
     let ranking = null;
-    moves.push({ bookmark: b, ruleId: best.rule.id, ruleName: best.rule.name, target: best.target, score: best.score, priority: Number(best.rule.priority) || 0, fallback: !!best.rule.fallback, others: candidates.length - 1, why: explainMatch(best.rule, b),
+    moves.push({ bookmark: b, ruleId: best.rule.id, ruleName: best.rule.name, target: best.target, score: best.score, others: candidates.length - 1, why: explainMatch(best.rule, b),
       // Every matching rule, strongest first, each with what it matched and, below the winner, why it lost; worked out when first read.
       get ranking() {
-        ranking ??= candidates
-          .sort((x, y) => (beats(x, y) ? -1 : beats(y, x) ? 1 : 0))
-          .map((c) => ({
-            ruleId: c.rule.id, ruleName: c.rule.name, target: c.target, score: c.score, priority: Number(c.rule.priority) || 0,
-            fallback: !!c.rule.fallback, catchAll: !!c.rule.catchAll, why: explainMatch(c.rule, b), lost: c === best ? null : lostBecause(c, best),
-          }));
+        ranking ??= ranked.map((c) => ({
+          ruleId: c.rule.id, ruleName: c.rule.name, target: c.target, score: c.score, catchAll: !!c.rule.catchAll,
+          why: explainMatch(c.rule, b), lost: c === best ? null : lostBecause(c, best, ranked, order, formatScore),
+        }));
         return ranking;
       } });
   }
