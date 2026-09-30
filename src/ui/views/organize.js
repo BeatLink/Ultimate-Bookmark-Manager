@@ -144,6 +144,10 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
       ? h('p', { class: 'muted small', text: 'Moves every bookmark in the folders above that no other rule matches. Any matching rule beats it unless you give this one a higher priority.' })
       : groupEditor(rule, changed, null),
     h('div', { class: 'row wrap target' }, 'Files into', targetPicker(ctx, rule, redraw)),
+    !rule.catchAll && h('label', { class: 'check-line' },
+      h('input', { type: 'checkbox', checked: !!rule.fallback, 'aria-label': 'Fallback', onchange: (e) => { rule.fallback = e.target.checked; redraw(); } }),
+      h('span', {}, 'Fallback: only use this rule when no other rule matches',
+        h('span', { class: 'muted small', text: ' — for broad sites like YouTube or Reddit, so a more specific rule (say, CCNA) wins for the pages it covers. Catch-alls still come after it.' }))),
     h('label', { class: 'row wrap' }, 'Priority', priority,
       h('span', { class: 'muted small', text: 'A higher priority always wins. Leave it at 0 to let the most specific match decide.' })),
     parts.info);
@@ -162,7 +166,7 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
   }, h('span', { class: 'chevron', 'aria-hidden': 'true' }),
   h('span', { class: 'rule-headline' }, parts.title, parts.summary, h('span', { class: 'rule-target' }, parts.target)));
 
-  const card = h('li', { class: `rule-card${rule.enabled === false ? ' disabled' : ''}${isOpen ? ' open' : ''}${rule.catchAll ? ' catch-all' : ''}`, 'data-rule': rule.id },
+  const card = h('li', { class: `rule-card${rule.enabled === false ? ' disabled' : ''}${isOpen ? ' open' : ''}${rule.catchAll ? ' catch-all' : ''}${rule.fallback && !rule.catchAll ? ' fallback' : ''}`, 'data-rule': rule.id },
     h('div', { class: 'rule-head' },
       h('input', { type: 'checkbox', checked: rule.enabled !== false, 'aria-label': 'Rule enabled', title: 'Enabled', onchange: (e) => { rule.enabled = e.target.checked; redraw(); } }),
       parts.score,
@@ -339,8 +343,9 @@ export default {
         parts.target.textContent = `${from}${r.target ? `→ ${r.target.split('/').join(' › ')}` : '→ no folder yet'}`;
         const p = Number(r.priority) || 0;
         const spec = maxScore(r);
-        parts.score.textContent = `${p ? `P${p} · ` : ''}${r.catchAll ? 'catch-all' : `≤ ${spec}`}`;
-        parts.score.title = `${p ? `Priority ${p}: beats every rule with a lower priority. ` : ''}${r.catchAll ? 'A catch-all loses to any matching rule of the same priority.' : SPECIFICITY_HELP}`;
+        parts.score.textContent = `${p ? `P${p} · ` : ''}${r.catchAll ? 'catch-all' : `${r.fallback ? 'fallback · ' : ''}≤ ${spec}`}`;
+        parts.score.title = `${p ? `Priority ${p}: beats every rule with a lower priority. ` : ''}${r.catchAll ? 'A catch-all loses to any matching rule of the same priority.'
+          : `${r.fallback ? 'Fallback: loses to any normal rule that also matches, of the same priority; beats catch-alls. ' : ''}${SPECIFICITY_HELP}`}`;
         parts.score.classList.toggle('prioritised', p !== 0);
         const issues = problems.get(r.id);
         if (issues) {
@@ -353,7 +358,7 @@ export default {
         const matched = ctx.state.flat.filter((b) => b.type === 'bookmark' && ruleApplies(r, b, roots)).length;
         const won = wins.get(r.id) ?? 0;
         const moving = moves.filter((m) => m.ruleId === r.id).length;
-        parts.info.replaceChildren(h('p', { class: 'muted small', text: `Matches ${matched} bookmark(s) and wins ${won}: ${moving} would move, the rest are already in place.${matched > won ? ` ${matched - won} go to a rule with a higher priority or a more specific match.` : ''}` }));
+        parts.info.replaceChildren(h('p', { class: 'muted small', text: `Matches ${matched} bookmark(s) and wins ${won}: ${moving} would move, the rest are already in place.${matched > won ? ` ${matched - won} go to ${r.fallback ? 'a normal (non-fallback) rule, a rule with a higher priority, or a more specific match' : 'a rule with a higher priority or a more specific match'}.` : ''}` }));
         parts.badge.textContent = r.enabled === false ? 'Off' : `${moving} to move`;
         parts.badge.className = `rule-badge${moving && r.enabled !== false ? ' active' : ''}`;
         parts.badge.title = `Matches ${matched}, wins ${won}, ${moving} would move`;
@@ -400,7 +405,7 @@ export default {
         h('h2', { class: 'group-title sticky' }, h('span', { text: `→ ${path.replaceAll('/', ' › ')} — ${group.length}` }), selectAllToggle(sel, group.map((m) => m.bookmark.id), 'Select group')),
         h('ul', { class: 'items' }, group.map((m) => row(sel, m.bookmark.id, bookmarkInfo(m.bookmark, ctx, {
           editable: false,
-          meta: h('span', { text: `Rule: ${m.ruleName || 'unnamed'}${m.priority ? ` · priority ${m.priority}` : ''}${m.score >= 0 ? ` · specificity ${m.score}` : ' · catch-all'}${m.others ? ` · beat ${m.others} other matching rule(s)` : ''}` }),
+          meta: h('span', { text: `Rule: ${m.ruleName || 'unnamed'}${m.priority ? ` · priority ${m.priority}` : ''}${m.score >= 0 ? `${m.fallback ? ' · fallback' : ''} · specificity ${m.score}` : ' · catch-all'}${m.others ? ` · beat ${m.others} other matching rule(s)` : ''}` }),
         })))))));
       bindCheckboxes(list, sel);
       previewBox.replaceChildren(
@@ -426,7 +431,7 @@ export default {
     };
 
     section.append(
-      viewHeader('Organize', 'Each folder lists the rules that file bookmarks into it. When several rules match a bookmark, the highest priority wins, then the most specific match, then the newest rule. Bookmarks already inside the winning rule’s folder stay where they are.',
+      viewHeader('Organize', 'Each folder lists the rules that file bookmarks into it. When several rules match a bookmark, the highest priority wins, then normal rules over fallback rules over catch-alls, then the most specific match, then the newest rule. Bookmarks already inside the winning rule’s folder stay where they are.',
         dirtyNote,
         h('button', { class: 'small', text: 'Discard changes', onclick: () => { draft = null; ctx.render(); } }),
         h('button', { class: 'primary', text: 'Save rules', onclick: () => save() })),

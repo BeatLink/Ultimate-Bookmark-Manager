@@ -241,3 +241,22 @@ test('a catch-all rule must look in a folder', async () => {
   assert.equal(planMoves([bm('x', 'x', 'https://x.test')], [everywhere], roots).moves.length, 0);
 });
 
+
+test('a fallback rule only takes what no normal rule matches, and still beats catch-alls', async () => {
+  const { newCatchAll } = await import('../src/lib/organize.js');
+  const flat = [
+    { id: 'of', type: 'folder', title: 'Other Bookmarks', path: [] },
+    bm('v1', 'CCNA subnetting explained', 'https://www.youtube.com/watch?v=abc', ['Other Bookmarks']),
+    bm('v2', 'Lo-fi beats', 'https://www.youtube.com/watch?v=xyz', ['Other Bookmarks']),
+    bm('n1', 'Random page', 'https://example.com/', ['Other Bookmarks']),
+  ];
+  const ccna = rule('ccna', [cond('contains', 'ccna')], 'Bookmarks Menu/Career', { createdAt: 1 });
+  const youtube = rule('yt', [cond('domain', 'youtube.com')], 'Bookmarks Menu/YouTube', { createdAt: 2, fallback: true });
+  const inbox = { ...newCatchAll(['Other Bookmarks']), id: 'inbox', target: 'Other Bookmarks/Inbox', createdAt: 3 };
+  const where = (rules) => Object.fromEntries(planMoves(flat, rules, roots).moves.map((m) => [m.bookmark.id, m.ruleId]));
+  assert.deepEqual(where([ccna, youtube, inbox]), { v1: 'ccna', v2: 'yt', n1: 'inbox' }, 'the more specific domain match still loses to a normal rule');
+  assert.deepEqual(where([ccna, { ...youtube, fallback: false }, inbox]), { v1: 'yt', v2: 'yt', n1: 'inbox' }, 'without the flag, domain (50) beats keyword (20)');
+  assert.deepEqual(where([{ ...ccna, priority: -1 }, youtube, inbox]), { v1: 'yt', v2: 'yt', n1: 'inbox' }, 'priority still comes first');
+  const plan = planMoves(flat, [ccna, youtube, inbox], roots).moves.find((m) => m.bookmark.id === 'v2');
+  assert.ok(plan.fallback);
+});

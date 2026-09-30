@@ -298,3 +298,4 @@ button.bar-row { cursor: pointer; }
   .viz-grid { grid-template-columns: minmax(0, 1fr); }
   .stat-tile.hero .stat-value { font-size: 2.6em; }
 }
+.rule-card.fallback { border-left: 3px dashed var(--border); }

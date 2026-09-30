@@ -176,11 +176,21 @@ export function ruleScore(rule, bookmark) {
   return activeItems(rule).length ? groupScore(rule, bookmark) : null;
 }
 
-// Whether candidate `a` beats `b`: higher priority, then more specific, then the newer rule.
+// Normal rules outrank fallback rules, which outrank catch-alls; priority still comes first.
+export function tierOf(rule) {
+  if (rule.catchAll) return 0;
+  return rule.fallback ? 1 : 2;
+}
+
+// Whether candidate `a` beats `b`: higher priority, then a normal rule over a fallback over a catch-all,
+// then the more specific match, then the newer rule.
 export function beats(a, b) {
   const pa = Number(a.rule.priority) || 0;
   const pb = Number(b.rule.priority) || 0;
   if (pa !== pb) return pa > pb;
+  const ta = tierOf(a.rule);
+  const tb = tierOf(b.rule);
+  if (ta !== tb) return ta > tb;
   if (a.score !== b.score) return a.score > b.score;
   const ca = a.rule.createdAt ?? 0;
   const cb = b.rule.createdAt ?? 0;
@@ -313,7 +323,7 @@ export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree
     wins.set(best.rule.id, (wins.get(best.rule.id) ?? 0) + 1);
     // The winning rule decides even when the bookmark is already where it says, so a weaker rule cannot move it away.
     if (startsWithPath(b.path, best.target.path)) continue;
-    moves.push({ bookmark: b, ruleId: best.rule.id, ruleName: best.rule.name, target: best.target, score: best.score, priority: Number(best.rule.priority) || 0, others: matched - 1 });
+    moves.push({ bookmark: b, ruleId: best.rule.id, ruleName: best.rule.name, target: best.target, score: best.score, priority: Number(best.rule.priority) || 0, fallback: !!best.rule.fallback, others: matched - 1 });
   }
   return { moves, problems, wins };
 }
