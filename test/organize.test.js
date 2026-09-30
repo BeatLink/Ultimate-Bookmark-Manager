@@ -364,3 +364,14 @@ test('precise address parts score above looser matches', () => {
   assert.equal(win(exactQuery, prefix), 'prefix', 'a two-segment path (120) beats an exact query');
   assert.equal(win(prefix, exactPath), 'exact', 'an exact path beats a prefix of the same depth');
 });
+
+test('the plan counts every bookmark each valid rule matches, disabled rules and ones that lose included', () => {
+  const flat = [bm('a', 'Rust book', 'https://a.test'), bm('b', 'Rust video', 'https://b.test'), bm('c', 'Python', 'https://c.test'), bm('d', 'Rust ignored', 'https://d.test')];
+  const rust = rule('rust', [cond('contains', 'rust')], 'Bookmarks Menu/Rust');
+  const video = rule('video', [cond('contains', 'video')], 'Bookmarks Menu/Video', { priority: 1 });
+  const off = rule('off', [cond('contains', 'python')], 'Bookmarks Menu/Python', { enabled: false });
+  const { matches, wins, moves } = planMoves(flat, [rust, video, off], roots, new Set(['d']));
+  assert.deepEqual(Object.fromEntries(matches), { rust: 2, video: 1, off: 1 });
+  assert.deepEqual(Object.fromEntries(wins), { rust: 1, video: 1 });
+  assert.equal(moves.length, 2);
+});

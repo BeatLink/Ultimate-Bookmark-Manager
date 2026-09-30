@@ -3,7 +3,7 @@
 import { h, Selection, toast, confirmDialog } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, tagInput, pickFolder, marked } from '../components.js';
 import { saveSettings } from '../../lib/settings.js';
-import { WORD_OPS, ADDRESS_OPS, OPERATORS, FIELDS, MODES, newRule, newCatchAll, newCondition, newGroup, isGroup, keywords, duplicateRule, describeRule, planMoves, ruleApplies, resolveTarget, maxScore } from '../../lib/organize.js';
+import { WORD_OPS, ADDRESS_OPS, OPERATORS, FIELDS, MODES, newRule, newCatchAll, newCondition, newGroup, isGroup, keywords, duplicateRule, describeRule, planMoves, resolveTarget, maxScore } from '../../lib/organize.js';
 
 // Unsaved edits live here so they survive the re-render that follows any other action.
 let draft = null;
@@ -14,8 +14,16 @@ const unticked = new Set();
 
 const rootFolders = (ctx) => ctx.state.root.children.map((c) => ({ id: c.id, title: c.title }));
 
+// The last plan worked out, reused until the bookmarks, the ignore list or the rules change.
+let lastPlan = { flat: null, whitelist: null, key: '', result: null };
+
 export function plan(ctx, rules) {
-  return planMoves(ctx.state.flat, rules, rootFolders(ctx), ctx.ignoredIds());
+  const key = JSON.stringify(rules);
+  const { flat, whitelist } = ctx.state;
+  if (lastPlan.flat === flat && lastPlan.whitelist === whitelist && lastPlan.key === key) return lastPlan.result;
+  const result = planMoves(flat, rules, rootFolders(ctx), ctx.ignoredIds());
+  lastPlan = { flat, whitelist, key, result };
+  return result;
 }
 
 function select(options, value, onchange, label) {
@@ -154,10 +162,12 @@ function rankingList(move) {
     if (note) note.textContent = r.why?.terms.length ? `${r.lost ? `${r.ruleName || 'Unnamed rule'} matched` : 'Matched'} ${matchedText(r.why)}` : `${r.ruleName || 'Unnamed rule'} is a catch-all: nothing to highlight`;
     for (const b of box.querySelectorAll('.ranking-pick')) b.setAttribute('aria-pressed', String(b === button));
   };
-  return h('details', { class: 'ranking' },
-    h('summary', { text: `All ${move.ranking.length} matching rules` }),
-    h('p', { class: 'small muted', text: 'Select a rule to highlight what it matched.' }),
-    h('ol', {}, move.ranking.map((r) => h('li', { class: r.lost ? 'lost' : 'won' },
+  // The list is only built the first time it is opened.
+  const details = h('details', { class: 'ranking', ontoggle: () => {
+    if (!details.open || details.childElementCount > 1) return;
+    details.append(
+      h('p', { class: 'small muted', text: 'Select a rule to highlight what it matched.' }),
+      h('ol', {}, move.ranking.map((r) => h('li', { class: r.lost ? 'lost' : 'won' },
       h('button', { class: 'ranking-pick', type: 'button', 'aria-pressed': String(!r.lost), title: 'Highlight what this rule matched', onclick: (e) => show(r, e.currentTarget) },
         h('strong', { text: r.ruleName || 'Unnamed rule' }),
         h('span', { class: 'muted', text: ` → ${r.target.path.join(' › ')}` })),
@@ -165,7 +175,12 @@ function rankingList(move) {
         [r.priority ? `priority ${r.priority}` : '', r.catchAll ? 'catch-all' : r.fallback ? 'fallback' : '', r.catchAll ? '' : `specificity ${r.score}`,
           r.why?.terms.length ? `matched ${matchedText(r.why)}` : ''].filter(Boolean).join(' · ')),
       h('div', { class: 'small' }, r.lost ? h('span', { class: 'lost-reason', text: `Lost: ${r.lost}` }) : h('strong', { class: 'won-label', text: 'Wins' }))))));
+  } }, h('summary', { text: `All ${move.others + 1} matching rules` }));
+  return details;
 }
+
+// How many rows each preview group shows before a "Show more" button.
+const PREVIEW_ROWS = 100;
 
 const SPECIFICITY_HELP = 'Specificity if every condition matches (only the ones that match a bookmark count): exact address 1000, address path 100 + 10 per segment (+10 more when exact), exact query string 80, subdomain 60, query parameter with value 60, domain 50, exact title 40, query parameter 30, keyword 20, regex 15.';
 
@@ -175,7 +190,9 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
   const isOpen = expanded.has(rule.id);
   const priority = h('input', { type: 'number', step: 1, class: 'priority-input', value: String(Number(rule.priority) || 0), 'aria-label': 'Priority',
     oninput: (e) => { rule.priority = Math.round(Number(e.target.value)) || 0; changed(); } });
-  const body = h('div', { class: 'rule-body', id: bodyId, hidden: !isOpen },
+  const body = h('div', { class: 'rule-body', id: bodyId, hidden: !isOpen });
+  // The editor is only built the first time the rule is opened.
+  const fillBody = () => body.append(
     h('label', { class: 'row wrap' }, 'Name',
       h('input', { type: 'text', class: 'grow rule-name', value: rule.name, placeholder: 'Rule name (optional)', 'aria-label': 'Rule name', oninput: (e) => { rule.name = e.target.value; changed(); } })),
     sourcesPicker(ctx, rule, changed),
@@ -190,12 +207,14 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
     h('label', { class: 'row wrap' }, 'Priority', priority,
       h('span', { class: 'muted small', text: 'A higher priority always wins. Leave it at 0 to let the most specific match decide.' })),
     parts.info);
+  if (isOpen) fillBody();
 
   const toggle = h('button', {
     class: 'rule-toggle', type: 'button', 'aria-expanded': String(isOpen), 'aria-controls': bodyId,
     title: isOpen ? 'Collapse' : 'Edit this rule',
     onclick: () => {
       const open = body.hidden;
+      if (open && !body.childElementCount) fillBody();
       body.hidden = !open;
       open ? expanded.add(rule.id) : expanded.delete(rule.id);
       toggle.setAttribute('aria-expanded', String(open));
@@ -329,15 +348,30 @@ export default {
         const own = byKey.get(n.key) ?? [];
         const kids = n.children.filter(shown);
         const open = q ? true : folderOpen.get(n.key) ?? (n.depth === 0 || holds(n));
-        const children = h('ul', { class: 'folder-children', hidden: !open },
-          [...own.filter((r) => !r.catchAll), ...own.filter((r) => r.catchAll)].map(card),
-          kids.map(node));
+        // A closed folder's contents are only built the first time it is opened.
+        const children = h('ul', { class: 'folder-children', hidden: !open });
+        let filled = false;
+        const fill = () => {
+          filled = true;
+          children.append(...[...own.filter((r) => !r.catchAll), ...own.filter((r) => r.catchAll)].map(card), ...kids.map(node));
+        };
+        if (open) fill();
         const countEl = h('span', { class: 'rule-badge active' });
         folderCounts.set(n.key, countEl);
         return h('li', { class: 'folder-node', 'data-folder': n.key },
           h('div', { class: 'folder-head', style: `--depth: ${n.depth}` },
             h('button', { class: 'folder-toggle', type: 'button', 'aria-expanded': String(open), 'aria-label': `${open ? 'Collapse' : 'Expand'} ${n.title}`, hidden: !own.length && !kids.length,
-              onclick: () => { folderOpen.set(n.key, !open); drawTree(); refresh(); } }, h('span', { class: 'chevron', 'aria-hidden': 'true' })),
+              onclick: (e) => {
+                const opening = children.hidden;
+                folderOpen.set(n.key, opening);
+                if (opening && !filled) {
+                  fill();
+                  refresh();
+                }
+                children.hidden = !opening;
+                e.currentTarget.setAttribute('aria-expanded', String(opening));
+                e.currentTarget.setAttribute('aria-label', `${opening ? 'Collapse' : 'Expand'} ${n.title}`);
+              } }, h('span', { class: 'chevron', 'aria-hidden': 'true' })),
             h('span', { class: 'folder-icon', 'aria-hidden': 'true' }),
             h('span', { class: 'folder-title', text: n.title }),
             own.length > 0 && h('span', { class: 'muted small', text: `${own.length} rule(s)` }),
@@ -361,12 +395,17 @@ export default {
     };
 
     const refresh = () => {
-      const { moves, problems, wins } = plan(ctx, rules);
-      refreshInfo(moves, problems, wins);
+      const { moves, problems, wins, matches } = plan(ctx, rules);
+      refreshInfo(moves, problems, wins, matches);
     };
-    const refreshInfo = (moves, problems, wins) => {
+    const refreshInfo = (moves, problems, wins, matches) => {
       const incoming = new Map();
-      for (const m of moves) incoming.set(m.target.path.join('/'), (incoming.get(m.target.path.join('/')) ?? 0) + 1);
+      const moving = new Map();
+      for (const m of moves) {
+        const key = m.target.path.join('/');
+        incoming.set(key, (incoming.get(key) ?? 0) + 1);
+        moving.set(m.ruleId, (moving.get(m.ruleId) ?? 0) + 1);
+      }
       for (const [key, el] of folderCounts) {
         const count = incoming.get(key) ?? 0;
         el.textContent = count ? `${count} would move here` : '';
@@ -394,19 +433,19 @@ export default {
           parts.badge.title = issues.join(' ');
           continue;
         }
-        const matched = ctx.state.flat.filter((b) => b.type === 'bookmark' && ruleApplies(r, b, roots)).length;
+        const matched = matches.get(r.id) ?? 0;
         const won = wins.get(r.id) ?? 0;
-        const moving = moves.filter((m) => m.ruleId === r.id).length;
-        parts.info.replaceChildren(h('p', { class: 'muted small', text: `Matches ${matched} bookmark(s) and wins ${won}: ${moving} would move, the rest are already in place.${matched > won ? ` ${matched - won} go to ${r.fallback ? 'a normal (non-fallback) rule, a rule with a higher priority, or a more specific match' : 'a rule with a higher priority or a more specific match'}.` : ''}` }));
-        parts.badge.textContent = r.enabled === false ? 'Off' : `${moving} to move`;
-        parts.badge.className = `rule-badge${moving && r.enabled !== false ? ' active' : ''}`;
-        parts.badge.title = `Matches ${matched}, wins ${won}, ${moving} would move`;
+        const moves = moving.get(r.id) ?? 0;
+        parts.info.replaceChildren(h('p', { class: 'muted small', text: `Matches ${matched} bookmark(s) and wins ${won}: ${moves} would move, the rest are already in place.${matched > won ? ` ${matched - won} go to ${r.fallback ? 'a normal (non-fallback) rule, a rule with a higher priority, or a more specific match' : 'a rule with a higher priority or a more specific match'}.` : ''}` }));
+        parts.badge.textContent = r.enabled === false ? 'Off' : `${moves} to move`;
+        parts.badge.className = `rule-badge${moves && r.enabled !== false ? ' active' : ''}`;
+        parts.badge.title = `Matches ${matched}, wins ${won}, ${moves} would move`;
       }
     };
 
     const drawPreview = () => {
-      const { moves, problems, wins } = plan(ctx, rules);
-      refreshInfo(moves, problems, wins);
+      const { moves, problems, wins, matches } = plan(ctx, rules);
+      refreshInfo(moves, problems, wins, matches);
       if (!rules.length) return previewBox.replaceChildren(emptyState('No rules yet. Use “+ Rule” on a folder to start organizing.'));
       if (!moves.length) return previewBox.replaceChildren(h('h2', { text: 'Preview' }), emptyState('Nothing to move: every matching bookmark is already in its folder.'));
 
@@ -440,15 +479,26 @@ export default {
       sel.onChange(updateApply);
       updateApply();
 
+      const moveRow = (m) => row(sel, m.bookmark.id, bookmarkInfo(m.bookmark, ctx, {
+        editable: false,
+        highlight: m.why,
+        meta: [h('span', { class: 'matched', text: m.why?.terms.length ? `Matched ${matchedText(m.why)}` : '', hidden: !m.why?.terms.length }),
+          h('span', { text: `Rule: ${m.ruleName || 'unnamed'}${m.priority ? ` · priority ${m.priority}` : ''}${m.score >= 0 ? `${m.fallback ? ' · fallback' : ''} · specificity ${m.score}` : ' · catch-all'}${m.others ? ` · beat ${m.others} other matching rule(s)` : ''}` }),
+          m.others > 0 && rankingList(m)],
+      }));
+      // Long groups show their first rows until asked, since thousands of rows make every refresh slow; selection still covers them all.
+      const groupItems = (group) => {
+        const items = h('ul', { class: 'items' }, group.slice(0, PREVIEW_ROWS).map(moveRow));
+        if (group.length <= PREVIEW_ROWS) return items;
+        const more = h('button', { class: 'small', text: `Show ${group.length - PREVIEW_ROWS} more`, onclick: () => {
+          items.append(...group.slice(PREVIEW_ROWS).map(moveRow));
+          more.remove();
+        } });
+        return [items, more];
+      };
       const list = h('div', { class: 'groups' }, [...byTarget].map(([path, group]) => h('section', { class: 'group' },
         h('h2', { class: 'group-title sticky' }, h('span', { text: `→ ${path.replaceAll('/', ' › ')} — ${group.length}` }), selectAllToggle(sel, group.map((m) => m.bookmark.id), 'Select group')),
-        h('ul', { class: 'items' }, group.map((m) => row(sel, m.bookmark.id, bookmarkInfo(m.bookmark, ctx, {
-          editable: false,
-          highlight: m.why,
-          meta: [h('span', { class: 'matched', text: m.why?.terms.length ? `Matched ${matchedText(m.why)}` : '', hidden: !m.why?.terms.length }),
-            h('span', { text: `Rule: ${m.ruleName || 'unnamed'}${m.priority ? ` · priority ${m.priority}` : ''}${m.score >= 0 ? `${m.fallback ? ' · fallback' : ''} · specificity ${m.score}` : ' · catch-all'}${m.others ? ` · beat ${m.others} other matching rule(s)` : ''}` }),
-            m.ranking.length > 1 && rankingList(m)],
-        })))))));
+        groupItems(group))));
       bindCheckboxes(list, sel);
       previewBox.replaceChildren(
         h('div', { class: 'selection-bar' },

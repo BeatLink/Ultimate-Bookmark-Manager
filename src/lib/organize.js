@@ -91,12 +91,20 @@ export function keywords(cond) {
   return list.map((t) => String(t).trim()).filter(Boolean);
 }
 
+const hosts = new Map();
+
+// The address's host name, remembered because parsing an address is slow and rules ask for the same ones repeatedly.
 function hostOf(url) {
+  if (hosts.has(url)) return hosts.get(url);
+  let host = '';
   try {
-    return new URL(url).hostname.toLowerCase();
+    host = new URL(url).hostname.toLowerCase();
   } catch {
-    return '';
+    // Not an address; it has no host.
   }
+  if (hosts.size > 50000) hosts.clear();
+  hosts.set(url, host);
+  return host;
 }
 
 const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -131,6 +139,8 @@ function patternFor(cond, value) {
 // Where one keyword occurs in a text, as [start, end] pairs; empty when it does not occur.
 export function occurrences(cond, value, text) {
   const re = patternFor(cond, value);
+  // The pattern is shared, so start from the beginning whatever the last search left behind.
+  re.lastIndex = 0;
   const out = [];
   for (const m of text.matchAll(re)) {
     if (!m[0].length) continue;
@@ -225,30 +235,76 @@ function allConditions(group) {
   return (group.conditions ?? []).flatMap((item) => (isGroup(item) ? allConditions(item) : [item]));
 }
 
-// The specificity of a condition's match, or null when it does not hold; only the keywords that matched count.
-function conditionScore(cond, bookmark) {
-  if (cond.op === 'notContains') return conditionMatches(cond, bookmark) ? 0 : null;
-  const fields = fieldsOf(cond);
-  const one = (value, on) => rangesIn(cond, value, bookmark, on).length > 0;
+// A condition prepared once per plan: its keywords, the parts of a bookmark it reads, and a test for one keyword in one part.
+function compileCondition(cond) {
   const values = keywords(cond);
-  if (cond.op === 'containsAll') {
+  const fields = fieldsOf(cond);
+  let hit;
+  if (cond.op === 'domain') {
+    const doms = new Map(values.map((v) => [v, v.toLowerCase().replace(/^\*?\./, '')]));
+    hit = (value, text) => {
+      const host = hostOf(text.url);
+      const dom = doms.get(value);
+      return host === dom || host.endsWith('.' + dom);
+    };
+  } else if (cond.op === 'param') {
+    hit = (value, text) => paramRanges(cond, value, text.url).length > 0;
+  } else {
+    const res = new Map(values.map((v) => [v, patternFor(cond, v)]));
+    hit = (value, text, on) => {
+      const re = res.get(value);
+      re.lastIndex = 0;
+      const found = re.test(text.part(on));
+      re.lastIndex = 0;
+      return found;
+    };
+  }
+  return { op: cond.op, values, fields, hit };
+}
+
+// A rule's conditions prepared once per plan, with inactive items already dropped.
+function compileGroup(group) {
+  return { match: group.match, items: activeItems(group).map((item) => (isGroup(item) ? compileGroup(item) : compileCondition(item))) };
+}
+
+// The specificity of a condition's match, or null when it does not hold; only the keywords that matched count.
+function conditionScore(c, text) {
+  const { op, values, fields, hit } = c;
+  if (op === 'notContains') return fields.every((on) => !values.some((v) => hit(v, text, on))) ? 0 : null;
+  if (op === 'containsAll') {
     // Every keyword has to be in the same part of the bookmark.
-    return fields.some((on) => values.every((v) => one(v, on))) ? values.length * valuePoints('containsAll', '', 'title') : null;
+    return fields.some((on) => values.every((v) => hit(v, text, on))) ? values.length * valuePoints('containsAll', '', 'title') : null;
   }
   let score = null;
   for (const v of values) {
-    const on = fields.find((f) => one(v, f));
-    if (on) score = (score ?? 0) + valuePoints(cond.op, v, on);
+    const on = fields.find((f) => hit(v, text, f));
+    if (on) score = (score ?? 0) + valuePoints(op, v, on);
   }
   return score;
 }
 
-function groupScore(group, bookmark) {
-  const scores = activeItems(group).map((item) => (isGroup(item) ? groupScore(item, bookmark) : conditionScore(item, bookmark)));
+function groupScore(group, text) {
+  const scores = group.items.map((item) => (item.items ? groupScore(item, text) : conditionScore(item, text)));
   if (group.match === 'all') return scores.includes(null) ? null : scores.reduce((a, b) => a + b, 0);
   if (group.match === 'none') return scores.every((x) => x === null) ? 0 : null;
   const hits = scores.filter((x) => x !== null);
   return hits.length ? hits.reduce((a, b) => a + b, 0) : null;
+}
+
+// A bookmark's title and address, with each part of the address split out once when first asked for.
+function bookmarkText(bookmark) {
+  const title = bookmark.title ?? '';
+  const url = bookmark.url ?? '';
+  const parts = {};
+  return { url, part: (on) => (on === 'title' ? title : on === 'url' ? url : (parts[on] ??= urlPart(url, on).text)) };
+}
+
+// Scores bookmarks against one rule, or null when the rule does not match; build it once and reuse it for every bookmark.
+function scorer(rule) {
+  if (rule.catchAll) return () => CATCH_ALL_SCORE;
+  const compiled = compileGroup(rule);
+  if (!compiled.items.length) return () => null;
+  return (bookmark) => groupScore(compiled, bookmarkText(bookmark));
 }
 
 // The most a rule can score: every keyword it lists matching, in the part of the bookmark worth the most.
@@ -318,8 +374,7 @@ export function explainMatch(rule, bookmark) {
 
 // How specifically the rule matches the bookmark, or null when it does not match at all.
 export function ruleScore(rule, bookmark) {
-  if (rule.catchAll) return CATCH_ALL_SCORE;
-  return activeItems(rule).length ? groupScore(rule, bookmark) : null;
+  return scorer(rule)(bookmark);
 }
 
 // Normal rules outrank fallback rules, which outrank catch-alls; priority still comes first.
@@ -358,17 +413,8 @@ export function lostBecause(loser, winner) {
   return 'earlier in the list, equally specific';
 }
 
-function groupMatches(group, bookmark) {
-  const test = (item) => (isGroup(item) ? groupMatches(item, bookmark) : conditionMatches(item, bookmark));
-  const items = activeItems(group);
-  if (group.match === 'all') return items.every(test);
-  if (group.match === 'none') return !items.some(test);
-  return items.some(test);
-}
-
 export function ruleMatches(rule, bookmark) {
-  if (rule.catchAll) return true;
-  return activeItems(rule).length > 0 && groupMatches(rule, bookmark);
+  return ruleScore(rule, bookmark) !== null;
 }
 
 // One condition in plain words, e.g. `title contains any of “rust”, “cargo”`.
@@ -462,37 +508,44 @@ export function validateRules(rules, rootFolders, flat = null) {
 // `tree` is the whole flattened tree, used to check source folders exist when `flat` holds only some bookmarks.
 export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree = flat) {
   const problems = validateRules(rules, rootFolders, tree);
-  const usable = rules
+  // Disabled rules are still scored so the editor can say what they would match; they never win.
+  const valid = rules
     .map((rule, index) => ({ rule, index }))
-    .filter(({ rule }) => rule.enabled !== false && !problems.has(rule.id))
-    .map((u) => ({ ...u, target: resolveTarget(u.rule.target, rootFolders), sources: resolveSources(u.rule, rootFolders) }));
+    .filter(({ rule }) => !problems.has(rule.id))
+    .map((u) => ({ ...u, target: resolveTarget(u.rule.target, rootFolders), sources: resolveSources(u.rule, rootFolders), score: scorer(u.rule), on: u.rule.enabled !== false }));
   const moves = [];
   const wins = new Map();
+  const matches = new Map();
   for (const b of flat) {
     if (b.type !== 'bookmark' || ignoredIds.has(b.id)) continue;
     let best = null;
     const candidates = [];
-    for (const u of usable) {
+    for (const u of valid) {
       if (!inScope(u.sources, u.rule.sourceSubfolders !== false, b)) continue;
-      const score = ruleScore(u.rule, b);
+      const score = u.score(b);
       if (score === null) continue;
-      const candidate = { ...u, score };
+      matches.set(u.rule.id, (matches.get(u.rule.id) ?? 0) + 1);
+      if (!u.on) continue;
+      const candidate = { rule: u.rule, index: u.index, target: u.target, score };
       candidates.push(candidate);
       if (!best || beats(candidate, best)) best = candidate;
     }
     if (!best) continue;
-    const matched = candidates.length;
     wins.set(best.rule.id, (wins.get(best.rule.id) ?? 0) + 1);
     // The winning rule decides even when the bookmark is already where it says, so a weaker rule cannot move it away.
     if (startsWithPath(b.path, best.target.path)) continue;
-    moves.push({ bookmark: b, ruleId: best.rule.id, ruleName: best.rule.name, target: best.target, score: best.score, priority: Number(best.rule.priority) || 0, fallback: !!best.rule.fallback, others: matched - 1, why: explainMatch(best.rule, b),
-      // Every matching rule, strongest first, each with what it matched and, below the winner, why it lost.
-      ranking: candidates
-        .sort((x, y) => (beats(x, y) ? -1 : beats(y, x) ? 1 : 0))
-        .map((c) => ({
-          ruleId: c.rule.id, ruleName: c.rule.name, target: c.target, score: c.score, priority: Number(c.rule.priority) || 0,
-          fallback: !!c.rule.fallback, catchAll: !!c.rule.catchAll, why: explainMatch(c.rule, b), lost: c === best ? null : lostBecause(c, best),
-        })) });
+    let ranking = null;
+    moves.push({ bookmark: b, ruleId: best.rule.id, ruleName: best.rule.name, target: best.target, score: best.score, priority: Number(best.rule.priority) || 0, fallback: !!best.rule.fallback, others: candidates.length - 1, why: explainMatch(best.rule, b),
+      // Every matching rule, strongest first, each with what it matched and, below the winner, why it lost; worked out when first read.
+      get ranking() {
+        ranking ??= candidates
+          .sort((x, y) => (beats(x, y) ? -1 : beats(y, x) ? 1 : 0))
+          .map((c) => ({
+            ruleId: c.rule.id, ruleName: c.rule.name, target: c.target, score: c.score, priority: Number(c.rule.priority) || 0,
+            fallback: !!c.rule.fallback, catchAll: !!c.rule.catchAll, why: explainMatch(c.rule, b), lost: c === best ? null : lostBecause(c, best),
+          }));
+        return ranking;
+      } });
   }
-  return { moves, problems, wins };
+  return { moves, problems, wins, matches };
 }
