@@ -3,7 +3,7 @@
 import { h, Selection, toast, confirmDialog } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, tagInput, pickFolder, marked } from '../components.js';
 import { saveSettings } from '../../lib/settings.js';
-import { WORD_OPS, OPERATORS, FIELDS, MODES, newRule, newCatchAll, newCondition, newGroup, isGroup, keywords, duplicateRule, describeRule, planMoves, ruleApplies, resolveTarget, maxScore } from '../../lib/organize.js';
+import { WORD_OPS, ADDRESS_OPS, OPERATORS, FIELDS, MODES, newRule, newCatchAll, newCondition, newGroup, isGroup, keywords, duplicateRule, describeRule, planMoves, ruleApplies, resolveTarget, maxScore } from '../../lib/organize.js';
 
 // Unsaved edits live here so they survive the re-render that follows any other action.
 let draft = null;
@@ -23,7 +23,7 @@ function select(options, value, onchange, label) {
     Object.entries(options).map(([v, text]) => h('option', { value: v, text, selected: v === value })));
 }
 
-const PLACEHOLDERS = { regex: 'Type a pattern, press Enter', domain: 'example.com, press Enter' };
+const PLACEHOLDERS = { regex: 'Type a pattern, press Enter', domain: 'example.com, press Enter', param: 'v or list=PL123, press Enter' };
 
 function conditionRow(cond, onRemove, changed) {
   cond.values = keywords(cond);
@@ -32,7 +32,7 @@ function conditionRow(cond, onRemove, changed) {
   // Off, "cat" also matches inside "category"; on, only the word itself.
   const whole = h('label', { class: 'check-line small', title: 'Only match whole words, so “cat” does not match “category”', hidden: !WORD_OPS.has(cond.op) },
     h('input', { type: 'checkbox', checked: !!cond.wholeWords, 'aria-label': 'Whole words', onchange: (e) => { cond.wholeWords = e.target.checked; changed(); } }), 'Whole words');
-  field.hidden = cond.op === 'domain';
+  field.hidden = ADDRESS_OPS.has(cond.op);
   const makeTags = () => tagInput({
     values: cond.values,
     onchange: changed,
@@ -46,7 +46,7 @@ function conditionRow(cond, onRemove, changed) {
     field,
     select(OPERATORS, cond.op, (v) => {
       cond.op = v;
-      field.hidden = v === 'domain';
+      field.hidden = ADDRESS_OPS.has(v);
       whole.hidden = !WORD_OPS.has(v);
       const next = makeTags();
       tags.replaceWith(next);
@@ -133,9 +133,11 @@ const folderOpen = new Map();
 // The folder search and the "only folders with rules" switch survive refreshes.
 const treeView = { query: '', onlyWithRules: false };
 
+const PART_NAMES = { title: 'title', url: 'address', host: 'site name', path: 'path', query: 'query string', fragment: 'part after #' };
+
 // "“ccna” in title, “youtube.com” in address" for a rule's match explanation.
 function matchedText(why) {
-  return why.terms.map((t) => `“${t.value}” in ${t.on.map((o) => (o === 'url' ? 'address' : 'title')).join(' and ')}`).join(', ');
+  return why.terms.map((t) => `“${t.value}” in ${t.on.map((o) => PART_NAMES[o] ?? o).join(' and ')}`).join(', ');
 }
 
 // Every rule that matched a bookmark, strongest first, each with its standing and, below the winner, why it lost.
@@ -165,7 +167,7 @@ function rankingList(move) {
       h('div', { class: 'small' }, r.lost ? h('span', { class: 'lost-reason', text: `Lost: ${r.lost}` }) : h('strong', { class: 'won-label', text: 'Wins' }))))));
 }
 
-const SPECIFICITY_HELP = 'Specificity if every condition matches (only the ones that match a bookmark count): exact address 1000, address path 100 + 10 per segment, subdomain 60, domain 50, exact title 40, keyword 20, regex 15.';
+const SPECIFICITY_HELP = 'Specificity if every condition matches (only the ones that match a bookmark count): exact address 1000, address path 100 + 10 per segment (+10 more when exact), exact query string 80, subdomain 60, query parameter with value 60, domain 50, exact title 40, query parameter 30, keyword 20, regex 15.';
 
 // A rule as a one-line summary row that expands into its editor; `parts` receives the bits refreshed while editing.
 function ruleCard(ctx, rule, rules, redraw, changed, parts) {

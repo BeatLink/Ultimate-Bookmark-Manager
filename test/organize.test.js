@@ -311,3 +311,56 @@ test('every matching rule is listed strongest first, each loser with why it lost
   assert.equal(m.ruleId, 'subnet');
   assert.deepEqual(m.ranking[1].why.terms, [{ value: 'ccna', on: ['title'] }]);
 });
+
+test('conditions can look at one part of the address', async () => {
+  const { urlPart } = await import('../src/lib/organize.js');
+  const url = 'https://user:pw@Docs.Example.com:8080/guide/intro?lang=en&v=2#setup';
+  assert.deepEqual(urlPart(url, 'host'), { text: 'Docs.Example.com', start: 16 });
+  assert.deepEqual(urlPart(url, 'path'), { text: '/guide/intro', start: 37 });
+  assert.deepEqual(urlPart(url, 'query'), { text: 'lang=en&v=2', start: 50 });
+  assert.deepEqual(urlPart(url, 'fragment'), { text: 'setup', start: 62 });
+  assert.equal(urlPart('https://a.test/x', 'query').text, '', 'a missing part is empty');
+  const b = bm('1', 'Guide', url);
+  assert.ok(conditionMatches(cond('startsWith', '/guide', { field: 'path' }), b));
+  assert.ok(!conditionMatches(cond('contains', 'lang', { field: 'path' }), b), 'the query is not part of the path');
+  assert.ok(conditionMatches(cond('contains', 'lang', { field: 'query' }), b));
+  assert.ok(conditionMatches(cond('equals', 'setup', { field: 'fragment' }), b));
+  assert.ok(conditionMatches(cond('endsWith', 'example.com', { field: 'host' }), b));
+  assert.ok(!conditionMatches(cond('contains', 'guide', { field: 'host' }), b));
+  assert.ok(conditionMatches(cond('notContains', 'intro', { field: 'query' }), b));
+  assert.equal(describeRule(rule('r', [cond('startsWith', '/guide', { field: 'path' })], 'X')), 'address path starts with “/guide”');
+});
+
+test('query parameters match by name, or by name and value', () => {
+  const b = bm('1', 'Video', 'https://www.youtube.com/watch?v=abc&list=PL9');
+  assert.ok(conditionMatches(cond('param', 'list'), b));
+  assert.ok(conditionMatches(cond('param', 'list=pl9'), b), 'values ignore case unless exact case is on');
+  assert.ok(!conditionMatches(cond('param', 'list=pl9', { caseSensitive: true }), b));
+  assert.ok(!conditionMatches(cond('param', 'lis'), b), 'the whole name has to match');
+  assert.ok(!conditionMatches(cond('param', 'v=ab'), b), 'the whole value has to match');
+  const { moves } = planMoves([b], [rule('p', [cond('param', 'list')], 'X')], roots);
+  assert.deepEqual(moves[0].why, { terms: [{ value: 'list', on: ['query'] }], title: [], url: [[36, 44]] });
+});
+
+test('address parts are highlighted where they sit in the address', () => {
+  const b = bm('1', 'Docs', 'https://example.com/docs/api?q=docs#docs');
+  const r = rule('r', [cond('contains', 'docs', { field: 'path' })], 'X');
+  const { why } = planMoves([b], [r], roots).moves[0];
+  assert.deepEqual(why, { terms: [{ value: 'docs', on: ['path'] }], title: [], url: [[20, 24]] });
+});
+
+test('precise address parts score above looser matches', () => {
+  const flat = [bm('a', 'Intro', 'https://docs.example.com/guide/intro?lang=en&v=2')];
+  const dom = rule('dom', [cond('domain', 'example.com')], 'Domain', { createdAt: 9 });
+  const param = rule('param', [cond('param', 'lang')], 'Param', { createdAt: 9 });
+  const paramValue = rule('pv', [cond('param', 'lang=en')], 'PV', { createdAt: 1 });
+  const prefix = rule('prefix', [cond('startsWith', '/guide/intro', { field: 'path' })], 'Prefix', { createdAt: 9 });
+  const exactPath = rule('exact', [cond('equals', '/guide/intro', { field: 'path' })], 'Exact', { createdAt: 1 });
+  const exactQuery = rule('eq', [cond('equals', 'lang=en&v=2', { field: 'query' })], 'EQ', { createdAt: 1 });
+  const win = (...rs) => planMoves(flat, rs, roots).moves[0]?.ruleId;
+  assert.equal(win(param, dom), 'dom', 'a parameter name (30) is looser than a domain (50)');
+  assert.equal(win(dom, paramValue), 'pv', 'a parameter with its value (60) beats a domain');
+  assert.equal(win(paramValue, exactQuery), 'eq', 'an exact query string (80) beats one parameter');
+  assert.equal(win(exactQuery, prefix), 'prefix', 'a two-segment path (120) beats an exact query');
+  assert.equal(win(prefix, exactPath), 'exact', 'an exact path beats a prefix of the same depth');
+});

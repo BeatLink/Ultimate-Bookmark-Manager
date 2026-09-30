@@ -1,4 +1,4 @@
-// Organize rules: match bookmarks by title or address and plan moves into target folders.
+// Organize rules: match bookmarks by title, address or part of the address and plan moves into target folders.
 
 import { byText } from './text.js';
 import { valuePoints, CATCH_ALL_SCORE } from './specificity.js';
@@ -11,10 +11,22 @@ export const OPERATORS = {
   endsWith: 'ends with',
   equals: 'is exactly',
   domain: 'is on domain',
+  param: 'has query parameter',
   regex: 'matches any regex',
 };
 
-export const FIELDS = { either: 'title or address', title: 'title', url: 'address' };
+export const FIELDS = {
+  either: 'title or address',
+  title: 'title',
+  url: 'address',
+  host: 'site name',
+  path: 'address path',
+  query: 'query string',
+  fragment: 'part after #',
+};
+
+// Operators that always look at the address, so the field choice does not apply to them.
+export const ADDRESS_OPS = new Set(['domain', 'param']);
 
 // Short names accepted as the first segment of a target path, alongside the root folders' own titles.
 const ROOT_ALIASES = {
@@ -127,33 +139,80 @@ export function occurrences(cond, value, text) {
   return out;
 }
 
-function domainHit(value, url) {
-  const host = hostOf(url);
-  const dom = value.toLowerCase().replace(/^\*?\./, '');
-  return host === dom || host.endsWith('.' + dom);
+// Splits an address as written into site name, path, query string and fragment (RFC 3986, appendix B).
+const URL_SHAPE = /^(?:[a-z][a-z0-9+.-]*:)?(?:\/\/([^/?#]*))?([^?#]*)(?:\?([^#]*))?(?:#(.*))?$/dis;
+
+// One part of an address and where it starts in it, so highlights land on the address as shown; empty when absent.
+export function urlPart(url, part) {
+  if (part === 'url') return { text: url, start: 0 };
+  const m = URL_SHAPE.exec(url);
+  const group = { host: 1, path: 2, query: 3, fragment: 4 }[part];
+  if (!m || !group || m[group] === undefined) return { text: '', start: url.length };
+  let [start] = m.indices[group];
+  let text = m[group];
+  if (part === 'host') {
+    // Drop any "user:password@" before the site name and any ":port" after it.
+    const at = text.lastIndexOf('@');
+    start += at + 1;
+    text = text.slice(at + 1).replace(/:\d*$/, '');
+  }
+  return { text, start };
 }
 
-// Tests one condition against one text; throws on an invalid regex so callers can report it.
-function testText(cond, text, url) {
-  const words = keywords(cond);
-  if (cond.op === 'domain') return words.some((d) => domainHit(d, url));
-  if (!words.length) return false;
-  const has = (w) => occurrences(cond, w, text).length > 0;
-  if (cond.op === 'containsAll') return words.every(has);
-  if (cond.op === 'notContains') return !words.some(has);
-  return words.some(has);
+function domainRanges(value, url) {
+  const host = hostOf(url);
+  const dom = value.toLowerCase().replace(/^\*?\./, '');
+  if (host !== dom && !host.endsWith('.' + dom)) return [];
+  const part = urlPart(url, 'host');
+  const end = part.start + part.text.length;
+  // A site name written differently from how the browser reads it (such as in another script) is highlighted whole.
+  return part.text.toLowerCase().endsWith(dom) ? [[end - dom.length, end]] : [[part.start, end]];
+}
+
+// Where the query string has parameter `name`, or `name=value` when a value is given.
+function paramRanges(cond, value, url) {
+  const part = urlPart(url, 'query');
+  const fold = (s) => (cond.caseSensitive ? s : s.toLowerCase());
+  const eq = value.indexOf('=');
+  const name = fold(eq < 0 ? value : value.slice(0, eq));
+  const out = [];
+  let at = part.start;
+  for (const pair of part.text.split('&')) {
+    const split = pair.indexOf('=');
+    const key = split < 0 ? pair : pair.slice(0, split);
+    const val = split < 0 ? '' : pair.slice(split + 1);
+    if (pair && fold(key) === name && (eq < 0 || fold(val) === fold(value.slice(eq + 1)))) out.push([at, at + pair.length]);
+    at += pair.length + 1;
+  }
+  return out;
+}
+
+// The parts of a bookmark a condition looks at: the title, the whole address or one part of it.
+function fieldsOf(cond) {
+  if (ADDRESS_OPS.has(cond.op)) return ['url'];
+  return !cond.field || cond.field === 'either' ? ['title', 'url'] : [cond.field];
+}
+
+// Where one keyword occurs in one part of a bookmark, as ranges in the title (for "title") or else in the address.
+// Throws on an invalid regex so callers can report it.
+function rangesIn(cond, value, bookmark, on) {
+  const url = bookmark.url ?? '';
+  if (cond.op === 'domain') return domainRanges(value, url);
+  if (cond.op === 'param') return paramRanges(cond, value, url);
+  if (on === 'title') return occurrences(cond, value, bookmark.title ?? '');
+  const part = urlPart(url, on);
+  return occurrences(cond, value, part.text).map(([s, e]) => [s + part.start, e + part.start]);
 }
 
 export function conditionMatches(cond, bookmark) {
-  if (cond.op === 'domain') return testText(cond, '', bookmark.url);
-  const title = bookmark.title ?? '';
-  const url = bookmark.url ?? '';
-  if (cond.field === 'title') return testText(cond, title, url);
-  if (cond.field === 'url') return testText(cond, url, url);
-  // "Contains none of" on either field must hold for both, the rest need only one.
-  return cond.op === 'notContains'
-    ? testText(cond, title, url) && testText(cond, url, url)
-    : testText(cond, title, url) || testText(cond, url, url);
+  const words = keywords(cond);
+  if (!words.length) return false;
+  const fields = fieldsOf(cond);
+  const has = (on) => (w) => rangesIn(cond, w, bookmark, on).length > 0;
+  // "Contains none of" on several fields must hold for all of them; "contains all of" needs every keyword in one field.
+  if (cond.op === 'notContains') return fields.every((on) => !words.some(has(on)));
+  if (cond.op === 'containsAll') return fields.some((on) => words.every(has(on)));
+  return fields.some((on) => words.some(has(on)));
 }
 
 // A rule is itself a group: `match` says how its `conditions` combine, and each of those may be a nested group.
@@ -169,9 +228,8 @@ function allConditions(group) {
 // The specificity of a condition's match, or null when it does not hold; only the keywords that matched count.
 function conditionScore(cond, bookmark) {
   if (cond.op === 'notContains') return conditionMatches(cond, bookmark) ? 0 : null;
-  const fields = cond.op === 'domain' ? ['url'] : cond.field === 'either' || !cond.field ? ['title', 'url'] : [cond.field];
-  const text = { title: bookmark.title ?? '', url: bookmark.url ?? '' };
-  const one = (value, on) => testText({ ...cond, values: [value] }, cond.op === 'domain' ? '' : text[on], text.url);
+  const fields = fieldsOf(cond);
+  const one = (value, on) => rangesIn(cond, value, bookmark, on).length > 0;
   const values = keywords(cond);
   if (cond.op === 'containsAll') {
     // Every keyword has to be in the same part of the bookmark.
@@ -198,8 +256,7 @@ export function maxScore(rule) {
   if (rule.catchAll) return CATCH_ALL_SCORE;
   const cond = (c) => {
     if (c.op === 'notContains') return 0;
-    const on = c.op === 'domain' || c.field === 'url' ? ['url'] : c.field === 'title' ? ['title'] : ['title', 'url'];
-    return keywords(c).reduce((sum, v) => sum + Math.max(...on.map((f) => valuePoints(c.op, v, f))), 0);
+    return keywords(c).reduce((sum, v) => sum + Math.max(...fieldsOf(c).map((f) => valuePoints(c.op, v, f))), 0);
   };
   const group = (g) => (g.match === 'none' ? 0 : activeItems(g).reduce((sum, item) => sum + (isGroup(item) ? group(item) : cond(item)), 0));
   return group(rule);
@@ -210,21 +267,12 @@ export function maxScore(rule) {
 function conditionHits(cond, bookmark) {
   if (!conditionMatches(cond, bookmark)) return null;
   if (cond.op === 'notContains') return [];
-  const text = { title: bookmark.title ?? '', url: bookmark.url ?? '' };
   const hits = [];
   for (const value of keywords(cond)) {
-    if (cond.op === 'domain') {
-      if (!domainHit(value, text.url)) continue;
-      const host = hostOf(text.url);
-      const dom = value.toLowerCase().replace(/^\*?\./, '');
-      const start = text.url.toLowerCase().indexOf(host) + host.length - dom.length;
-      hits.push({ value, on: 'url', ranges: [[start, start + dom.length]] });
-      continue;
-    }
-    const fields = cond.field === 'either' || !cond.field ? ['title', 'url'] : [cond.field];
-    for (const on of fields) {
-      const ranges = occurrences(cond, value, text[on]);
-      if (ranges.length) hits.push({ value, on, ranges });
+    for (const on of fieldsOf(cond)) {
+      const ranges = rangesIn(cond, value, bookmark, on);
+      // A query parameter is reported as found in the query string, everything else in the part it looked at.
+      if (ranges.length) hits.push({ value, on: cond.op === 'param' ? 'query' : on, ranges });
     }
   }
   return hits;
@@ -264,7 +312,7 @@ export function explainMatch(rule, bookmark) {
   return {
     terms: [...terms].map(([value, on]) => ({ value, on: [...on] })),
     title: mergeRanges(hits.filter((x) => x.on === 'title').flatMap((x) => x.ranges)),
-    url: mergeRanges(hits.filter((x) => x.on === 'url').flatMap((x) => x.ranges)),
+    url: mergeRanges(hits.filter((x) => x.on !== 'title').flatMap((x) => x.ranges)),
   };
 }
 
@@ -326,7 +374,7 @@ export function ruleMatches(rule, bookmark) {
 // One condition in plain words, e.g. `title contains any of “rust”, “cargo”`.
 export function describeCondition(cond) {
   const list = keywords(cond).sort(byText).map((w) => `“${w}”`).join(', ');
-  const subject = cond.op === 'domain' ? 'address' : FIELDS[cond.field] ?? FIELDS.either;
+  const subject = ADDRESS_OPS.has(cond.op) ? 'address' : FIELDS[cond.field] ?? FIELDS.either;
   // Matching inside words is the risky setting ("cat" in "category"), so the summary says when it is on.
   const inside = WORD_OPS.has(cond.op) && !cond.wholeWords ? ' (also inside words)' : '';
   return `${subject} ${OPERATORS[cond.op] ?? cond.op} ${list}${cond.caseSensitive && cond.op !== 'domain' ? ' (exact case)' : ''}${inside}`;
