@@ -240,3 +240,12 @@ dialog.folder-picker::backdrop { background: rgb(0 0 0 / .35); }
 .ai .check-line input { margin-top: .25em; }
 .ai fieldset { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); margin: 0 0 1em; padding: .75em 1em 1em; }
 .ai legend { font-weight: 600; padding: 0 .3em; }
+
+.rule-suggestions { background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius); padding: .75em 1em; margin-bottom: 1em; display: flex; flex-direction: column; gap: .5em; }
+.rule-suggestions h2 { font-size: 1.05em; }
+.suggestion-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .5em; }
+.suggestion { display: flex; gap: .75em; align-items: flex-start; border: 1px solid var(--border); border-radius: var(--radius); padding: .5em .75em; background: var(--bg); }
+.suggestion.off > .grow { opacity: .5; }
+.suggestion p { margin: .25em 0 0; }
+.tag-input.static { cursor: default; border-style: dashed; min-width: 0; }
+.uncovered { border-top: 1px solid var(--border); padding-top: .5em; }
