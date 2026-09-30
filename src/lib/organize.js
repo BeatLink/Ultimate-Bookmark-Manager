@@ -1,6 +1,7 @@
 // Organize rules: match bookmarks by title or address and plan moves into target folders.
 
 import { byText } from './text.js';
+import { valuePoints, CATCH_ALL_SCORE } from './specificity.js';
 
 export const OPERATORS = {
   contains: 'contains any of',
@@ -49,6 +50,9 @@ export function newRule() {
     target: '',
     sources: [],
     sourceSubfolders: true,
+    // Compared before specificity, so a higher number makes this rule win regardless.
+    priority: 0,
+    createdAt: Date.now(),
   };
 }
 
@@ -58,14 +62,10 @@ export function newCatchAll(sources = []) {
   return { ...newRule(), catchAll: true, conditions: [], sources, sourceSubfolders: false };
 }
 
-// Normal rules keep their order and catch-all rules follow them, which is also the order they are tried in.
-export function inRunOrder(rules) {
-  return [...rules.filter((r) => !r.catchAll), ...rules.filter((r) => r.catchAll)];
-}
-
 export function duplicateRule(rule) {
   const copy = structuredClone(rule);
   copy.id = crypto.randomUUID();
+  copy.createdAt = Date.now();
   copy.name = rule.name ? `${rule.name} (copy)` : '';
   return copy;
 }
@@ -129,6 +129,64 @@ function activeItems(group) {
 
 function allConditions(group) {
   return (group.conditions ?? []).flatMap((item) => (isGroup(item) ? allConditions(item) : [item]));
+}
+
+// The specificity of a condition's match, or null when it does not hold; only the keywords that matched count.
+function conditionScore(cond, bookmark) {
+  if (cond.op === 'notContains') return conditionMatches(cond, bookmark) ? 0 : null;
+  const fields = cond.op === 'domain' ? ['url'] : cond.field === 'either' || !cond.field ? ['title', 'url'] : [cond.field];
+  const text = { title: bookmark.title ?? '', url: bookmark.url ?? '' };
+  const one = (value, on) => testText({ ...cond, values: [value] }, cond.op === 'domain' ? '' : text[on], text.url);
+  const values = keywords(cond);
+  if (cond.op === 'containsAll') {
+    // Every keyword has to be in the same part of the bookmark.
+    return fields.some((on) => values.every((v) => one(v, on))) ? values.length * valuePoints('containsAll', '', 'title') : null;
+  }
+  let score = null;
+  for (const v of values) {
+    const on = fields.find((f) => one(v, f));
+    if (on) score = (score ?? 0) + valuePoints(cond.op, v, on);
+  }
+  return score;
+}
+
+function groupScore(group, bookmark) {
+  const scores = activeItems(group).map((item) => (isGroup(item) ? groupScore(item, bookmark) : conditionScore(item, bookmark)));
+  if (group.match === 'all') return scores.includes(null) ? null : scores.reduce((a, b) => a + b, 0);
+  if (group.match === 'none') return scores.every((x) => x === null) ? 0 : null;
+  const hits = scores.filter((x) => x !== null);
+  return hits.length ? hits.reduce((a, b) => a + b, 0) : null;
+}
+
+// The most a rule can score: every keyword it lists matching, in the part of the bookmark worth the most.
+export function maxScore(rule) {
+  if (rule.catchAll) return CATCH_ALL_SCORE;
+  const cond = (c) => {
+    if (c.op === 'notContains') return 0;
+    const on = c.op === 'domain' || c.field === 'url' ? ['url'] : c.field === 'title' ? ['title'] : ['title', 'url'];
+    return keywords(c).reduce((sum, v) => sum + Math.max(...on.map((f) => valuePoints(c.op, v, f))), 0);
+  };
+  const group = (g) => (g.match === 'none' ? 0 : activeItems(g).reduce((sum, item) => sum + (isGroup(item) ? group(item) : cond(item)), 0));
+  return group(rule);
+}
+
+// How specifically the rule matches the bookmark, or null when it does not match at all.
+export function ruleScore(rule, bookmark) {
+  if (rule.catchAll) return CATCH_ALL_SCORE;
+  return activeItems(rule).length ? groupScore(rule, bookmark) : null;
+}
+
+// Whether candidate `a` beats `b`: higher priority, then more specific, then the newer rule.
+export function beats(a, b) {
+  const pa = Number(a.rule.priority) || 0;
+  const pb = Number(b.rule.priority) || 0;
+  if (pa !== pb) return pa > pb;
+  if (a.score !== b.score) return a.score > b.score;
+  const ca = a.rule.createdAt ?? 0;
+  const cb = b.rule.createdAt ?? 0;
+  if (ca !== cb) return ca > cb;
+  // Rules saved before creation times were recorded: later in the list counts as newer.
+  return a.index > b.index;
 }
 
 function groupMatches(group, bookmark) {
@@ -228,20 +286,34 @@ export function validateRules(rules, rootFolders, flat = null) {
   return problems;
 }
 
-// Works out where each bookmark should go: the first enabled, valid rule that matches and looks in the bookmark's folder decides,
-// with catch-all rules tried only after every other rule.
+// Works out where each bookmark should go. Of the enabled, valid rules that match it and look in its folder,
+// the one with the highest priority wins, then the most specific match, then the newest rule.
 // `tree` is the whole flattened tree, used to check source folders exist when `flat` holds only some bookmarks.
 export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree = flat) {
   const problems = validateRules(rules, rootFolders, tree);
-  const usable = inRunOrder(rules)
-    .filter((r) => r.enabled !== false && !problems.has(r.id))
-    .map((rule) => ({ rule, target: resolveTarget(rule.target, rootFolders), sources: resolveSources(rule, rootFolders) }));
+  const usable = rules
+    .map((rule, index) => ({ rule, index }))
+    .filter(({ rule }) => rule.enabled !== false && !problems.has(rule.id))
+    .map((u) => ({ ...u, target: resolveTarget(u.rule.target, rootFolders), sources: resolveSources(u.rule, rootFolders) }));
   const moves = [];
+  const wins = new Map();
   for (const b of flat) {
     if (b.type !== 'bookmark' || ignoredIds.has(b.id)) continue;
-    const hit = usable.find(({ rule, sources }) => inScope(sources, rule.sourceSubfolders !== false, b) && ruleMatches(rule, b));
-    if (!hit || startsWithPath(b.path, hit.target.path)) continue;
-    moves.push({ bookmark: b, ruleId: hit.rule.id, ruleName: hit.rule.name, target: hit.target });
+    let best = null;
+    let matched = 0;
+    for (const u of usable) {
+      if (!inScope(u.sources, u.rule.sourceSubfolders !== false, b)) continue;
+      const score = ruleScore(u.rule, b);
+      if (score === null) continue;
+      matched++;
+      const candidate = { ...u, score };
+      if (!best || beats(candidate, best)) best = candidate;
+    }
+    if (!best) continue;
+    wins.set(best.rule.id, (wins.get(best.rule.id) ?? 0) + 1);
+    // The winning rule decides even when the bookmark is already where it says, so a weaker rule cannot move it away.
+    if (startsWithPath(b.path, best.target.path)) continue;
+    moves.push({ bookmark: b, ruleId: best.rule.id, ruleName: best.rule.name, target: best.target, score: best.score, priority: Number(best.rule.priority) || 0, others: matched - 1 });
   }
-  return { moves, problems };
+  return { moves, problems, wins };
 }

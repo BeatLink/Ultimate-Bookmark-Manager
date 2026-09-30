@@ -3,7 +3,7 @@
 import { h, Selection, toast, confirmDialog } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, tagInput, pickFolder } from '../components.js';
 import { saveSettings } from '../../lib/settings.js';
-import { OPERATORS, FIELDS, MODES, newRule, newCatchAll, inRunOrder, newCondition, newGroup, isGroup, keywords, duplicateRule, describeRule, planMoves, ruleApplies } from '../../lib/organize.js';
+import { OPERATORS, FIELDS, MODES, newRule, newCatchAll, newCondition, newGroup, isGroup, keywords, duplicateRule, describeRule, planMoves, ruleApplies, resolveTarget, maxScore } from '../../lib/organize.js';
 
 // Unsaved edits live here so they survive the re-render that follows any other action.
 let draft = null;
@@ -123,24 +123,29 @@ function groupEditor(group, changed, onRemove) {
 
 // Rules shown open; saved rules start closed, while new and duplicated ones open for editing.
 const expanded = new Set();
+// Folders the user opened or closed by hand; the rest are open when they or a folder inside them hold rules.
+const folderOpen = new Map();
+// The folder search and the "only folders with rules" switch survive refreshes.
+const treeView = { query: '', onlyWithRules: false };
+
+const SPECIFICITY_HELP = 'Specificity if every condition matches (only the ones that match a bookmark count): exact address 1000, address path 100 + 10 per segment, subdomain 60, domain 50, exact title 40, keyword 20, regex 15.';
 
 // A rule as a one-line summary row that expands into its editor; `parts` receives the bits refreshed while editing.
-function ruleCard(ctx, rule, i, rules, redraw, changed, parts) {
-  const move = (delta) => {
-    rules.splice(i, 1);
-    rules.splice(i + delta, 0, rule);
-    redraw();
-  };
+function ruleCard(ctx, rule, rules, redraw, changed, parts) {
   const bodyId = `rule-body-${rule.id}`;
   const isOpen = expanded.has(rule.id);
+  const priority = h('input', { type: 'number', step: 1, class: 'priority-input', value: String(Number(rule.priority) || 0), 'aria-label': 'Priority',
+    oninput: (e) => { rule.priority = Math.round(Number(e.target.value)) || 0; changed(); } });
   const body = h('div', { class: 'rule-body', id: bodyId, hidden: !isOpen },
     h('label', { class: 'row wrap' }, 'Name',
       h('input', { type: 'text', class: 'grow rule-name', value: rule.name, placeholder: 'Rule name (optional)', 'aria-label': 'Rule name', oninput: (e) => { rule.name = e.target.value; changed(); } })),
     sourcesPicker(ctx, rule, changed),
     rule.catchAll
-      ? h('p', { class: 'muted small', text: 'Moves every bookmark in the folders above that no other rule matches. It always runs after the other rules, whatever its place in the list.' })
+      ? h('p', { class: 'muted small', text: 'Moves every bookmark in the folders above that no other rule matches. Any matching rule beats it unless you give this one a higher priority.' })
       : groupEditor(rule, changed, null),
-    h('div', { class: 'row wrap target' }, 'Move to folder', targetPicker(ctx, rule, changed)),
+    h('div', { class: 'row wrap target' }, 'Files into', targetPicker(ctx, rule, redraw)),
+    h('label', { class: 'row wrap' }, 'Priority', priority,
+      h('span', { class: 'muted small', text: 'A higher priority always wins. Leave it at 0 to let the most specific match decide.' })),
     parts.info);
 
   const toggle = h('button', {
@@ -157,38 +162,39 @@ function ruleCard(ctx, rule, i, rules, redraw, changed, parts) {
   }, h('span', { class: 'chevron', 'aria-hidden': 'true' }),
   h('span', { class: 'rule-headline' }, parts.title, parts.summary, h('span', { class: 'rule-target' }, parts.target)));
 
-  // Pressing the handle makes the card draggable for that one drag, so text in its fields can still be selected.
-  // A catch-all rule always runs last, so it has no handle or arrows to move it.
-  const handle = rule.catchAll
-    ? h('span', { class: 'drag-handle', 'aria-hidden': 'true' })
-    : h('span', { class: 'drag-handle', text: '⠿', title: 'Drag to reorder', 'aria-hidden': 'true', onmousedown: () => { card.draggable = true; } });
-  const lastNormal = rules.filter((r) => !r.catchAll).length - 1;
-  const card = h('li', { class: `rule-card${rule.enabled === false ? ' disabled' : ''}${isOpen ? ' open' : ''}${rule.catchAll ? ' catch-all' : ''}`, 'data-index': i, onmouseup: () => { card.draggable = false; } },
+  const card = h('li', { class: `rule-card${rule.enabled === false ? ' disabled' : ''}${isOpen ? ' open' : ''}${rule.catchAll ? ' catch-all' : ''}`, 'data-rule': rule.id },
     h('div', { class: 'rule-head' },
-      handle,
       h('input', { type: 'checkbox', checked: rule.enabled !== false, 'aria-label': 'Rule enabled', title: 'Enabled', onchange: (e) => { rule.enabled = e.target.checked; redraw(); } }),
-      rule.catchAll
-        ? h('span', { class: 'order', text: '∗', title: 'Catch-all: runs after every other rule' })
-        : h('span', { class: 'order', text: i + 1, title: 'Rules are tried in this order; the first match wins' }),
+      parts.score,
       toggle,
       parts.badge,
       h('div', { class: 'rule-actions' },
-        !rule.catchAll && h('button', { class: 'small', text: '↑', title: 'Move up', 'aria-label': 'Move rule up', disabled: i === 0, onclick: () => move(-1) }),
-        !rule.catchAll && h('button', { class: 'small', text: '↓', title: 'Move down', 'aria-label': 'Move rule down', disabled: i >= lastNormal, onclick: () => move(1) }),
-        h('button', { class: 'small', text: 'Duplicate', title: 'Add an editable copy of this rule below it', onclick: (e) => {
-          const list = e.currentTarget.closest('.rule-list');
+        h('button', { class: 'small', text: 'Duplicate', title: 'Add an editable copy of this rule', onclick: (e) => {
+          const list = e.currentTarget.closest('.organize');
           const copy = duplicateRule(rule);
           expanded.add(copy.id);
-          rules.splice(i + 1, 0, copy);
+          rules.splice(rules.indexOf(rule) + 1, 0, copy);
           redraw();
-          const name = list.children[i + 1]?.querySelector('.rule-name');
+          const name = list.querySelector(`[data-rule="${copy.id}"] .rule-name`);
           name?.scrollIntoView?.({ block: 'nearest' });
           name?.focus();
           name?.select();
         } }),
-        h('button', { class: 'small danger', text: 'Delete', onclick: () => { expanded.delete(rule.id); rules.splice(i, 1); redraw(); } }))),
+        h('button', { class: 'small danger', text: 'Delete', onclick: () => { expanded.delete(rule.id); rules.splice(rules.indexOf(rule), 1); redraw(); } }))),
     body);
   return card;
+}
+
+// The bookmark folder tree, each node with its path key as rules store it ("Bookmarks Menu/Dev/Rust").
+function folderTree(root) {
+  const walk = (node, path, depth) => {
+    const own = [...path, node.title ?? ''];
+    return {
+      id: node.id, title: node.title || '(no name)', key: own.join('/'), depth,
+      children: (node.children ?? []).filter((c) => !c.url && c.children).map((c) => walk(c, own, depth + 1)),
+    };
+  };
+  return (root.children ?? []).map((c) => walk(c, [], 0));
 }
 
 export default {
@@ -204,8 +210,9 @@ export default {
       draftBase = saved;
     }
     const rules = draft.rules;
+    const roots = rootFolders(ctx);
     const section = h('section', { class: 'organize' });
-    const rulesList = h('ol', { class: 'rule-list' });
+    const treeBox = h('div', { class: 'rule-tree' });
     const previewBox = h('div');
     const dirtyNote = h('span', { class: 'muted small' });
 
@@ -223,33 +230,105 @@ export default {
       previewTimer = setTimeout(drawPreview, 300);
     };
 
-    // Cards are rebuilt only when rules are added, removed or reordered; typing just refreshes their text.
     const cardParts = new Map();
-    const bulk = h('div', { class: 'row wrap end' },
-      h('button', { class: 'small', text: 'Expand all', onclick: () => { rules.forEach((r) => expanded.add(r.id)); drawRules(); } }),
-      h('button', { class: 'small', text: 'Collapse all', onclick: () => { expanded.clear(); drawRules(); } }));
-    const drawRules = () => {
-      // Catch-all rules are kept below the others, matching the order rules are tried in.
-      const ordered = inRunOrder(rules);
-      if (ordered.some((r, i) => r !== rules[i])) rules.splice(0, rules.length, ...ordered);
-      bulk.hidden = rules.length < 2;
-      cardParts.clear();
-      rulesList.replaceChildren(...rules.map((r, i) => {
-        const parts = {
-          info: h('div', { class: 'rule-info' }),
-          title: h('strong', { class: 'rule-title' }),
-          summary: h('span', { class: 'rule-summary' }),
-          target: h('span'),
-          badge: h('span', { class: 'rule-badge' }),
-        };
-        cardParts.set(r.id, parts);
-        return ruleCard(ctx, r, i, rules, redraw, changed, parts);
-      }));
-      const { moves, problems } = plan(ctx, rules);
-      refreshInfo(moves, problems);
+    // Each folder's "would move here" count, refreshed with the cards as rules are edited.
+    const folderCounts = new Map();
+    const newParts = () => ({
+      info: h('div', { class: 'rule-info' }),
+      title: h('strong', { class: 'rule-title' }),
+      summary: h('span', { class: 'rule-summary' }),
+      target: h('span'),
+      badge: h('span', { class: 'rule-badge' }),
+      score: h('span', { class: 'score-chip' }),
+    });
+    const card = (r) => {
+      const parts = newParts();
+      cardParts.set(r.id, parts);
+      return ruleCard(ctx, r, rules, redraw, changed, parts);
     };
-    const refreshInfo = (moves, problems) => {
-      const roots = rootFolders(ctx);
+    const folderKeyOf = (r) => resolveTarget(r.target, roots)?.path.join('/') ?? '';
+    const addRule = (rule, key) => {
+      rule.target = key;
+      expanded.add(rule.id);
+      if (key) folderOpen.set(key, true);
+      rules.push(rule);
+      redraw();
+      const el = treeBox.querySelector(`[data-rule="${rule.id}"]`);
+      el?.scrollIntoView?.({ block: 'nearest' });
+      el?.querySelector('.tag-input input, .folder-button')?.focus();
+    };
+
+    // The whole tree is rebuilt when rules are added, removed or moved; typing only refreshes the cards' text.
+    const drawTree = () => {
+      cardParts.clear();
+      folderCounts.clear();
+      const tree = folderTree(ctx.state.root);
+      const keys = new Set();
+      const collect = (n) => { keys.add(n.key); n.children.forEach(collect); };
+      tree.forEach(collect);
+      const byKey = new Map();
+      const orphans = [];
+      for (const r of rules) {
+        const key = folderKeyOf(r);
+        if (!keys.has(key)) orphans.push(r);
+        else byKey.set(key, [...(byKey.get(key) ?? []), r]);
+      }
+      const withRules = new Map();
+      const holds = (n) => {
+        if (!withRules.has(n.key)) withRules.set(n.key, byKey.has(n.key) || n.children.some(holds));
+        return withRules.get(n.key);
+      };
+      const q = treeView.query.trim().toLowerCase();
+      const matchesQuery = (n) => !q || n.title.toLowerCase().includes(q) || n.children.some(matchesQuery);
+      const shown = (n) => matchesQuery(n) && (!treeView.onlyWithRules || holds(n));
+
+      const node = (n) => {
+        const own = byKey.get(n.key) ?? [];
+        const kids = n.children.filter(shown);
+        const open = q ? true : folderOpen.get(n.key) ?? (n.depth === 0 || holds(n));
+        const children = h('ul', { class: 'folder-children', hidden: !open },
+          [...own.filter((r) => !r.catchAll), ...own.filter((r) => r.catchAll)].map(card),
+          kids.map(node));
+        const countEl = h('span', { class: 'rule-badge active' });
+        folderCounts.set(n.key, countEl);
+        return h('li', { class: 'folder-node', 'data-folder': n.key },
+          h('div', { class: 'folder-head', style: `--depth: ${n.depth}` },
+            h('button', { class: 'folder-toggle', type: 'button', 'aria-expanded': String(open), 'aria-label': `${open ? 'Collapse' : 'Expand'} ${n.title}`, hidden: !own.length && !kids.length,
+              onclick: () => { folderOpen.set(n.key, !open); drawTree(); refresh(); } }, h('span', { class: 'chevron', 'aria-hidden': 'true' })),
+            h('span', { class: 'folder-icon', 'aria-hidden': 'true' }),
+            h('span', { class: 'folder-title', text: n.title }),
+            own.length > 0 && h('span', { class: 'muted small', text: `${own.length} rule(s)` }),
+            countEl,
+            h('div', { class: 'rule-actions' },
+              h('button', { class: 'small', text: '+ Rule', title: `Add a rule that files bookmarks into ${n.title}`, onclick: () => addRule(newRule(), n.key) }),
+              h('button', { class: 'small', text: '+ Catch-all', title: `File into ${n.title} whatever no other rule matches in a folder you choose`, onclick: () => {
+                const unfiled = ctx.state.root.children.find((c) => c.id === 'unfiled_____')?.title;
+                addRule(Object.assign(newCatchAll(unfiled ? [unfiled] : []), { name: 'Everything else' }), n.key);
+              } }))),
+          children);
+      };
+
+      const visible = tree.filter(shown);
+      treeBox.replaceChildren(
+        orphans.length > 0 && h('section', { class: 'orphan-rules' },
+          h('h2', { text: 'Rules for folders that do not exist yet' }),
+          h('p', { class: 'muted small', text: 'A missing folder is created when its rule first moves something into it. Rules still choosing a folder are here too.' }),
+          h('ul', { class: 'folder-children' }, orphans.map(card))),
+        visible.length ? h('ul', { class: 'folder-tree-list' }, visible.map(node)) : emptyState('No folders match.'));
+    };
+
+    const refresh = () => {
+      const { moves, problems, wins } = plan(ctx, rules);
+      refreshInfo(moves, problems, wins);
+    };
+    const refreshInfo = (moves, problems, wins) => {
+      const incoming = new Map();
+      for (const m of moves) incoming.set(m.target.path.join('/'), (incoming.get(m.target.path.join('/')) ?? 0) + 1);
+      for (const [key, el] of folderCounts) {
+        const count = incoming.get(key) ?? 0;
+        el.textContent = count ? `${count} would move here` : '';
+        el.hidden = !count;
+      }
       for (const r of rules) {
         const parts = cardParts.get(r.id);
         if (!parts) continue;
@@ -258,27 +337,33 @@ export default {
         parts.summary.textContent = describeRule(r);
         const from = r.sources?.length ? `from ${r.sources.map((f) => f.split('/').join(' › ')).join(', ')} ` : '';
         parts.target.textContent = `${from}${r.target ? `→ ${r.target.split('/').join(' › ')}` : '→ no folder yet'}`;
+        const p = Number(r.priority) || 0;
+        const spec = maxScore(r);
+        parts.score.textContent = `${p ? `P${p} · ` : ''}${r.catchAll ? 'catch-all' : `≤ ${spec}`}`;
+        parts.score.title = `${p ? `Priority ${p}: beats every rule with a lower priority. ` : ''}${r.catchAll ? 'A catch-all loses to any matching rule of the same priority.' : SPECIFICITY_HELP}`;
+        parts.score.classList.toggle('prioritised', p !== 0);
         const issues = problems.get(r.id);
         if (issues) {
-          parts.info.replaceChildren(...issues.map((p) => h('p', { class: 'error small', text: p })));
+          parts.info.replaceChildren(...issues.map((x) => h('p', { class: 'error small', text: x })));
           parts.badge.textContent = 'Needs attention';
           parts.badge.className = 'rule-badge error';
           parts.badge.title = issues.join(' ');
           continue;
         }
         const matched = ctx.state.flat.filter((b) => b.type === 'bookmark' && ruleApplies(r, b, roots)).length;
+        const won = wins.get(r.id) ?? 0;
         const moving = moves.filter((m) => m.ruleId === r.id).length;
-        parts.info.replaceChildren(h('p', { class: 'muted small', text: `Matches ${matched} bookmark(s); ${moving} would move. The rest are already in place or taken by an earlier rule.` }));
+        parts.info.replaceChildren(h('p', { class: 'muted small', text: `Matches ${matched} bookmark(s) and wins ${won}: ${moving} would move, the rest are already in place.${matched > won ? ` ${matched - won} go to a rule with a higher priority or a more specific match.` : ''}` }));
         parts.badge.textContent = r.enabled === false ? 'Off' : `${moving} to move`;
         parts.badge.className = `rule-badge${moving && r.enabled !== false ? ' active' : ''}`;
-        parts.badge.title = `Matches ${matched} bookmark(s); ${moving} would move`;
+        parts.badge.title = `Matches ${matched}, wins ${won}, ${moving} would move`;
       }
     };
 
     const drawPreview = () => {
-      const { moves, problems } = plan(ctx, rules);
-      refreshInfo(moves, problems);
-      if (!rules.length) return previewBox.replaceChildren(emptyState('No rules yet. Add one to start organizing.'));
+      const { moves, problems, wins } = plan(ctx, rules);
+      refreshInfo(moves, problems, wins);
+      if (!rules.length) return previewBox.replaceChildren(emptyState('No rules yet. Use “+ Rule” on a folder to start organizing.'));
       if (!moves.length) return previewBox.replaceChildren(h('h2', { text: 'Preview' }), emptyState('Nothing to move: every matching bookmark is already in its folder.'));
 
       const sel = new Selection();
@@ -315,7 +400,7 @@ export default {
         h('h2', { class: 'group-title sticky' }, h('span', { text: `→ ${path.replaceAll('/', ' › ')} — ${group.length}` }), selectAllToggle(sel, group.map((m) => m.bookmark.id), 'Select group')),
         h('ul', { class: 'items' }, group.map((m) => row(sel, m.bookmark.id, bookmarkInfo(m.bookmark, ctx, {
           editable: false,
-          meta: h('span', { text: `Rule: ${m.ruleName || `#${rules.findIndex((r) => r.id === m.ruleId) + 1}`}` }),
+          meta: h('span', { text: `Rule: ${m.ruleName || 'unnamed'}${m.priority ? ` · priority ${m.priority}` : ''}${m.score >= 0 ? ` · specificity ${m.score}` : ' · catch-all'}${m.others ? ` · beat ${m.others} other matching rule(s)` : ''}` }),
         })))))));
       bindCheckboxes(list, sel);
       previewBox.replaceChildren(
@@ -326,81 +411,40 @@ export default {
     };
 
     const redraw = () => {
-      drawRules();
+      drawTree();
+      refresh();
       changed();
     };
 
-    // Dragging a card by its handle moves the rule to where it is dropped; a line shows the drop position.
-    let dragFrom = null;
-    let dropAt = null;
-    const clearMarks = () => rulesList.querySelectorAll('.drop-before, .drop-after').forEach((c) => c.classList.remove('drop-before', 'drop-after'));
-    rulesList.addEventListener('dragstart', (e) => {
-      const card = e.target.closest?.('.rule-card');
-      if (!card?.draggable) return;
-      dragFrom = Number(card.dataset.index);
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', rules[dragFrom].name || `Rule ${dragFrom + 1}`);
-      card.classList.add('dragging');
-    });
-    rulesList.addEventListener('dragover', (e) => {
-      const card = e.target.closest?.('.rule-card');
-      if (dragFrom === null || !card) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      const box = card.getBoundingClientRect();
-      const after = e.clientY > box.top + box.height / 2;
-      dropAt = Number(card.dataset.index) + (after ? 1 : 0);
-      clearMarks();
-      card.classList.add(after ? 'drop-after' : 'drop-before');
-    });
-    rulesList.addEventListener('drop', (e) => {
-      if (dragFrom === null || dropAt === null) return;
-      e.preventDefault();
-      const to = dropAt > dragFrom ? dropAt - 1 : dropAt;
-      if (to !== dragFrom) {
-        const [moved] = rules.splice(dragFrom, 1);
-        rules.splice(to, 0, moved);
-        redraw();
-      }
-    });
-    rulesList.addEventListener('dragend', (e) => {
-      clearMarks();
-      e.target.classList?.remove('dragging');
-      if (e.target.draggable) e.target.draggable = false;
-      dragFrom = null;
-      dropAt = null;
-    });
+    const search = h('input', { type: 'search', value: treeView.query, placeholder: 'Find a folder', 'aria-label': 'Find a folder',
+      oninput: (e) => { treeView.query = e.target.value; drawTree(); refresh(); } });
+    const setAll = (open) => {
+      const all = (n) => { folderOpen.set(n.key, open); n.children.forEach(all); };
+      folderTree(ctx.state.root).forEach(all);
+      drawTree();
+      refresh();
+    };
 
     section.append(
-      viewHeader('Organize', 'Rules that file bookmarks into folders by words in their title or address. Rules are tried from the top and the first match wins. Bookmarks already anywhere inside the target folder stay where they are.',
+      viewHeader('Organize', 'Each folder lists the rules that file bookmarks into it. When several rules match a bookmark, the highest priority wins, then the most specific match, then the newest rule. Bookmarks already inside the winning rule’s folder stay where they are.',
         dirtyNote,
         h('button', { class: 'small', text: 'Discard changes', onclick: () => { draft = null; ctx.render(); } }),
         h('button', { class: 'primary', text: 'Save rules', onclick: () => save() })),
       h('label', { class: 'check-line' },
         h('input', { type: 'checkbox', checked: draft.autoApply, onchange: (e) => { draft.autoApply = e.target.checked; changed(); } }),
         'Organize new bookmarks automatically (a few seconds after they are added; skipped if you pick a folder yourself or many arrive at once, as during an import or sync)'),
-      bulk,
-      rulesList,
-      h('div', { class: 'row wrap' },
-        h('button', { text: '+ Add catch-all rule', title: 'Move whatever no other rule matches in a folder you choose', onclick: () => {
-          const unfiled = ctx.state.root.children.find((c) => c.id === 'unfiled_____')?.title;
-          const r = newCatchAll(unfiled ? [unfiled] : []);
-          r.name = 'Everything else';
-          expanded.add(r.id);
-          rules.push(r);
-          redraw();
-          rulesList.querySelector(`.catch-all:last-child .folder-button`)?.focus();
-        } }),
-        h('button', { text: '+ Add rule', onclick: () => {
-          const r = newRule();
-          expanded.add(r.id);
-          rules.push(r);
-          redraw();
-          rulesList.lastElementChild?.querySelector('.tag-input input')?.focus();
-        } })),
+      h('div', { class: 'row wrap filters' },
+        search,
+        h('label', { class: 'check-line small' },
+          h('input', { type: 'checkbox', checked: treeView.onlyWithRules, onchange: (e) => { treeView.onlyWithRules = e.target.checked; drawTree(); refresh(); } }),
+          'Only folders with rules'),
+        h('button', { class: 'small', text: 'Expand all', onclick: () => setAll(true) }),
+        h('button', { class: 'small', text: 'Collapse all', onclick: () => setAll(false) }),
+        h('button', { class: 'small', text: '+ Rule for a new folder', title: 'Add a rule whose folder you pick or create', onclick: () => addRule(newRule(), '') })),
+      treeBox,
       previewBox);
 
-    drawRules();
+    drawTree();
     drawPreview();
     dirtyNote.textContent = isDirty() ? 'Unsaved changes' : '';
     return section;

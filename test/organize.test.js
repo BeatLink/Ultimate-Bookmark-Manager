@@ -46,15 +46,51 @@ test('targets resolve against root titles and aliases, else go under Other Bookm
   assert.equal(resolveTarget('  ', roots), null);
 });
 
-test('first matching rule wins and bookmarks already inside the target are skipped', () => {
+test('equally specific matches go to the newer rule; bookmarks already in place stay', () => {
   const flat = [
     bm('a', 'Rust news', 'https://a.test'),
     bm('b', 'Rust guide', 'https://b.test', ['Other Bookmarks', 'Dev', 'Rust']),
     bm('c', 'Cooking', 'https://c.test'),
   ];
-  const rules = [rule('news', [cond('contains', 'news')], 'Reading'), rule('dev', [cond('contains', 'rust')], 'Other Bookmarks/Dev')];
+  const rules = [rule('news', [cond('contains', 'news')], 'Reading', { createdAt: 1 }), rule('dev', [cond('contains', 'rust')], 'Other Bookmarks/Dev', { createdAt: 2 })];
   const { moves } = planMoves(flat, rules, roots);
-  assert.deepEqual(moves.map((m) => [m.bookmark.id, m.ruleId]), [['a', 'news']]);
+  assert.deepEqual(moves.map((m) => [m.bookmark.id, m.ruleId, m.others]), [['a', 'dev', 1]]);
+});
+
+test('the more specific match wins whatever the order or age of the rules', () => {
+  const flat = [bm('a', 'Rust news', 'https://blog.rust-lang.org/2026/09/news.html')];
+  const keyword = rule('kw', [cond('contains', 'rust')], 'Keyword', { createdAt: 9 });
+  const domain = rule('dom', [cond('domain', 'rust-lang.org')], 'Domain', { createdAt: 1 });
+  const sub = rule('sub', [cond('domain', 'blog.rust-lang.org')], 'Sub', { createdAt: 1 });
+  const path = rule('path', [cond('startsWith', 'https://blog.rust-lang.org/2026/', { field: 'url' })], 'Path', { createdAt: 1 });
+  const exact = rule('exact', [cond('equals', 'https://blog.rust-lang.org/2026/09/news.html', { field: 'url' })], 'Exact', { createdAt: 1 });
+  const win = (...rs) => planMoves(flat, rs, roots).moves[0]?.ruleId;
+  assert.equal(win(keyword, domain), 'dom', 'domain (50) beats one keyword (20)');
+  assert.equal(win(domain, sub), 'sub', 'subdomain (60) beats domain (50)');
+  assert.equal(win(sub, path), 'path', 'a path (100 + 10 per segment) beats a subdomain');
+  assert.equal(win(path, exact, keyword), 'exact', 'an exact address beats everything');
+  const twoWords = rule('two', [cond('containsAll', 'rust,news', { field: 'title' })], 'Two', { createdAt: 1 });
+  assert.equal(win(keyword, twoWords), 'two', 'two required keywords (40) beat one (20)');
+});
+
+test('only what matched counts: extra alternatives do not add specificity', () => {
+  const flat = [bm('a', 'Rust tips', 'https://x.test')];
+  const many = rule('many', [cond('contains', 'rust,go,zig,nim,odin')], 'Many', { createdAt: 1 });
+  const one = rule('one', [cond('contains', 'rust')], 'One', { createdAt: 2 });
+  const { moves } = planMoves(flat, [many, one], roots);
+  assert.equal(moves[0].ruleId, 'one', 'both scored 20, so the newer rule wins');
+  assert.equal(moves[0].score, 20);
+});
+
+test('priority beats specificity, and catch-alls lose to any match unless given priority', async () => {
+  const { newCatchAll } = await import('../src/lib/organize.js');
+  const flat = [{ id: 'of', type: 'folder', title: 'Other Bookmarks', path: [] }, bm('a', 'Rust', 'https://doc.rust-lang.org/book/', ['Other Bookmarks'])];
+  const path = rule('path', [cond('startsWith', 'https://doc.rust-lang.org/book/', { field: 'url' })], 'Path');
+  const keyword = rule('kw', [cond('contains', 'rust')], 'Keyword');
+  const catchAll = { ...newCatchAll(['Other Bookmarks']), id: 'ca', target: 'Other Bookmarks/Inbox' };
+  assert.equal(planMoves(flat, [path, keyword, catchAll], roots).moves[0].ruleId, 'path');
+  assert.equal(planMoves(flat, [path, { ...keyword, priority: 1 }, catchAll], roots).moves[0].ruleId, 'kw');
+  assert.equal(planMoves(flat, [path, keyword, { ...catchAll, priority: 5 }], roots).moves[0].ruleId, 'ca');
 });
 
 test('invalid and disabled rules are left out of the plan', () => {
@@ -168,8 +204,9 @@ test('source folders limit which bookmarks a rule looks at', () => {
   assert.deepEqual(planMoves(flat, [shallow], roots).moves.map((m) => m.bookmark.id), ['a']);
   assert.ok(!ruleApplies(scoped, flat[4], roots));
 
-  // A bookmark outside an earlier rule's folders falls through to the next rule.
-  const fallback = rule('f', [cond('contains', 'rust')], 'Misc');
+  // A bookmark outside the scoped rule's folders goes to another rule that matches it; the scoped rule is newer, so it wins ties.
+  const fallback = rule('f', [cond('contains', 'rust')], 'Misc', { createdAt: 1 });
+  scoped.createdAt = 2;
   assert.deepEqual(planMoves(flat, [scoped, fallback], roots).moves.map((m) => [m.bookmark.id, m.ruleId]), [['a', 's'], ['b', 'f'], ['c', 's']]);
 
   const gone = rule('g', [cond('contains', 'rust')], 'Dev', { sources: ['other/Nowhere'] });
@@ -204,8 +241,3 @@ test('a catch-all rule must look in a folder', async () => {
   assert.equal(planMoves([bm('x', 'x', 'https://x.test')], [everywhere], roots).moves.length, 0);
 });
 
-test('catch-all rules sort after normal rules, keeping their own order', async () => {
-  const { inRunOrder } = await import('../src/lib/organize.js');
-  const ids = inRunOrder([{ id: 'c1', catchAll: true }, { id: 'a' }, { id: 'c2', catchAll: true }, { id: 'b' }]).map((r) => r.id);
-  assert.deepEqual(ids, ['a', 'b', 'c1', 'c2']);
-});
