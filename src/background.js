@@ -10,7 +10,7 @@ const VIEWS = {
   duplicates: 'Duplicates',
   'empty-folders': 'Empty folders',
   'same-name': 'Same-name folders',
-  untitled: 'Bookmarks without a name',
+  untitled: 'Bookmarks without a useful name',
   broken: 'Broken links',
   redirects: 'Redirects',
   organize: 'Organize',

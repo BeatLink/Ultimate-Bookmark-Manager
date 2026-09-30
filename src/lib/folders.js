@@ -1,4 +1,4 @@
-// Folder-level checks: empty folders, same-name siblings and bookmarks without a name.
+// Folder-level checks: empty folders, same-name siblings and bookmarks without a useful name.
 
 import { ROOT_IDS, nodeType } from './tree.js';
 
@@ -51,6 +51,30 @@ export function findSameNameFolders(root, ignoredIds = new Set()) {
   return out;
 }
 
+// An address reduced to what a reader would compare: no scheme, no "www.", no trailing slash, any case.
+function looseAddress(text) {
+  let t = text.trim().toLowerCase();
+  try {
+    t = decodeURI(t);
+  } catch {
+    // Leave text with stray % signs as it is.
+  }
+  return t.replace(/^[a-z][a-z0-9+.-]*:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+}
+
+// Says why a bookmark's name does not help: "blank", or "address" when the name is just a web address.
+export function unhelpfulName(title, url) {
+  const t = (title ?? '').trim();
+  if (!t) return 'blank';
+  if (/^[a-z][a-z0-9+.-]*:\/\/\S+$/i.test(t)) return 'address';
+  if (url && looseAddress(t) === looseAddress(url)) return 'address';
+  return null;
+}
+
+// Bookmarks without a useful name, each tagged with the reason.
 export function findUntitled(flat, ignoredIds = new Set()) {
-  return flat.filter((n) => n.type === 'bookmark' && !ignoredIds.has(n.id) && !n.title.trim());
+  return flat
+    .filter((n) => n.type === 'bookmark' && !ignoredIds.has(n.id))
+    .map((n) => ({ ...n, reason: unhelpfulName(n.title, n.url) }))
+    .filter((n) => n.reason);
 }
