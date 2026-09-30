@@ -1,7 +1,7 @@
 // A rule's conditions edited with react-querybuilder; esbuild bundles this file into query-editor.bundle.js.
 
 import { createRoot } from 'react-dom/client';
-import { QueryBuilder, update } from 'react-querybuilder';
+import { QueryBuilder, update, remove } from 'react-querybuilder';
 import { OPERATORS, FIELDS, FIELD_OPERATORS, WORD_OPS, FOLDER_OPS, newCondition } from '../lib/organize.js';
 import { pickFolder } from './components.js';
 import 'react-querybuilder/dist/query-builder.css';
@@ -52,18 +52,29 @@ function FieldSelector({ rule, path, schema, options }) {
   );
 }
 
+// The × that removes a condition, placed right after its keyword or folder so the two read as one.
+function RemoveButton({ path, schema }) {
+  return (
+    <button type="button" className="small keyword-remove" title="Remove condition" aria-label="Remove condition"
+      onClick={() => schema.dispatchQuery(remove(schema.getQuery(), path))}>×</button>
+  );
+}
+
 // A folder condition's folder, chosen with the page's folder picker.
-function FolderEditor({ operator, rule, value, handleOnChange, context }) {
+function FolderEditor({ operator, rule, value, handleOnChange, context, path, schema }) {
   const pick = async () => {
     const picked = await pickFolder(context.root, value ?? '', { heading: 'Choose a folder', verb: 'Folder', allowCreate: false });
     if (picked) handleOnChange(picked);
   };
   return (
     <span className="rule-value">
-      <button type="button" className={`folder-button${value ? '' : ' unset'}`} aria-label="Folder" onClick={pick}>
-        <span className="folder-icon" aria-hidden="true" />
-        {value ? value.split('/').join(' › ') : 'Choose folder…'}
-      </button>
+      <span className="keyword-with-remove">
+        <button type="button" className={`folder-button${value ? '' : ' unset'}`} aria-label="Folder" onClick={pick}>
+          <span className="folder-icon" aria-hidden="true" />
+          {value ? value.split('/').join(' › ') : 'Choose folder…'}
+        </button>
+        <RemoveButton path={path} schema={schema} />
+      </span>
       <Switches operator={operator} rule={rule} setFlag={() => undefined} />
     </span>
   );
@@ -92,8 +103,11 @@ function KeywordEditor(props) {
   const setFlag = (prop) => (e) => schema.dispatchQuery(update(schema.getQuery(), prop, e.target.checked, path));
   return (
     <span className="rule-value">
-      <input type="text" className={`keyword${operator === 'matchesRegex' ? ' mono' : ''}`} aria-label="Keyword" value={value ?? ''}
-        placeholder={PLACEHOLDERS[operator] ?? 'Keyword'} onChange={(e) => handleOnChange(e.target.value)} />
+      <span className="keyword-with-remove">
+        <input type="text" className={`keyword${operator === 'matchesRegex' ? ' mono' : ''}`} aria-label="Keyword" value={value ?? ''}
+          placeholder={PLACEHOLDERS[operator] ?? 'Keyword'} onChange={(e) => handleOnChange(e.target.value)} />
+        <RemoveButton path={path} schema={schema} />
+      </span>
       <Switches operator={operator} rule={rule} setFlag={setFlag} />
     </span>
   );
@@ -128,7 +142,7 @@ function Editor({ query, onChange, context }) {
       getDefaultOperator="contains"
       getDefaultValue={() => ''}
       onAddRule={(rule) => ({ ...newCondition(rule.field, rule.operator), id: rule.id })}
-      controlElements={{ combinatorSelector: RuleSelector, fieldSelector: FieldSelector, valueEditor: KeywordEditor }}
+      controlElements={{ combinatorSelector: RuleSelector, fieldSelector: FieldSelector, valueEditor: KeywordEditor, removeRuleAction: () => null }}
       context={context}
       controlClassnames={classNames}
       translations={translations}

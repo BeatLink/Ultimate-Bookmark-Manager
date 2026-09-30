@@ -142,19 +142,22 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
   const isOpen = expanded.has(rule.id);
   const body = h('div', { class: 'rule-body', id: bodyId, hidden: !isOpen });
   // The editor is only built the first time the rule is opened.
-  const fillBody = () => body.append(
-    h('label', { class: 'row wrap' }, 'Name',
-      h('input', { type: 'text', class: 'grow rule-name', value: rule.name, placeholder: 'Rule name (optional)', 'aria-label': 'Rule name', oninput: (e) => { rule.name = e.target.value; changed(); } })),
+  // Built with h() rather than append(), which would print a skipped part as the text "undefined".
+  const fillBody = () => body.append(...h('div', {},
+    h('label', { class: 'check-line' },
+      h('input', { type: 'checkbox', checked: rule.enabled !== false, 'aria-label': 'Rule enabled', onchange: (e) => { rule.enabled = e.target.checked; redraw(); } }),
+      'Enabled'),
     rule.catchAll && h('p', { class: 'muted small' }, 'Catch-all ', helpLink('Files whatever no other rule matches where its folder conditions hold; any matching rule beats it unless this one ranks above it', 'organize')),
     queryEditor(ctx, rule, changed),
     h('div', { class: 'row wrap target' }, 'Destination folder', targetPicker(ctx, rule, redraw)),
     ranksAbovePicker(rule, rules, redraw),
-    parts.info);
+    parts.info).childNodes);
   if (isOpen) fillBody();
 
+  // The chevron alone opens and closes the rule, so the name beside it can be edited in place.
   const toggle = h('button', {
     class: 'rule-toggle', type: 'button', 'aria-expanded': String(isOpen), 'aria-controls': bodyId,
-    title: isOpen ? 'Collapse' : 'Edit this rule',
+    title: isOpen ? 'Collapse' : 'Edit this rule', 'aria-label': isOpen ? 'Collapse rule' : 'Edit rule',
     onclick: () => {
       const open = body.hidden;
       if (open && !body.childElementCount) fillBody();
@@ -162,16 +165,18 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
       open ? expanded.add(rule.id) : expanded.delete(rule.id);
       toggle.setAttribute('aria-expanded', String(open));
       toggle.title = open ? 'Collapse' : 'Edit this rule';
+      toggle.setAttribute('aria-label', open ? 'Collapse rule' : 'Edit rule');
       card.classList.toggle('open', open);
     },
-  }, h('span', { class: 'chevron', 'aria-hidden': 'true' }),
-  h('span', { class: 'rule-headline' }, parts.title));
+  }, h('span', { class: 'chevron', 'aria-hidden': 'true' }));
+  const name = h('input', { type: 'text', class: 'rule-name', value: rule.name, placeholder: 'Unnamed rule', 'aria-label': 'Rule name',
+    oninput: (e) => { rule.name = e.target.value; changed(); } });
 
   const card = h('li', { class: `rule-card${rule.enabled === false ? ' disabled' : ''}${isOpen ? ' open' : ''}${rule.catchAll ? ' catch-all' : ''}`, 'data-rule': rule.id },
     h('div', { class: 'rule-head' },
-      h('input', { type: 'checkbox', checked: rule.enabled !== false, 'aria-label': 'Rule enabled', title: 'Enabled', onchange: (e) => { rule.enabled = e.target.checked; redraw(); } }),
-      parts.score,
       toggle,
+      name,
+      parts.score,
       parts.badge,
       h('div', { class: 'rule-actions' },
         h('button', { class: 'small', text: 'Duplicate', title: 'Add an editable copy of this rule', onclick: (e) => {
@@ -246,7 +251,6 @@ export default {
     const folderCounts = new Map();
     const newParts = () => ({
       info: h('div', { class: 'rule-info' }),
-      title: h('strong', { class: 'rule-title' }),
       badge: h('span', { class: 'rule-badge' }),
       score: h('span', { class: 'score-chip' }),
     });
@@ -363,8 +367,6 @@ export default {
       for (const r of rules) {
         const parts = cardParts.get(r.id);
         if (!parts) continue;
-        parts.title.textContent = r.name || 'Unnamed rule';
-        parts.title.classList.toggle('muted', !r.name);
         const above = (r.outranks ?? []).filter((id) => rules.some((x) => x.id === id)).length;
         const spec = maxScore(r);
         parts.score.textContent = `${r.catchAll ? 'catch-all' : `≤ ${formatScore(spec)}`}${above ? ` · above ${above}` : ''}`;

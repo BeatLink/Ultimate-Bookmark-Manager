@@ -165,7 +165,7 @@ body.busy [data-action=reload] { opacity: .5; pointer-events: none; }
 .organize > .check-line { margin: 0 0 1em; }
 .rule-list { list-style: none; padding: 0; margin: 0 0 1em; display: flex; flex-direction: column; gap: .75em; }
 .rule-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .75em; display: flex; flex-direction: column; gap: .5em; align-items: flex-start; }
-.rule-card.disabled .rule-toggle, .rule-card.disabled .rule-body { opacity: .55; }
+.rule-card.disabled .rule-name, .rule-card.disabled .rule-body { opacity: .55; }
 .rule-name { font-weight: 600; }
 .target input { min-width: 14em; }
 .organize .selection-bar h2 { font-size: 1.05em; }
@@ -198,7 +198,7 @@ dialog.folder-picker::backdrop { background: rgb(0 0 0 / .35); }
 .rule-card { padding: .4em .6em; gap: 0; }
 .rule-card.open { padding-bottom: .75em; }
 .rule-head { display: flex; align-items: center; gap: .5em; width: 100%; }
-.rule-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: .4em; border: 0; background: none; padding: .3em .2em; text-align: left; }
+.rule-toggle { flex: none; display: grid; place-items: center; width: 1.8em; height: 1.8em; border: 0; background: none; padding: 0; border-radius: var(--radius); }
 .rule-toggle:hover { background: var(--hover); }
 .chevron::before { content: "▸"; display: inline-block; width: 1em; color: var(--muted); transition: transform .15s; }
 .rule-toggle[aria-expanded="true"] .chevron::before { transform: rotate(90deg); }
@@ -340,3 +340,14 @@ mark { background: var(--mark-bg); color: var(--text); border-radius: 2px; paddi
 .help-section ul { padding-left: 1.3em; margin: .3em 0; }
 .help-open { font-weight: normal; }
 kbd { font-family: ui-monospace, monospace; font-size: .85em; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 .3em; }
+
+/* Rule name edited in place in the header; the keyword and its × read as one unit. */
+.rule-head .rule-name { flex: 1; min-width: 8em; font-weight: 600; border-color: transparent; background: transparent; padding: .25em .4em; }
+.rule-head .rule-name:hover { border-color: var(--border); }
+.rule-head .rule-name:focus { border-color: var(--accent); background: var(--surface); }
+.rule-head .rule-name::placeholder { color: var(--muted); font-weight: 500; }
+.keyword-with-remove { display: inline-flex; align-items: stretch; }
+.keyword-with-remove .keyword, .keyword-with-remove .folder-button { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.keyword-with-remove .keyword-remove { border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 0 .55em; }
+.keyword-with-remove .keyword-remove:hover { color: var(--danger); }
+.query-editor .rule-value .keyword-with-remove { flex: 1; min-width: 8em; display: flex; }
