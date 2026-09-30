@@ -234,10 +234,10 @@ test('a catch-all rule takes only what no other rule matches, and only in its fo
   assert.equal(describeRule(catchAll), 'Anything no other rule matches');
 });
 
-test('a catch-all rule must look in a folder', async () => {
+test('a catch-all rule needs a source folder', async () => {
   const { newCatchAll } = await import('../src/lib/organize.js');
   const everywhere = { ...newCatchAll(), id: 'c', target: 'Inbox' };
-  assert.match(validateRules([everywhere], roots).get('c')[0], /must look in at least one folder/);
+  assert.match(validateRules([everywhere], roots).get('c')[0], /needs at least one source folder/);
   assert.equal(planMoves([bm('x', 'x', 'https://x.test')], [everywhere], roots).moves.length, 0);
 });
 

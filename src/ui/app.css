@@ -206,9 +206,6 @@ dialog.folder-picker::backdrop { background: rgb(0 0 0 / .35); }
 .chevron::before { content: "▸"; display: inline-block; width: 1em; color: var(--muted); transition: transform .15s; }
 .rule-toggle[aria-expanded="true"] .chevron::before { transform: rotate(90deg); }
 .rule-headline { min-width: 0; display: flex; flex-wrap: wrap; gap: .1em .6em; align-items: baseline; }
-.rule-summary { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-.rule-card.open .rule-summary { white-space: normal; }
-.rule-target { font-weight: 500; white-space: nowrap; }
 .rule-badge { flex: none; font-size: .8em; padding: .1em .6em; border-radius: 1em; background: var(--hover); color: var(--muted); white-space: nowrap; }
 .rule-badge.active { background: var(--accent); color: var(--accent-text); }
 .rule-badge.error { background: var(--danger); color: var(--bg); }

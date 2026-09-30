@@ -3,7 +3,7 @@
 import { h, Selection, toast, confirmDialog } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, tagInput, pickFolder, marked } from '../components.js';
 import { saveSettings } from '../../lib/settings.js';
-import { WORD_OPS, ADDRESS_OPS, OPERATORS, FIELDS, MODES, newRule, newCatchAll, newCondition, newGroup, isGroup, keywords, duplicateRule, describeRule, planMoves, resolveTarget, maxScore } from '../../lib/organize.js';
+import { WORD_OPS, ADDRESS_OPS, OPERATORS, FIELDS, MODES, newRule, newCatchAll, newCondition, newGroup, isGroup, keywords, duplicateRule, planMoves, resolveTarget, maxScore } from '../../lib/organize.js';
 
 // Unsaved edits live here so they survive the re-render that follows any other action.
 let draft = null;
@@ -97,7 +97,7 @@ function sourcesPicker(ctx, rule, changed) {
     subfolders.hidden = !sources.length;
   };
   const add = h('button', { class: 'small', type: 'button', text: '+ Folder', title: 'Only sort bookmarks that are in this folder', onclick: async () => {
-    const picked = await pickFolder(ctx.state.root, '', { heading: 'Look in which folder?', verb: 'Look in', allowCreate: false });
+    const picked = await pickFolder(ctx.state.root, '', { heading: 'Choose a source folder', verb: 'Source folder', allowCreate: false });
     if (!picked) return;
     rule.sources ??= [];
     if (!rule.sources.includes(picked)) rule.sources.push(picked);
@@ -105,7 +105,7 @@ function sourcesPicker(ctx, rule, changed) {
     changed();
   } });
   draw();
-  return h('div', { class: 'row wrap target' }, 'Look in', chips, add, subfolders);
+  return h('div', { class: 'row wrap target' }, 'Source folder', chips, add, subfolders);
 }
 
 // A group of conditions and nested groups; the rule itself is the outermost group, which cannot be removed.
@@ -124,9 +124,8 @@ function groupEditor(group, changed, onRemove) {
   };
   return h('div', { class: `cond-group${onRemove ? ' nested' : ''}` },
     h('div', { class: 'row wrap' },
-      onRemove ? null : 'When',
-      select(MODES, group.match, (v) => { group.match = v; changed(); }, onRemove ? 'Group match' : 'Match'),
-      'of these are true:',
+      'Inclusion:',
+      select(MODES, group.match, (v) => { group.match = v; changed(); }, onRemove ? 'Group inclusion' : 'Inclusion'),
       onRemove && h('button', { class: 'small group-remove', text: 'Remove group', onclick: onRemove })),
     items,
     h('div', { class: 'row wrap' },
@@ -199,13 +198,13 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
     rule.catchAll
       ? h('p', { class: 'muted small', text: 'Moves every bookmark in the folders above that no other rule matches. Any matching rule beats it unless you give this one a higher priority.' })
       : groupEditor(rule, changed, null),
-    h('div', { class: 'row wrap target' }, 'Files into', targetPicker(ctx, rule, redraw)),
     !rule.catchAll && h('label', { class: 'check-line' },
       h('input', { type: 'checkbox', checked: !!rule.fallback, 'aria-label': 'Fallback', onchange: (e) => { rule.fallback = e.target.checked; redraw(); } }),
       h('span', {}, 'Fallback: only use this rule when no other rule matches',
         h('span', { class: 'muted small', text: ' — for broad sites like YouTube or Reddit, so a more specific rule (say, CCNA) wins for the pages it covers. Catch-alls still come after it.' }))),
     h('label', { class: 'row wrap' }, 'Priority', priority,
       h('span', { class: 'muted small', text: 'A higher priority always wins. Leave it at 0 to let the most specific match decide.' })),
+    h('div', { class: 'row wrap target' }, 'Destination folder', targetPicker(ctx, rule, redraw)),
     parts.info);
   if (isOpen) fillBody();
 
@@ -222,7 +221,7 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
       card.classList.toggle('open', open);
     },
   }, h('span', { class: 'chevron', 'aria-hidden': 'true' }),
-  h('span', { class: 'rule-headline' }, parts.title, parts.summary, h('span', { class: 'rule-target' }, parts.target)));
+  h('span', { class: 'rule-headline' }, parts.title));
 
   const card = h('li', { class: `rule-card${rule.enabled === false ? ' disabled' : ''}${isOpen ? ' open' : ''}${rule.catchAll ? ' catch-all' : ''}${rule.fallback && !rule.catchAll ? ' fallback' : ''}`, 'data-rule': rule.id },
     h('div', { class: 'rule-head' },
@@ -298,8 +297,6 @@ export default {
     const newParts = () => ({
       info: h('div', { class: 'rule-info' }),
       title: h('strong', { class: 'rule-title' }),
-      summary: h('span', { class: 'rule-summary' }),
-      target: h('span'),
       badge: h('span', { class: 'rule-badge' }),
       score: h('span', { class: 'score-chip' }),
     });
@@ -416,9 +413,6 @@ export default {
         if (!parts) continue;
         parts.title.textContent = r.name || 'Unnamed rule';
         parts.title.classList.toggle('muted', !r.name);
-        parts.summary.textContent = describeRule(r);
-        const from = r.sources?.length ? `from ${r.sources.map((f) => f.split('/').join(' › ')).join(', ')} ` : '';
-        parts.target.textContent = `${from}${r.target ? `→ ${r.target.split('/').join(' › ')}` : '→ no folder yet'}`;
         const p = Number(r.priority) || 0;
         const spec = maxScore(r);
         parts.score.textContent = `${p ? `P${p} · ` : ''}${r.catchAll ? 'catch-all' : `${r.fallback ? 'fallback · ' : ''}≤ ${spec}`}`;

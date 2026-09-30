@@ -478,14 +478,14 @@ export function validateRules(rules, rootFolders, flat = null) {
   for (const rule of rules) {
     const issues = [];
     if (rule.catchAll) {
-      if (!(rule.sources ?? []).length) issues.push('A catch-all rule must look in at least one folder, or it would move every bookmark you have.');
+      if (!(rule.sources ?? []).length) issues.push('A catch-all rule needs at least one source folder, or it would move every bookmark you have.');
     } else if (!activeItems(rule).length) {
       issues.push('Add at least one keyword to a condition.');
     }
     if (!resolveTarget(rule.target, rootFolders)) issues.push('Choose a target folder.');
     if (folders) {
       for (const s of resolveSources(rule, rootFolders)) {
-        if (!folders.has(s.path.join('\0'))) issues.push(`The folder “${s.path.join(' › ')}” to look in no longer exists.`);
+        if (!folders.has(s.path.join('\0'))) issues.push(`The source folder “${s.path.join(' › ')}” no longer exists.`);
       }
     }
     for (const c of allConditions(rule)) {
