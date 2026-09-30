@@ -228,3 +228,6 @@ dialog.folder-picker::backdrop { background: rgb(0 0 0 / .35); }
 .cond-group.nested { border-left: 3px solid var(--accent); background: var(--bg); border-radius: 0 var(--radius) var(--radius) 0; padding: .4em .6em; }
 .cond-group .group-remove { margin-left: auto; }
 .group-item { list-style: none; }
+
+.rule-card.catch-all { border-style: dashed; }
+.rule-card.catch-all .order { background: none; border: 1px dashed var(--border); }

@@ -3,7 +3,7 @@
 import { h, Selection, toast, confirmDialog } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, tagInput, pickFolder } from '../components.js';
 import { saveSettings } from '../../lib/settings.js';
-import { OPERATORS, FIELDS, MODES, newRule, newCondition, newGroup, isGroup, keywords, duplicateRule, describeRule, planMoves, ruleApplies } from '../../lib/organize.js';
+import { OPERATORS, FIELDS, MODES, newRule, newCatchAll, inRunOrder, newCondition, newGroup, isGroup, keywords, duplicateRule, describeRule, planMoves, ruleApplies } from '../../lib/organize.js';
 
 // Unsaved edits live here so they survive the re-render that follows any other action.
 let draft = null;
@@ -137,7 +137,9 @@ function ruleCard(ctx, rule, i, rules, redraw, changed, parts) {
     h('label', { class: 'row wrap' }, 'Name',
       h('input', { type: 'text', class: 'grow rule-name', value: rule.name, placeholder: 'Rule name (optional)', 'aria-label': 'Rule name', oninput: (e) => { rule.name = e.target.value; changed(); } })),
     sourcesPicker(ctx, rule, changed),
-    groupEditor(rule, changed, null),
+    rule.catchAll
+      ? h('p', { class: 'muted small', text: 'Moves every bookmark in the folders above that no other rule matches. It always runs after the other rules, whatever its place in the list.' })
+      : groupEditor(rule, changed, null),
     h('div', { class: 'row wrap target' }, 'Move to folder', targetPicker(ctx, rule, changed)),
     parts.info);
 
@@ -156,17 +158,23 @@ function ruleCard(ctx, rule, i, rules, redraw, changed, parts) {
   h('span', { class: 'rule-headline' }, parts.title, parts.summary, h('span', { class: 'rule-target' }, parts.target)));
 
   // Pressing the handle makes the card draggable for that one drag, so text in its fields can still be selected.
-  const handle = h('span', { class: 'drag-handle', text: '⠿', title: 'Drag to reorder', 'aria-hidden': 'true', onmousedown: () => { card.draggable = true; } });
-  const card = h('li', { class: `rule-card${rule.enabled === false ? ' disabled' : ''}${isOpen ? ' open' : ''}`, 'data-index': i, onmouseup: () => { card.draggable = false; } },
+  // A catch-all rule always runs last, so it has no handle or arrows to move it.
+  const handle = rule.catchAll
+    ? h('span', { class: 'drag-handle', 'aria-hidden': 'true' })
+    : h('span', { class: 'drag-handle', text: '⠿', title: 'Drag to reorder', 'aria-hidden': 'true', onmousedown: () => { card.draggable = true; } });
+  const lastNormal = rules.filter((r) => !r.catchAll).length - 1;
+  const card = h('li', { class: `rule-card${rule.enabled === false ? ' disabled' : ''}${isOpen ? ' open' : ''}${rule.catchAll ? ' catch-all' : ''}`, 'data-index': i, onmouseup: () => { card.draggable = false; } },
     h('div', { class: 'rule-head' },
       handle,
       h('input', { type: 'checkbox', checked: rule.enabled !== false, 'aria-label': 'Rule enabled', title: 'Enabled', onchange: (e) => { rule.enabled = e.target.checked; redraw(); } }),
-      h('span', { class: 'order', text: i + 1, title: 'Rules are tried in this order; the first match wins' }),
+      rule.catchAll
+        ? h('span', { class: 'order', text: '∗', title: 'Catch-all: runs after every other rule' })
+        : h('span', { class: 'order', text: i + 1, title: 'Rules are tried in this order; the first match wins' }),
       toggle,
       parts.badge,
       h('div', { class: 'rule-actions' },
-        h('button', { class: 'small', text: '↑', title: 'Move up', 'aria-label': 'Move rule up', disabled: i === 0, onclick: () => move(-1) }),
-        h('button', { class: 'small', text: '↓', title: 'Move down', 'aria-label': 'Move rule down', disabled: i === rules.length - 1, onclick: () => move(1) }),
+        !rule.catchAll && h('button', { class: 'small', text: '↑', title: 'Move up', 'aria-label': 'Move rule up', disabled: i === 0, onclick: () => move(-1) }),
+        !rule.catchAll && h('button', { class: 'small', text: '↓', title: 'Move down', 'aria-label': 'Move rule down', disabled: i >= lastNormal, onclick: () => move(1) }),
         h('button', { class: 'small', text: 'Duplicate', title: 'Add an editable copy of this rule below it', onclick: (e) => {
           const list = e.currentTarget.closest('.rule-list');
           const copy = duplicateRule(rule);
@@ -221,6 +229,9 @@ export default {
       h('button', { class: 'small', text: 'Expand all', onclick: () => { rules.forEach((r) => expanded.add(r.id)); drawRules(); } }),
       h('button', { class: 'small', text: 'Collapse all', onclick: () => { expanded.clear(); drawRules(); } }));
     const drawRules = () => {
+      // Catch-all rules are kept below the others, matching the order rules are tried in.
+      const ordered = inRunOrder(rules);
+      if (ordered.some((r, i) => r !== rules[i])) rules.splice(0, rules.length, ...ordered);
       bulk.hidden = rules.length < 2;
       cardParts.clear();
       rulesList.replaceChildren(...rules.map((r, i) => {
@@ -371,6 +382,15 @@ export default {
       bulk,
       rulesList,
       h('div', { class: 'row wrap' },
+        h('button', { text: '+ Add catch-all rule', title: 'Move whatever no other rule matches in a folder you choose', onclick: () => {
+          const unfiled = ctx.state.root.children.find((c) => c.id === 'unfiled_____')?.title;
+          const r = newCatchAll(unfiled ? [unfiled] : []);
+          r.name = 'Everything else';
+          expanded.add(r.id);
+          rules.push(r);
+          redraw();
+          rulesList.querySelector(`.catch-all:last-child .folder-button`)?.focus();
+        } }),
         h('button', { text: '+ Add rule', onclick: () => {
           const r = newRule();
           expanded.add(r.id);

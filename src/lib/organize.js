@@ -53,6 +53,16 @@ export function newRule() {
 }
 
 // Copies a rule under a new id so it can be edited separately; the copy's name is marked as such.
+// A rule with no conditions that takes whatever no other rule matches in the folders it looks in; it always runs last.
+export function newCatchAll(sources = []) {
+  return { ...newRule(), catchAll: true, conditions: [], sources, sourceSubfolders: false };
+}
+
+// Normal rules keep their order and catch-all rules follow them, which is also the order they are tried in.
+export function inRunOrder(rules) {
+  return [...rules.filter((r) => !r.catchAll), ...rules.filter((r) => r.catchAll)];
+}
+
 export function duplicateRule(rule) {
   const copy = structuredClone(rule);
   copy.id = crypto.randomUUID();
@@ -130,6 +140,7 @@ function groupMatches(group, bookmark) {
 }
 
 export function ruleMatches(rule, bookmark) {
+  if (rule.catchAll) return true;
   return activeItems(rule).length > 0 && groupMatches(rule, bookmark);
 }
 
@@ -149,6 +160,7 @@ function describeGroup(group, nested) {
 
 // The rule's logic in one line, with nested groups in brackets and "none" groups always as "not (…)" so they read unambiguously.
 export function describeRule(rule) {
+  if (rule.catchAll) return 'Anything no other rule matches';
   return activeItems(rule).length ? describeGroup(rule, false) : 'No conditions yet';
 }
 
@@ -190,7 +202,11 @@ export function validateRules(rules, rootFolders, flat = null) {
   const folders = flat && new Set(flat.filter((n) => n.type === 'folder').map((n) => [...n.path, n.title].join('\0')));
   for (const rule of rules) {
     const issues = [];
-    if (!activeItems(rule).length) issues.push('Add at least one keyword to a condition.');
+    if (rule.catchAll) {
+      if (!(rule.sources ?? []).length) issues.push('A catch-all rule must look in at least one folder, or it would move every bookmark you have.');
+    } else if (!activeItems(rule).length) {
+      issues.push('Add at least one keyword to a condition.');
+    }
     if (!resolveTarget(rule.target, rootFolders)) issues.push('Choose a target folder.');
     if (folders) {
       for (const s of resolveSources(rule, rootFolders)) {
@@ -212,11 +228,12 @@ export function validateRules(rules, rootFolders, flat = null) {
   return problems;
 }
 
-// Works out where each bookmark should go: the first enabled, valid rule that matches and looks in the bookmark's folder decides.
+// Works out where each bookmark should go: the first enabled, valid rule that matches and looks in the bookmark's folder decides,
+// with catch-all rules tried only after every other rule.
 // `tree` is the whole flattened tree, used to check source folders exist when `flat` holds only some bookmarks.
 export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree = flat) {
   const problems = validateRules(rules, rootFolders, tree);
-  const usable = rules
+  const usable = inRunOrder(rules)
     .filter((r) => r.enabled !== false && !problems.has(r.id))
     .map((rule) => ({ rule, target: resolveTarget(rule.target, rootFolders), sources: resolveSources(rule, rootFolders) }));
   const moves = [];

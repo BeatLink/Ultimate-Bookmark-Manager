@@ -177,3 +177,35 @@ test('source folders limit which bookmarks a rule looks at', () => {
   assert.match(validateRules([gone], roots, flat).get('g')[0], /no longer exists/);
   assert.ok(!validateRules([gone], roots).has('g'), 'without the tree, source folders are not checked');
 });
+
+test('a catch-all rule takes only what no other rule matches, and only in its folders', async () => {
+  const { newCatchAll } = await import('../src/lib/organize.js');
+  const flat = [
+    { id: 'of', type: 'folder', title: 'Other Bookmarks', path: [] },
+    bm('rust', 'Rust book', 'https://a.test', ['Other Bookmarks']),
+    bm('misc', 'Holiday photos', 'https://b.test', ['Other Bookmarks']),
+    bm('deep', 'Old thing', 'https://c.test', ['Other Bookmarks', 'Sub']),
+    bm('filed', 'Recipe', 'https://d.test', ['Bookmarks Menu']),
+    bm('placed', 'Rust again', 'https://e.test', ['Other Bookmarks', 'Dev']),
+  ];
+  const catchAll = { ...newCatchAll(['Other Bookmarks']), id: 'c', target: 'Other Bookmarks/Inbox' };
+  // Listed first on purpose: catch-alls run after the other rules whatever their position.
+  const rules = [catchAll, rule('dev', [cond('contains', 'rust')], 'Other Bookmarks/Dev')];
+  const { moves, problems } = planMoves(flat, rules, roots);
+  assert.equal(problems.size, 0);
+  assert.deepEqual(moves.map((m) => [m.bookmark.id, m.ruleId]), [['rust', 'dev'], ['misc', 'c']]);
+  assert.equal(describeRule(catchAll), 'Anything no other rule matches');
+});
+
+test('a catch-all rule must look in a folder', async () => {
+  const { newCatchAll } = await import('../src/lib/organize.js');
+  const everywhere = { ...newCatchAll(), id: 'c', target: 'Inbox' };
+  assert.match(validateRules([everywhere], roots).get('c')[0], /must look in at least one folder/);
+  assert.equal(planMoves([bm('x', 'x', 'https://x.test')], [everywhere], roots).moves.length, 0);
+});
+
+test('catch-all rules sort after normal rules, keeping their own order', async () => {
+  const { inRunOrder } = await import('../src/lib/organize.js');
+  const ids = inRunOrder([{ id: 'c1', catchAll: true }, { id: 'a' }, { id: 'c2', catchAll: true }, { id: 'b' }]).map((r) => r.id);
+  assert.deepEqual(ids, ['a', 'b', 'c1', 'c2']);
+});
