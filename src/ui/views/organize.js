@@ -3,7 +3,7 @@
 import { h, Selection, toast, confirmDialog } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, tagInput, pickFolder } from '../components.js';
 import { saveSettings } from '../../lib/settings.js';
-import { OPERATORS, FIELDS, MODES, newRule, newCondition, newGroup, isGroup, keywords, duplicateRule, describeRule, planMoves, ruleMatches } from '../../lib/organize.js';
+import { OPERATORS, FIELDS, MODES, newRule, newCondition, newGroup, isGroup, keywords, duplicateRule, describeRule, planMoves, ruleApplies } from '../../lib/organize.js';
 
 // Unsaved edits live here so they survive the re-render that follows any other action.
 let draft = null;
@@ -69,6 +69,32 @@ function targetPicker(ctx, rule, changed) {
   return button;
 }
 
+// The folders a rule looks in, as removable chips; with none it looks everywhere.
+function sourcesPicker(ctx, rule, changed) {
+  const chips = h('span', { class: 'row wrap source-list' });
+  const subfolders = h('label', { class: 'check-line small' },
+    h('input', { type: 'checkbox', checked: rule.sourceSubfolders !== false, onchange: (e) => { rule.sourceSubfolders = e.target.checked; changed(); } }),
+    'and their subfolders');
+  const draw = () => {
+    const sources = rule.sources ?? [];
+    chips.replaceChildren(...(sources.length ? sources.map((s, j) => h('span', { class: 'tag' },
+      h('span', { class: 'tag-text', text: s.split('/').join(' › ') }),
+      h('button', { class: 'tag-remove', text: '×', 'aria-label': `Stop looking in “${s}”`, onclick: () => { sources.splice(j, 1); draw(); changed(); } })))
+      : [h('span', { class: 'muted', text: 'All folders' })]));
+    subfolders.hidden = !sources.length;
+  };
+  const add = h('button', { class: 'small', type: 'button', text: '+ Folder', title: 'Only sort bookmarks that are in this folder', onclick: async () => {
+    const picked = await pickFolder(ctx.state.root, '', { heading: 'Look in which folder?', verb: 'Look in', allowCreate: false });
+    if (!picked) return;
+    rule.sources ??= [];
+    if (!rule.sources.includes(picked)) rule.sources.push(picked);
+    draw();
+    changed();
+  } });
+  draw();
+  return h('div', { class: 'row wrap target' }, 'Look in', chips, add, subfolders);
+}
+
 // A group of conditions and nested groups; the rule itself is the outermost group, which cannot be removed.
 function groupEditor(group, changed, onRemove) {
   const items = h('ul', { class: 'conditions' });
@@ -110,6 +136,7 @@ function ruleCard(ctx, rule, i, rules, redraw, changed, parts) {
   const body = h('div', { class: 'rule-body', id: bodyId, hidden: !isOpen },
     h('label', { class: 'row wrap' }, 'Name',
       h('input', { type: 'text', class: 'grow rule-name', value: rule.name, placeholder: 'Rule name (optional)', 'aria-label': 'Rule name', oninput: (e) => { rule.name = e.target.value; changed(); } })),
+    sourcesPicker(ctx, rule, changed),
     groupEditor(rule, changed, null),
     h('div', { class: 'row wrap target' }, 'Move to folder', targetPicker(ctx, rule, changed)),
     parts.info);
@@ -128,8 +155,11 @@ function ruleCard(ctx, rule, i, rules, redraw, changed, parts) {
   }, h('span', { class: 'chevron', 'aria-hidden': 'true' }),
   h('span', { class: 'rule-headline' }, parts.title, parts.summary, h('span', { class: 'rule-target' }, parts.target)));
 
-  const card = h('li', { class: `rule-card${rule.enabled === false ? ' disabled' : ''}${isOpen ? ' open' : ''}` },
+  // Pressing the handle makes the card draggable for that one drag, so text in its fields can still be selected.
+  const handle = h('span', { class: 'drag-handle', text: '⠿', title: 'Drag to reorder', 'aria-hidden': 'true', onmousedown: () => { card.draggable = true; } });
+  const card = h('li', { class: `rule-card${rule.enabled === false ? ' disabled' : ''}${isOpen ? ' open' : ''}`, 'data-index': i, onmouseup: () => { card.draggable = false; } },
     h('div', { class: 'rule-head' },
+      handle,
       h('input', { type: 'checkbox', checked: rule.enabled !== false, 'aria-label': 'Rule enabled', title: 'Enabled', onchange: (e) => { rule.enabled = e.target.checked; redraw(); } }),
       h('span', { class: 'order', text: i + 1, title: 'Rules are tried in this order; the first match wins' }),
       toggle,
@@ -208,13 +238,15 @@ export default {
       refreshInfo(moves, problems);
     };
     const refreshInfo = (moves, problems) => {
+      const roots = rootFolders(ctx);
       for (const r of rules) {
         const parts = cardParts.get(r.id);
         if (!parts) continue;
         parts.title.textContent = r.name || 'Unnamed rule';
         parts.title.classList.toggle('muted', !r.name);
         parts.summary.textContent = describeRule(r);
-        parts.target.textContent = r.target ? `→ ${r.target.split('/').join(' › ')}` : '→ no folder yet';
+        const from = r.sources?.length ? `from ${r.sources.map((f) => f.split('/').join(' › ')).join(', ')} ` : '';
+        parts.target.textContent = `${from}${r.target ? `→ ${r.target.split('/').join(' › ')}` : '→ no folder yet'}`;
         const issues = problems.get(r.id);
         if (issues) {
           parts.info.replaceChildren(...issues.map((p) => h('p', { class: 'error small', text: p })));
@@ -223,7 +255,7 @@ export default {
           parts.badge.title = issues.join(' ');
           continue;
         }
-        const matched = ctx.state.flat.filter((b) => b.type === 'bookmark' && ruleMatches(r, b)).length;
+        const matched = ctx.state.flat.filter((b) => b.type === 'bookmark' && ruleApplies(r, b, roots)).length;
         const moving = moves.filter((m) => m.ruleId === r.id).length;
         parts.info.replaceChildren(h('p', { class: 'muted small', text: `Matches ${matched} bookmark(s); ${moving} would move. The rest are already in place or taken by an earlier rule.` }));
         parts.badge.textContent = r.enabled === false ? 'Off' : `${moving} to move`;
@@ -286,6 +318,47 @@ export default {
       drawRules();
       changed();
     };
+
+    // Dragging a card by its handle moves the rule to where it is dropped; a line shows the drop position.
+    let dragFrom = null;
+    let dropAt = null;
+    const clearMarks = () => rulesList.querySelectorAll('.drop-before, .drop-after').forEach((c) => c.classList.remove('drop-before', 'drop-after'));
+    rulesList.addEventListener('dragstart', (e) => {
+      const card = e.target.closest?.('.rule-card');
+      if (!card?.draggable) return;
+      dragFrom = Number(card.dataset.index);
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', rules[dragFrom].name || `Rule ${dragFrom + 1}`);
+      card.classList.add('dragging');
+    });
+    rulesList.addEventListener('dragover', (e) => {
+      const card = e.target.closest?.('.rule-card');
+      if (dragFrom === null || !card) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const box = card.getBoundingClientRect();
+      const after = e.clientY > box.top + box.height / 2;
+      dropAt = Number(card.dataset.index) + (after ? 1 : 0);
+      clearMarks();
+      card.classList.add(after ? 'drop-after' : 'drop-before');
+    });
+    rulesList.addEventListener('drop', (e) => {
+      if (dragFrom === null || dropAt === null) return;
+      e.preventDefault();
+      const to = dropAt > dragFrom ? dropAt - 1 : dropAt;
+      if (to !== dragFrom) {
+        const [moved] = rules.splice(dragFrom, 1);
+        rules.splice(to, 0, moved);
+        redraw();
+      }
+    });
+    rulesList.addEventListener('dragend', (e) => {
+      clearMarks();
+      e.target.classList?.remove('dragging');
+      if (e.target.draggable) e.target.draggable = false;
+      dragFrom = null;
+      dropAt = null;
+    });
 
     section.append(
       viewHeader('Organize', 'Rules that file bookmarks into folders by words in their title or address. Rules are tried from the top and the first match wins. Bookmarks already anywhere inside the target folder stay where they are.',

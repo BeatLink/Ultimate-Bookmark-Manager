@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { conditionMatches, ruleMatches, resolveTarget, planMoves, validateRules, duplicateRule, describeRule } from '../src/lib/organize.js';
+import { conditionMatches, ruleMatches, resolveTarget, planMoves, validateRules, duplicateRule, describeRule, ruleApplies } from '../src/lib/organize.js';
 
 const roots = [
   { id: 'menu________', title: 'Bookmarks Menu' },
@@ -150,4 +150,30 @@ test('invalid regexes inside nested groups are reported', () => {
 test('a none group always gets brackets, even with one condition', () => {
   const r = rule('r', [cond('contains', 'work')], 'X', { match: 'none' });
   assert.equal(describeRule(r), 'not (title or address contains any of “work”)');
+});
+
+test('source folders limit which bookmarks a rule looks at', () => {
+  const folder = (title, path) => ({ id: title, title, type: 'folder', path });
+  const flat = [
+    folder('Other Bookmarks', []),
+    folder('Inbox', ['Other Bookmarks']),
+    folder('Old', ['Other Bookmarks', 'Inbox']),
+    bm('a', 'rust book', 'https://a.test', ['Other Bookmarks', 'Inbox']),
+    bm('b', 'rust game', 'https://b.test', ['Bookmarks Menu', 'Games']),
+    bm('c', 'rust old', 'https://c.test', ['Other Bookmarks', 'Inbox', 'Old']),
+  ];
+  const scoped = rule('s', [cond('contains', 'rust')], 'Dev', { sources: ['other/Inbox'] });
+  assert.deepEqual(planMoves(flat, [scoped], roots).moves.map((m) => m.bookmark.id), ['a', 'c']);
+  const shallow = { ...scoped, sourceSubfolders: false };
+  assert.deepEqual(planMoves(flat, [shallow], roots).moves.map((m) => m.bookmark.id), ['a']);
+  assert.ok(!ruleApplies(scoped, flat[4], roots));
+
+  // A bookmark outside an earlier rule's folders falls through to the next rule.
+  const fallback = rule('f', [cond('contains', 'rust')], 'Misc');
+  assert.deepEqual(planMoves(flat, [scoped, fallback], roots).moves.map((m) => [m.bookmark.id, m.ruleId]), [['a', 's'], ['b', 'f'], ['c', 's']]);
+
+  const gone = rule('g', [cond('contains', 'rust')], 'Dev', { sources: ['other/Nowhere'] });
+  assert.equal(planMoves(flat, [gone], roots).moves.length, 0);
+  assert.match(validateRules([gone], roots, flat).get('g')[0], /no longer exists/);
+  assert.ok(!validateRules([gone], roots).has('g'), 'without the tree, source folders are not checked');
 });

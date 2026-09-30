@@ -47,6 +47,8 @@ export function newRule() {
     match: 'any',
     conditions: [newCondition()],
     target: '',
+    sources: [],
+    sourceSubfolders: true,
   };
 }
 
@@ -166,13 +168,35 @@ function startsWithPath(path, prefix) {
   return prefix.length <= path.length && prefix.every((seg, i) => path[i] === seg);
 }
 
-// Checks each rule once so the editor can show a problem next to the rule that has it.
-export function validateRules(rules, rootFolders) {
+// The folders a rule looks in, as resolved paths; an empty list means it looks everywhere.
+function resolveSources(rule, rootFolders) {
+  return (rule.sources ?? []).map((s) => resolveTarget(s, rootFolders)).filter(Boolean);
+}
+
+// Whether a bookmark sits in one of the rule's source folders, or anywhere when it has none.
+function inScope(sources, subfolders, bookmark) {
+  if (!sources.length) return true;
+  return sources.some((s) => (subfolders ? startsWithPath(bookmark.path, s.path) : bookmark.path.length === s.path.length && startsWithPath(bookmark.path, s.path)));
+}
+
+// Whether the rule's conditions match the bookmark and it lies within the rule's source folders.
+export function ruleApplies(rule, bookmark, rootFolders) {
+  return inScope(resolveSources(rule, rootFolders), rule.sourceSubfolders !== false, bookmark) && ruleMatches(rule, bookmark);
+}
+
+// Checks each rule once so the editor can show a problem next to the rule that has it; source folders are checked only when `flat` is given.
+export function validateRules(rules, rootFolders, flat = null) {
   const problems = new Map();
+  const folders = flat && new Set(flat.filter((n) => n.type === 'folder').map((n) => [...n.path, n.title].join('\0')));
   for (const rule of rules) {
     const issues = [];
     if (!activeItems(rule).length) issues.push('Add at least one keyword to a condition.');
     if (!resolveTarget(rule.target, rootFolders)) issues.push('Choose a target folder.');
+    if (folders) {
+      for (const s of resolveSources(rule, rootFolders)) {
+        if (!folders.has(s.path.join('\0'))) issues.push(`The folder “${s.path.join(' › ')}” to look in no longer exists.`);
+      }
+    }
     for (const c of allConditions(rule)) {
       if (c.op !== 'regex') continue;
       for (const pattern of keywords(c)) {
@@ -188,16 +212,17 @@ export function validateRules(rules, rootFolders) {
   return problems;
 }
 
-// Works out where each bookmark should go: the first enabled, valid rule that matches decides.
-export function planMoves(flat, rules, rootFolders, ignoredIds = new Set()) {
-  const problems = validateRules(rules, rootFolders);
+// Works out where each bookmark should go: the first enabled, valid rule that matches and looks in the bookmark's folder decides.
+// `tree` is the whole flattened tree, used to check source folders exist when `flat` holds only some bookmarks.
+export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree = flat) {
+  const problems = validateRules(rules, rootFolders, tree);
   const usable = rules
     .filter((r) => r.enabled !== false && !problems.has(r.id))
-    .map((rule) => ({ rule, target: resolveTarget(rule.target, rootFolders) }));
+    .map((rule) => ({ rule, target: resolveTarget(rule.target, rootFolders), sources: resolveSources(rule, rootFolders) }));
   const moves = [];
   for (const b of flat) {
     if (b.type !== 'bookmark' || ignoredIds.has(b.id)) continue;
-    const hit = usable.find(({ rule }) => ruleMatches(rule, b));
+    const hit = usable.find(({ rule, sources }) => inScope(sources, rule.sourceSubfolders !== false, b) && ruleMatches(rule, b));
     if (!hit || startsWithPath(b.path, hit.target.path)) continue;
     moves.push({ bookmark: b, ruleId: hit.rule.id, ruleName: hit.rule.name, target: hit.target });
   }

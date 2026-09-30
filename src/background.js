@@ -91,10 +91,11 @@ async function autoOrganize() {
   const { history } = await browser.storage.local.get('history');
   const restored = new Set(Object.values(history?.idMap ?? {}));
   const [root] = await browser.bookmarks.getTree();
-  const fresh = flatten(root).filter((b) => batch.get(b.id) === b.parentId && !restored.has(b.id));
+  const all = flatten(root);
+  const fresh = all.filter((b) => batch.get(b.id) === b.parentId && !restored.has(b.id));
   const rootFolders = root.children.map((c) => ({ id: c.id, title: c.title }));
   const ignored = new Set(Object.keys(await loadWhitelist()));
-  const { moves } = planMoves(fresh, settings.organize.rules, rootFolders, ignored);
+  const { moves } = planMoves(fresh, settings.organize.rules, rootFolders, ignored, all);
   if (!moves.length) return;
 
   const label = moves.length === 1 ? `Auto-organized “${moves[0].bookmark.title || moves[0].bookmark.url}”` : `Auto-organized ${moves.length} new bookmarks`;

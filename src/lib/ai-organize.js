@@ -1,6 +1,6 @@
 // AI folder suggestions: turns bookmarks and folders into text, scores embedding similarity, and proposes new folders.
 
-import { ruleMatches, resolveTarget, keywords, isGroup } from './organize.js';
+import { ruleApplies, resolveTarget, keywords, isGroup } from './organize.js';
 import { byText } from './text.js';
 import { ROOT_IDS } from './tree.js';
 
@@ -192,7 +192,7 @@ export function suggest(bookmarks, folders, { sourcePath, rootFolders = [], rule
   for (const b of bookmarks) {
     const ruleFolderIds = new Set();
     if (useRules) {
-      const rule = rules.find((r) => r.enabled !== false && ruleMatches(r, b));
+      const rule = rules.find((r) => r.enabled !== false && ruleApplies(r, b, rootFolders));
       const path = rule && resolveTarget(rule.target, rootFolders)?.path.join('/');
       const folder = path && folders.find((f) => f.path.join('/') === path);
       if (folder) ruleFolderIds.add(folder.id);

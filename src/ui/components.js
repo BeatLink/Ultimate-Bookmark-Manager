@@ -161,8 +161,8 @@ function folderPath(segments) {
   return segments.some((s) => s.includes('/')) ? null : segments.join('/');
 }
 
-// Opens the bookmark folder tree in a dialog and resolves with the chosen path, or null when cancelled.
-export function pickFolder(root, current = '') {
+// Opens the bookmark folder tree in a dialog and resolves with the chosen path, or null when cancelled; `allowCreate` offers a new subfolder.
+export function pickFolder(root, current = '', { heading = 'Choose a folder', verb = 'Move to', allowCreate = true } = {}) {
   return new Promise((resolve) => {
     let chosen = current;
     const preview = h('p', { class: 'picked' });
@@ -178,7 +178,7 @@ export function pickFolder(root, current = '') {
     const update = () => {
       const t = target();
       const exists = !newName.value.trim();
-      preview.textContent = t ? `${exists ? 'Move to' : 'Create and move to'}: ${t.replaceAll('/', ' › ')}` : 'Pick a folder.';
+      preview.textContent = t ? `${exists ? verb : `Create and ${verb.toLowerCase()}`}: ${t.replaceAll('/', ' › ')}` : 'Pick a folder.';
       ok.disabled = !t;
       for (const b of tree.querySelectorAll('.folder-name')) b.classList.toggle('selected', b.dataset.path === chosen);
     };
@@ -222,10 +222,10 @@ export function pickFolder(root, current = '') {
     newName.addEventListener('input', update);
 
     const dialog = h('dialog', { class: 'folder-picker' },
-      h('h2', { text: 'Choose a folder' }),
+      h('h2', { text: heading }),
       search,
       tree,
-      h('div', { class: 'row' }, h('label', { class: 'grow row' }, 'Inside the selected folder, create:', newName)),
+      allowCreate && h('div', { class: 'row' }, h('label', { class: 'grow row' }, 'Inside the selected folder, create:', newName)),
       preview,
       h('form', { method: 'dialog', class: 'row end' }, h('button', { value: 'cancel', text: 'Cancel' }), ok));
     dialog.addEventListener('close', () => {

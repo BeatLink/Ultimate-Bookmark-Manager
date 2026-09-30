@@ -209,6 +209,12 @@ dialog.folder-picker::backdrop { background: rgb(0 0 0 / .35); }
 .rule-badge.active { background: var(--accent); color: var(--accent-text); }
 .rule-badge.error { background: var(--danger); color: var(--bg); }
 .rule-actions { flex: none; display: flex; gap: .3em; }
+.drag-handle { flex: none; cursor: grab; color: var(--muted); opacity: .6; user-select: none; padding: 0 .1em; }
+.drag-handle:hover { opacity: 1; }
+.rule-card.dragging { opacity: .4; }
+.rule-card.drop-before { box-shadow: 0 -3px 0 var(--accent); }
+.rule-card.drop-after { box-shadow: 0 3px 0 var(--accent); }
+.source-list .tag-text { padding: .05em .2em .05em .6em; font-size: .9em; }
 .rule-body { display: flex; flex-direction: column; gap: .5em; align-items: flex-start; padding: .5em 0 0 3.2em; width: 100%; }
 .rule-body > .row, .rule-body > .conditions, .rule-body > .target { width: 100%; }
 @media (max-width: 720px) {
