@@ -379,3 +379,6 @@ kbd { font-family: ui-monospace, monospace; font-size: .85em; border: 1px solid 
 .keyword-with-remove .keyword-remove { border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 0 .55em; }
 .keyword-with-remove .keyword-remove:hover { color: var(--danger); }
 .query-editor .rule-value .keyword-with-remove { flex: 1; min-width: 8em; display: flex; }
+.unmatched { margin-top: 1.5em; }
+.unmatched > summary { color: inherit; font-size: inherit; }
+.unmatched > summary h2 { display: inline; }

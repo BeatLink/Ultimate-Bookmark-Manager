@@ -49,6 +49,26 @@ export function confirmDialog(message, confirmLabel = 'Continue', danger = true)
   });
 }
 
+// Asks for a line of text in a modal; resolves to the trimmed text, or null when cancelled or left blank.
+export function promptDialog(message, confirmLabel = 'OK', value = '') {
+  return new Promise((resolve) => {
+    const input = h('input', { type: 'text', value, 'aria-label': message, autofocus: true });
+    const dialog = h('dialog', { class: 'confirm' },
+      h('form', { method: 'dialog' },
+        h('label', { class: 'field block' }, message, input),
+        h('div', { class: 'row end' },
+          h('button', { value: 'cancel', text: 'Cancel', formnovalidate: true }),
+          h('button', { value: 'ok', class: 'primary', text: confirmLabel }))),
+    );
+    dialog.addEventListener('close', () => {
+      resolve(dialog.returnValue === 'ok' ? input.value.trim() || null : null);
+      dialog.remove();
+    });
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+}
+
 // A set of selected ids that notifies listeners whenever it changes.
 export class Selection {
   #ids = new Set();

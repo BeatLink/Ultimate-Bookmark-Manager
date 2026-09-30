@@ -53,6 +53,10 @@ export class Actions {
     });
   }
 
+  createFolder(parentId, title, label = `Created folder “${title}”`) {
+    return this.run(label, (rec) => rec.createFolder(parentId, title));
+  }
+
   // Moves bookmarks into a folder in Other Bookmarks, creating it if needed.
   moveToFolder(ids, folderTitle, label = `Moved ${ids.length} bookmark(s) to “${folderTitle}”`) {
     return this.run(label, async (rec) => {

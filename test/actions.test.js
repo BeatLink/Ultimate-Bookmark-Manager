@@ -72,3 +72,14 @@ test('organize creates missing nested folders, reuses existing ones, and undo re
   await actions.undoLatest();
   assert.deepEqual(await shape(bookmarks), before);
 });
+
+test('a created folder is one undoable step', async () => {
+  const bookmarks = fakeBookmarks(spec());
+  const actions = new Actions({ bookmarks, storage: fakeStorage() });
+  const before = await shape(bookmarks);
+  await actions.createFolder('f', 'Sub');
+  assert.deepEqual((await bookmarks.getChildren('f')).map((n) => n.title), ['B', 'Sub']);
+  assert.equal((await actions.list())[0].label, 'Created folder “Sub”');
+  await actions.undoLatest();
+  assert.deepEqual(await shape(bookmarks), before);
+});

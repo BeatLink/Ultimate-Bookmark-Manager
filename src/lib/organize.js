@@ -610,6 +610,7 @@ export function rankingWarnings(rules) {
 // wins over any it ranks above by the ranking lists; between rules no list relates, the more specific match wins
 // (URL conditions before keywords), then the newer rule, and catch-alls only take what nothing else matches.
 // `tree` is the whole flattened tree, used to check the folders conditions name exist when `flat` holds only some bookmarks.
+// `unmatched` lists the bookmarks no enabled, valid rule matches.
 export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree = flat) {
   const problems = validateRules(rules, rootFolders, tree);
   const order = buildOrder(rules);
@@ -619,6 +620,7 @@ export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree
     .filter(({ rule }) => !problems.has(rule.id))
     .map((u) => ({ ...u, target: resolveTarget(u.rule.target, rootFolders), score: scorer(u.rule, rootFolders), on: u.rule.enabled !== false }));
   const moves = [];
+  const unmatched = [];
   const wins = new Map();
   const matches = new Map();
   for (const b of flat) {
@@ -631,7 +633,10 @@ export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree
       if (!u.on) continue;
       candidates.push({ rule: u.rule, index: u.index, target: u.target, score });
     }
-    if (!candidates.length) continue;
+    if (!candidates.length) {
+      unmatched.push(b);
+      continue;
+    }
     // Ranking lists decide between related rules; the built-in ranking only between rules no list relates.
     const ranked = candidates.length > 1 ? rankCandidates(candidates, order) : candidates;
     const best = ranked[0];
@@ -649,5 +654,5 @@ export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree
         return ranking;
       } });
   }
-  return { moves, problems, wins, matches };
+  return { moves, unmatched, problems, wins, matches };
 }

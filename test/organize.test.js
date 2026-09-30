@@ -331,6 +331,14 @@ test('the plan counts every bookmark each valid rule matches, disabled rules and
   assert.equal(moves.length, 2);
 });
 
+test('the plan lists bookmarks no enabled rule matches, leaving out ignored ones', () => {
+  const flat = [bm('a', 'Rust book', 'https://a.test'), bm('b', 'Python', 'https://b.test'), bm('c', 'Cooking', 'https://c.test'), bm('d', 'Ignored', 'https://d.test'), { id: 'f', title: 'Folder', type: 'folder', path: [] }];
+  const rust = rule('rust', [cond('contains', 'rust')], 'Bookmarks Menu');
+  const off = rule('off', [cond('contains', 'python')], 'Bookmarks Menu/Python', { enabled: false });
+  const { unmatched } = planMoves(flat, [rust, off], roots, new Set(['d']));
+  assert.deepEqual(unmatched.map((b) => b.id), ['b', 'c'], 'a bookmark already in its rule folder counts as matched');
+});
+
 test('a URL condition always outranks keyword matches, however many', async () => {
   const { formatScore } = await import('../src/lib/specificity.js');
   const flat = [bm('v', 'CCNA subnetting and routing lab guide', 'https://www.youtube.com/@NetworkChuck/videos')];

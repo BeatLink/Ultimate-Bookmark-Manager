@@ -1,10 +1,10 @@
 // Organize rules: edit rules that file bookmarks into folders, preview the moves, then apply them.
 
-import { h, Selection, toast, confirmDialog } from '../dom.js';
+import { h, Selection, toast, confirmDialog, promptDialog } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, pickFolder, pickRule, marked, helpLink } from '../components.js';
 import { mountQueryEditor } from '../query-editor.bundle.js';
 import { saveSettings } from '../../lib/settings.js';
-import { newRule, newCatchAll, duplicateRule, moveToNewRule, mergeRules, mergeCandidates, planMoves, resolveTarget, maxScore, rankingWarnings } from '../../lib/organize.js';
+import { newRule, duplicateRule, moveToNewRule, mergeRules, mergeCandidates, planMoves, resolveTarget, maxScore, rankingWarnings } from '../../lib/organize.js';
 import { eligibleToOutrank, eligibleToRankBelow } from '../../lib/rule-order.js';
 import { formatScore } from '../../lib/specificity.js';
 
@@ -60,6 +60,8 @@ const expanded = new Set();
 const folderOpen = new Map();
 // The folder search and the "only folders with rules" switch survive refreshes.
 const treeView = { query: '', onlyWithRules: false };
+// Whether the list of bookmarks no rule matches is open.
+const unmatchedView = { open: false };
 
 const PART_NAMES = { title: 'title', url: 'URL', host: 'site name', path: 'path', query: 'query string', fragment: 'part after #' };
 
@@ -305,6 +307,7 @@ export default {
     const section = h('section', { class: 'organize' });
     const treeBox = h('div', { class: 'rule-tree' });
     const previewBox = h('div');
+    const unmatchedBox = h('div');
     const dirtyNote = h('span', { class: 'muted small' });
 
     const isDirty = () => JSON.stringify(draft) !== JSON.stringify(ctx.state.settings.organize);
@@ -344,6 +347,18 @@ export default {
       const el = treeBox.querySelector(`[data-rule="${rule.id}"]`);
       el?.scrollIntoView?.({ block: 'nearest' });
       el?.querySelector('.folder-button')?.focus();
+    };
+
+    // Creates a subfolder straight away, as one undoable change, and opens its parent so it shows.
+    const addFolder = async (n) => {
+      const title = await promptDialog(`Name of the new folder in ${n.title}`, 'Create folder');
+      if (!title) return;
+      if (n.children.some((c) => c.title === title)) return toast(`${n.title} already has a folder called “${title}”.`, 'error');
+      folderOpen.set(n.key, true);
+      await ctx.run(async () => {
+        await ctx.actions.createFolder(n.id, title);
+        ctx.done(`Created “${title}”.`);
+      });
     };
 
     // The whole tree is rebuilt when rules are added, removed or moved; typing only refreshes the cards' text.
@@ -406,10 +421,7 @@ export default {
             countEl,
             h('div', { class: 'rule-actions' },
               h('button', { class: 'small', text: '+ Rule', title: `Add a rule that files bookmarks into ${n.title}`, onclick: () => addRule(newRule(), n.key) }),
-              h('button', { class: 'small', text: '+ Catch-all', title: `File into ${n.title} whatever no other rule matches in a folder you choose`, onclick: () => {
-                const unfiled = ctx.state.root.children.find((c) => c.id === 'unfiled_____')?.title;
-                addRule(Object.assign(newCatchAll(unfiled ? [unfiled] : []), { name: 'Everything else' }), n.key);
-              } }))),
+              h('button', { class: 'small', text: '+ Folder', title: `Create a folder inside ${n.title}`, onclick: () => addFolder(n) }))),
           children);
       };
 
@@ -467,9 +479,43 @@ export default {
       }
     };
 
+    // Bookmarks no rule matches, grouped by the folder they are in; rows are built only once the list is opened.
+    const drawUnmatched = (unmatched) => {
+      if (!rules.length || !unmatched.length) return unmatchedBox.replaceChildren();
+      const byFolder = new Map();
+      for (const b of unmatched) {
+        const key = (b.path ?? []).join(' › ');
+        if (!byFolder.has(key)) byFolder.set(key, []);
+        byFolder.get(key).push(b);
+      }
+      const item = (b) => h('li', { class: 'item' }, bookmarkInfo(b, ctx, { editable: false }));
+      const groupItems = (group) => {
+        const items = h('ul', { class: 'items' }, group.slice(0, PREVIEW_ROWS).map(item));
+        if (group.length <= PREVIEW_ROWS) return items;
+        const more = h('button', { class: 'small', text: `Show ${group.length - PREVIEW_ROWS} more`, onclick: () => {
+          items.append(...group.slice(PREVIEW_ROWS).map(item));
+          more.remove();
+        } });
+        return [items, more];
+      };
+      const list = h('div', { class: 'groups' });
+      const fill = () => list.replaceChildren(...[...byFolder].sort(([a], [b]) => a.localeCompare(b)).map(([path, group]) => h('section', { class: 'group' },
+        h('h2', { class: 'group-title sticky' }, h('span', { text: `${path || '(top level)'} — ${group.length}` })),
+        groupItems(group))));
+      if (unmatchedView.open) fill();
+      unmatchedBox.replaceChildren(h('details', { class: 'unmatched', open: unmatchedView.open, ontoggle: (e) => {
+        unmatchedView.open = e.currentTarget.open;
+        if (unmatchedView.open && !list.childElementCount) fill();
+      } },
+      h('summary', {}, h('h2', { text: `Not matched by any rule: ${unmatched.length} bookmark(s)` }), ' ',
+        helpLink('Bookmarks that no enabled rule matches, so organizing leaves them where they are; ignored bookmarks are left out', 'organize')),
+      list));
+    };
+
     const drawPreview = () => {
-      const { moves, problems, wins, matches } = plan(ctx, rules);
+      const { moves, unmatched, problems, wins, matches } = plan(ctx, rules);
       refreshInfo(moves, problems, wins, matches);
+      drawUnmatched(unmatched);
       if (!rules.length) return previewBox.replaceChildren(emptyState('No rules yet. Use “+ Rule” on a folder to start organizing.'));
       if (!moves.length) return previewBox.replaceChildren(h('h2', { text: 'Preview' }), emptyState('Nothing to move: every matching bookmark is already in its folder.'));
 
@@ -563,7 +609,8 @@ export default {
         h('button', { class: 'small', text: 'Collapse all', onclick: () => setAll(false) }),
         h('button', { class: 'small', text: '+ Rule for a new folder', title: 'Add a rule whose folder you pick or create', onclick: () => addRule(newRule(), '') })),
       treeBox,
-      previewBox);
+      previewBox,
+      unmatchedBox);
 
     drawTree();
     drawPreview();
