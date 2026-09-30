@@ -5,6 +5,7 @@ import { viewHeader, emptyState, helpLink } from '../components.js';
 
 // A section heading with its help link.
 const legend = (text, tip) => h('legend', {}, text, ' ', helpLink(tip, 'settings'));
+const lines = (text) => text.split('\n').map((l) => l.trim()).filter(Boolean);
 import { saveSettings, removeFromWhitelist } from '../../lib/settings.js';
 import { compileRules } from '../../lib/duplicates.js';
 import { buildExport, parseImport, applyImport } from '../../lib/transfer.js';
@@ -171,7 +172,22 @@ export default {
       h('label', { class: 'field' }, 'Timeout (seconds)',
         h('input', { type: 'number', min: 3, max: 120, value: String(lc.timeoutSeconds), onchange: (e) => { lc.timeoutSeconds = Math.min(120, Math.max(3, Number(e.target.value) || 15)); } })),
       h('label', { class: 'field block' }, 'Skip these domains (one per line; subdomains included)',
-        h('textarea', { rows: 5, class: 'mono', onchange: (e) => { lc.skipDomains = e.target.value.split('\n').map((d) => d.trim()).filter(Boolean); } }, lc.skipDomains.join('\n'))));
+        h('textarea', { rows: 5, class: 'mono', onchange: (e) => { lc.skipDomains = lines(e.target.value); } }, lc.skipDomains.join('\n'))),
+      h('label', { class: 'check-line' },
+        h('input', { type: 'checkbox', checked: lc.useCookies, onchange: (e) => { lc.useCookies = e.target.checked; } }),
+        'Send your cookies, so pages you are logged into are checked as you see them'),
+      h('label', { class: 'field block' }, 'Never send cookies to URLs containing (one per line)',
+        h('textarea', { rows: 4, class: 'mono', onchange: (e) => { lc.noCookieWords = lines(e.target.value); } }, lc.noCookieWords.join('\n'))),
+      h('label', { class: 'check-line' },
+        h('input', { type: 'checkbox', checked: lc.detectLogin, onchange: (e) => { lc.detectLogin = e.target.checked; } }),
+        'List redirects to a login page under Broken links as “may still work”, not as redirects'),
+      h('label', { class: 'field block' }, 'Login services (one per line; subdomains included)',
+        h('textarea', { rows: 4, class: 'mono', onchange: (e) => { lc.loginHosts = lines(e.target.value); } }, lc.loginHosts.join('\n'))));
+
+    const titlesBox = h('fieldset', {}, legend('Page titles', 'How Fetch page titles names bookmarks'),
+      h('label', { class: 'check-line' },
+        h('input', { type: 'checkbox', checked: s.titles.windowFallback, onchange: (e) => { s.titles.windowFallback = e.target.checked; } }),
+        'Open pages whose title is set by scripts in a minimized, muted window'));
 
     const general = h('fieldset', {}, h('legend', { text: 'General' }),
       h('label', { class: 'field' }, 'Folder for moved duplicates (in Other Bookmarks)',
@@ -191,7 +207,7 @@ export default {
       viewHeader('Settings', 'Matching, sync, link checks and ignored items',
         h('button', { class: 'small', text: 'Discard changes', onclick: () => { draft = null; ctx.render(); } }),
         h('button', { class: 'primary', text: 'Save settings', onclick: save })),
-      syncAndBackup(ctx), matching, rulesBox, linkBox, general,
+      syncAndBackup(ctx), matching, rulesBox, linkBox, titlesBox, general,
       h('div', { class: 'row end' }, h('button', { class: 'primary', text: 'Save settings', onclick: save })),
       whitelist);
   },

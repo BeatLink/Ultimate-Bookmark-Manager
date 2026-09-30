@@ -32,13 +32,19 @@ function fetchTitles(ctx, items) {
     Object.assign(job, { running: true, done: 0, total: items.length, controller: new AbortController() });
     for (const b of items) job.failures.delete(b.id);
     paint();
+    const { linkCheck, titles } = ctx.state.settings;
     let results;
     try {
       results = await loadTitles(items, {
         tabs: browser.tabs,
         windows: browser.windows,
-        concurrency: Math.min(4, ctx.state.settings.linkCheck.concurrency),
-        timeout: ctx.state.settings.linkCheck.timeoutSeconds * 1000,
+        concurrency: linkCheck.concurrency,
+        windowConcurrency: Math.min(4, linkCheck.concurrency),
+        timeout: linkCheck.timeoutSeconds * 1000,
+        windowFallback: titles.windowFallback,
+        cookies: linkCheck.useCookies,
+        noCookieWords: linkCheck.noCookieWords,
+        loginHosts: linkCheck.loginHosts,
         signal: job.controller.signal,
         onProgress: (done) => { job.done = done; paint(); },
       });
@@ -82,7 +88,7 @@ export default {
     paint();
 
     const bar = selectionBar(sel, [
-      { label: 'Fetch page titles', primary: true, title: 'Open the selected pages and name each bookmark after its page title', run: (ids) => fetchTitles(ctx, items.filter((b) => ids.includes(b.id))) },
+      { label: 'Fetch page titles', primary: true, title: 'Read the selected pages and name each bookmark after its page title', run: (ids) => fetchTitles(ctx, items.filter((b) => ids.includes(b.id))) },
       { label: 'Ignore', run: (ids) => ctx.run(() => addToWhitelist(items.filter((b) => ids.includes(b.id)))) },
       { label: 'Remove selected', danger: true, run: async (ids) => {
         if (!(await confirmDialog(`Remove ${ids.length} bookmark(s)?`, 'Remove'))) return;

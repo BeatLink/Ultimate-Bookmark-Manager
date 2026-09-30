@@ -3,6 +3,7 @@
 import { DEFAULT_MATCHING } from './duplicates.js';
 import { dropRetiredRanking } from './rule-order.js';
 import { migrateRule } from './organize.js';
+import { DEFAULT_LOGIN_HOSTS, DEFAULT_NO_COOKIE_WORDS } from './linkcheck.js';
 
 export const DEFAULT_SETTINGS = {
   matching: { ...DEFAULT_MATCHING },
@@ -12,6 +13,13 @@ export const DEFAULT_SETTINGS = {
     concurrency: 6,
     timeoutSeconds: 15,
     skipDomains: ['localhost', '127.0.0.1'],
+    useCookies: true,
+    noCookieWords: [...DEFAULT_NO_COOKIE_WORDS],
+    detectLogin: true,
+    loginHosts: [...DEFAULT_LOGIN_HOSTS],
+  },
+  titles: {
+    windowFallback: true,
   },
   historyLimit: 50,
   organize: {

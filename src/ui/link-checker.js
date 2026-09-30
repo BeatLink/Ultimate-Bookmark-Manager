@@ -55,6 +55,10 @@ export class LinkChecker {
       results = await checkAll(targets, {
         concurrency: linkCheck.concurrency,
         timeout: linkCheck.timeoutSeconds * 1000,
+        cookies: linkCheck.useCookies,
+        noCookieWords: linkCheck.noCookieWords,
+        detectLogin: linkCheck.detectLogin,
+        loginHosts: linkCheck.loginHosts,
         signal: this.#controller.signal,
         onProgress: (done) => {
           this.done = done;

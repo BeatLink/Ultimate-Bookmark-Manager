@@ -8,24 +8,87 @@ export const CATEGORIES = {
   timeout: { label: 'Timed out', severity: 'broken' },
   denied: { label: 'Access denied (401 / 403) — may still work when logged in', severity: 'uncertain' },
   rateLimited: { label: 'Rate limited (429) — try again later', severity: 'uncertain' },
+  login: { label: 'Redirects to a login page — may still work when logged in', severity: 'uncertain' },
 };
+
+// Sign-in services that sites hand visitors to; subdomains are included.
+export const DEFAULT_LOGIN_HOSTS = [
+  'accounts.google.com',
+  'login.microsoftonline.com',
+  'login.live.com',
+  'appleid.apple.com',
+  'idmsa.apple.com',
+  'login.yahoo.com',
+  'auth0.com',
+  'okta.com',
+];
+
+// URLs containing any of these are checked without cookies, because opening them while logged in can change your account.
+export const DEFAULT_NO_COOKIE_WORDS = ['logout', 'log-out', 'logoff', 'signout', 'sign-out', 'unsubscribe'];
+
+// Path parts that name a login page, such as /login or /users/sign_in.
+const LOGIN_SEGMENT = /^(log-?in|log_in|sign-?in|sign_in|signon|auth|authorize|authenticate|sso|oauth2?|saml2?|cas|idp)(\.\w+)?$/i;
+
+// Query parameters a login page uses to send you back afterwards.
+const RETURN_PARAMS = new Set(['next', 'return', 'returnto', 'return_to', 'returnurl', 'return_url', 'returnpath', 'redirect', 'redirect_uri', 'redirect_url', 'redirectto', 'redirect_to', 'continue', 'dest', 'destination', 'service', 'goto', 'from', 'back']);
 
 export function isCheckable(url) {
   return /^https?:\/\//i.test(url ?? '');
 }
 
-// True when the URL's host equals a skip-list entry or is a subdomain of one.
-export function isSkipped(url, skipList) {
-  let host;
-  try {
-    host = new URL(url).hostname.toLowerCase();
-  } catch {
-    return false;
-  }
-  return skipList.some((entry) => {
+function hostMatches(host, domains) {
+  return domains.some((entry) => {
     const d = entry.trim().toLowerCase().replace(/^\*\./, '');
     return d && (host === d || host.endsWith('.' + d));
   });
+}
+
+// True when the URL's host equals a skip-list entry or is a subdomain of one.
+export function isSkipped(url, skipList) {
+  try {
+    return hostMatches(new URL(url).hostname.toLowerCase(), skipList);
+  } catch {
+    return false;
+  }
+}
+
+// True when the URL's path or query contains one of the words, ignoring case.
+export function hasRiskyWord(url, words) {
+  let rest;
+  try {
+    const u = new URL(url);
+    rest = (u.pathname + u.search).toLowerCase();
+  } catch {
+    return false;
+  }
+  return words.some((w) => w.trim() && rest.includes(w.trim().toLowerCase()));
+}
+
+// The fetch credentials mode for a URL: your cookies when asked for, unless the URL looks like it changes your account.
+export function credentialsFor(url, { cookies = false, noCookieWords = DEFAULT_NO_COOKIE_WORDS } = {}) {
+  return cookies && !hasRiskyWord(url, noCookieWords) ? 'include' : 'omit';
+}
+
+// True when a redirect from `from` ended on what looks like a login page.
+export function isLoginRedirect(from, to, loginHosts = DEFAULT_LOGIN_HOSTS) {
+  let a, b;
+  try {
+    a = new URL(from);
+    b = new URL(to);
+  } catch {
+    return false;
+  }
+  if (hostMatches(b.hostname.toLowerCase(), loginHosts)) return true;
+  if (b.pathname.split('/').some((part) => LOGIN_SEGMENT.test(part))) return true;
+  // A login page names the page you came from so it can send you back, either in full or, on the same site, by its path.
+  const host = a.hostname.toLowerCase();
+  const path = a.origin === b.origin && a.pathname !== '/' ? a.pathname.toLowerCase() : null;
+  for (const [key, value] of b.searchParams) {
+    if (!RETURN_PARAMS.has(key.toLowerCase())) continue;
+    const v = value.toLowerCase();
+    if (v.includes(host) || (path && v.startsWith(path))) return true;
+  }
+  return false;
 }
 
 export function categorize(httpStatus) {
@@ -45,7 +108,7 @@ function sameUrl(a, b) {
   }
 }
 
-async function request(fetchImpl, url, method, timeout, outer) {
+async function request(fetchImpl, url, method, timeout, outer, credentials) {
   const ctrl = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -58,7 +121,7 @@ async function request(fetchImpl, url, method, timeout, outer) {
     const res = await fetchImpl(url, {
       method,
       redirect: 'follow',
-      credentials: 'omit',
+      credentials,
       cache: 'no-store',
       signal: ctrl.signal,
     });
@@ -75,10 +138,20 @@ async function request(fetchImpl, url, method, timeout, outer) {
 }
 
 // Checks one URL with HEAD, falling back to GET because many servers answer HEAD wrongly.
-export async function checkUrl(url, { timeout = 15000, signal, fetchImpl = globalThis.fetch.bind(globalThis) } = {}) {
-  let attempt = await request(fetchImpl, url, 'HEAD', timeout, signal);
+// With `cookies` on, the request carries your cookies so pages you are logged into load as they do for you.
+export async function checkUrl(url, {
+  timeout = 15000,
+  signal,
+  fetchImpl = globalThis.fetch.bind(globalThis),
+  cookies = false,
+  noCookieWords = DEFAULT_NO_COOKIE_WORDS,
+  detectLogin = false,
+  loginHosts = DEFAULT_LOGIN_HOSTS,
+} = {}) {
+  const credentials = credentialsFor(url, { cookies, noCookieWords });
+  let attempt = await request(fetchImpl, url, 'HEAD', timeout, signal, credentials);
   if (attempt.error || attempt.res.status >= 400) {
-    const retry = await request(fetchImpl, url, 'GET', timeout, signal);
+    const retry = await request(fetchImpl, url, 'GET', timeout, signal, credentials);
     if (!retry.error || attempt.error) attempt = retry;
   }
   if (attempt.error === 'timeout') return { url, status: 'broken', category: 'timeout' };
@@ -91,13 +164,16 @@ export async function checkUrl(url, { timeout = 15000, signal, fetchImpl = globa
     return { url, status: CATEGORIES[category].severity, category, httpStatus: res.status, detail: res.statusText };
   }
   if (res.redirected && res.url && !sameUrl(res.url, url)) {
+    if (detectLogin && isLoginRedirect(url, res.url, loginHosts)) {
+      return { url, status: 'uncertain', category: 'login', httpStatus: res.status, detail: `→ ${res.url}`, finalUrl: res.url };
+    }
     return { url, status: 'redirect', httpStatus: res.status, finalUrl: res.url };
   }
   return { url, status: 'ok', httpStatus: res.status };
 }
 
 // Checks many bookmarks with limited parallelism, reporting progress after each one.
-export async function checkAll(bookmarks, { concurrency = 6, timeout, signal, onProgress, fetchImpl } = {}) {
+export async function checkAll(bookmarks, { concurrency = 6, signal, onProgress, ...options } = {}) {
   const results = [];
   let next = 0;
   let done = 0;
@@ -107,7 +183,7 @@ export async function checkAll(bookmarks, { concurrency = 6, timeout, signal, on
       const b = bookmarks[next++];
       let result;
       try {
-        result = await checkUrl(b.url, { timeout, signal, fetchImpl });
+        result = await checkUrl(b.url, { ...options, signal });
       } catch (err) {
         if (err.name === 'AbortError') return;
         result = { url: b.url, status: 'broken', category: 'unreachable', detail: String(err) };
