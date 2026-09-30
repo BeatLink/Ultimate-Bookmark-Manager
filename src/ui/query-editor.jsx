@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryBuilder, update } from 'react-querybuilder';
 import { OPERATORS, FIELDS, FIELD_OPERATORS, WORD_OPS, FOLDER_OPS, newCondition } from '../lib/organize.js';
 import { pickFolder } from './components.js';
+import 'react-querybuilder/dist/query-builder.css';
 
 const fields = Object.entries(FIELDS).map(([name, label]) => ({
   name,
@@ -25,7 +26,7 @@ function RuleSelector({ ruleGroup, path, schema, level }) {
   const current = Object.keys(RULE_SETTINGS).find((k) => RULE_SETTINGS[k].combinator === ruleGroup.combinator && RULE_SETTINGS[k].not === !!ruleGroup.not) ?? 'any';
   const change = (e) => schema.dispatchQuery(update(schema.getQuery(), RULE_SETTINGS[e.target.value], path));
   return (
-    <label className="row">
+    <label className="ruleGroup-combinators">
       Rule:
       <select aria-label={level ? 'Group rule' : 'Rule'} value={current} onChange={change}>
         {Object.keys(RULE_SETTINGS).map((k) => <option key={k} value={k}>{k}</option>)}
@@ -45,23 +46,42 @@ function FieldSelector({ rule, path, schema, options }) {
     schema.dispatchQuery(update(schema.getQuery(), patch, path));
   };
   return (
-    <select aria-label="Field" value={rule.field} onChange={change}>
+    <select className="rule-fields" aria-label="Field" value={rule.field} onChange={change}>
       {options.map((o) => <option key={o.name} value={o.name}>{o.label}</option>)}
     </select>
   );
 }
 
 // A folder condition's folder, chosen with the page's folder picker.
-function FolderEditor({ value, handleOnChange, context }) {
+function FolderEditor({ operator, rule, value, handleOnChange, context }) {
   const pick = async () => {
     const picked = await pickFolder(context.root, value ?? '', { heading: 'Choose a folder', verb: 'Folder', allowCreate: false });
     if (picked) handleOnChange(picked);
   };
   return (
-    <button type="button" className={`folder-button${value ? '' : ' unset'}`} aria-label="Folder" onClick={pick}>
-      <span className="folder-icon" aria-hidden="true" />
-      {value ? value.split('/').join(' › ') : 'Choose folder…'}
-    </button>
+    <span className="rule-value">
+      <button type="button" className={`folder-button${value ? '' : ' unset'}`} aria-label="Folder" onClick={pick}>
+        <span className="folder-icon" aria-hidden="true" />
+        {value ? value.split('/').join(' › ') : 'Choose folder…'}
+      </button>
+      <Switches operator={operator} rule={rule} setFlag={() => undefined} />
+    </span>
+  );
+}
+
+// The case and whole-word switches; one that does not apply keeps its place, so every row's columns line up.
+function Switches({ operator, rule, setFlag }) {
+  const caseApplies = operator !== 'onDomain' && !FOLDER_OPS.has(operator);
+  const wordsApply = WORD_OPS.has(operator);
+  return (
+    <>
+      <label className={`check-line small rule-case${caseApplies ? '' : ' unused'}`} title="Match upper and lower case exactly">
+        <input type="checkbox" aria-label="Match case" disabled={!caseApplies} checked={!!rule.caseSensitive} onChange={setFlag('caseSensitive')} />Aa
+      </label>
+      <label className={`check-line small rule-words${wordsApply ? '' : ' unused'}`} title="Only match whole words, so “cat” does not match “category”">
+        <input type="checkbox" aria-label="Whole words" disabled={!wordsApply} checked={!!rule.wholeWords} onChange={setFlag('wholeWords')} />Whole words
+      </label>
+    </>
   );
 }
 
@@ -71,20 +91,11 @@ function KeywordEditor(props) {
   if (FOLDER_OPS.has(operator)) return <FolderEditor {...props} />;
   const setFlag = (prop) => (e) => schema.dispatchQuery(update(schema.getQuery(), prop, e.target.checked, path));
   return (
-    <>
+    <span className="rule-value">
       <input type="text" className={`keyword${operator === 'matchesRegex' ? ' mono' : ''}`} aria-label="Keyword" value={value ?? ''}
         placeholder={PLACEHOLDERS[operator] ?? 'Keyword'} onChange={(e) => handleOnChange(e.target.value)} />
-      {operator !== 'onDomain' && (
-        <label className="check-line small" title="Match upper and lower case exactly">
-          <input type="checkbox" checked={!!rule.caseSensitive} onChange={setFlag('caseSensitive')} />Aa
-        </label>
-      )}
-      {WORD_OPS.has(operator) && (
-        <label className="check-line small" title="Only match whole words, so “cat” does not match “category”">
-          <input type="checkbox" aria-label="Whole words" checked={!!rule.wholeWords} onChange={setFlag('wholeWords')} />Whole words
-        </label>
-      )}
-    </>
+      <Switches operator={operator} rule={rule} setFlag={setFlag} />
+    </span>
   );
 }
 
@@ -95,16 +106,13 @@ const translations = {
   removeGroup: { label: 'Remove group', title: 'Remove group' },
 };
 
+// react-querybuilder's own layout, with branch lines joining each condition to its group.
 const classNames = {
-  queryBuilder: 'query-editor',
-  ruleGroup: 'cond-group',
-  header: 'row wrap',
-  body: 'conditions',
-  rule: 'condition',
+  queryBuilder: 'query-editor queryBuilder-branches',
   addRule: 'small',
   addGroup: 'small',
   removeRule: 'small',
-  removeGroup: 'small group-remove',
+  removeGroup: 'small',
 };
 
 function Editor({ query, onChange, context }) {

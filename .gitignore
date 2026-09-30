@@ -2,3 +2,4 @@ node_modules/
 web-ext-artifacts/
 .claude/
 src/ui/query-editor.bundle.js
+src/ui/query-editor.bundle.css

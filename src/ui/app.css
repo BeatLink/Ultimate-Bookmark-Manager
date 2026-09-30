@@ -167,9 +167,6 @@ body.busy [data-action=reload] { opacity: .5; pointer-events: none; }
 .rule-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .75em; display: flex; flex-direction: column; gap: .5em; align-items: flex-start; }
 .rule-card.disabled .rule-toggle, .rule-card.disabled .rule-body { opacity: .55; }
 .rule-name { font-weight: 600; }
-.conditions { list-style: none; padding: 0 0 0 1em; margin: 0; display: flex; flex-direction: column; gap: .4em; }
-.condition { display: flex; flex-wrap: wrap; gap: .4em; align-items: center; }
-.condition input[type=text] { min-width: 12em; }
 .target input { min-width: 14em; }
 .organize .selection-bar h2 { font-size: 1.05em; }
 
@@ -221,11 +218,28 @@ dialog.folder-picker::backdrop { background: rgb(0 0 0 / .35); }
 }
 
 .query-box, .query-editor { width: 100%; }
-.cond-group { display: flex; flex-direction: column; gap: .4em; width: 100%; }
-.cond-group > .row { align-items: center; }
-.conditions .cond-group { border-left: 3px solid var(--accent); background: var(--bg); border-radius: 0 var(--radius) var(--radius) 0; padding: .4em .6em; }
-.cond-group .group-remove { margin-left: auto; }
-.condition .keyword { flex: 1; }
+/* react-querybuilder's layout, in the page's colours. */
+.query-editor {
+  --rqb-spacing: .4rem;
+  --rqb-border-color: var(--border);
+  --rqb-branch-color: var(--border);
+  --rqb-background-color: var(--bg);
+  --rqb-border-radius: var(--radius);
+}
+.query-editor .ruleGroup .ruleGroup { --rqb-background-color: var(--surface); }
+.query-editor .ruleGroup-combinators { display: inline-flex; align-items: center; gap: .4em; }
+.query-editor .ruleGroup-header .ruleGroup-remove, .query-editor .rule .rule-remove { margin-left: auto; }
+/* Fixed widths line the columns up from one condition to the next. */
+.query-editor .rule-fields { width: 9.5em; flex: none; }
+.query-editor .rule-operators { width: 13em; flex: none; }
+.query-editor .rule-value { flex: 1; min-width: 0; display: flex; align-items: center; gap: .4em; }
+.query-editor .rule-value .keyword, .query-editor .rule-value .folder-button { flex: 1; min-width: 8em; }
+.query-editor .rule-case, .query-editor .rule-words { flex: none; white-space: nowrap; }
+.query-editor .unused { visibility: hidden; }
+@media (max-width: 720px) {
+  .query-editor .rule { flex-wrap: wrap; }
+  .query-editor .rule-value { flex-basis: 100%; }
+}
 .keyword.mono { font-family: ui-monospace, monospace; }
 
 .rule-card.catch-all { border-style: dashed; }
