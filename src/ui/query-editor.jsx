@@ -26,12 +26,9 @@ function RuleSelector({ ruleGroup, path, schema, level }) {
   const current = Object.keys(RULE_SETTINGS).find((k) => RULE_SETTINGS[k].combinator === ruleGroup.combinator && RULE_SETTINGS[k].not === !!ruleGroup.not) ?? 'any';
   const change = (e) => schema.dispatchQuery(update(schema.getQuery(), RULE_SETTINGS[e.target.value], path));
   return (
-    <label className="ruleGroup-combinators">
-      Rule:
-      <select aria-label={level ? 'Group rule' : 'Rule'} value={current} onChange={change}>
-        {Object.keys(RULE_SETTINGS).map((k) => <option key={k} value={k}>{k}</option>)}
-      </select>
-    </label>
+    <select className="ruleGroup-combinators" aria-label={level ? 'Group rule' : 'Rule'} value={current} onChange={change}>
+      {Object.keys(RULE_SETTINGS).map((k) => <option key={k} value={k}>{k}</option>)}
+    </select>
   );
 }
 

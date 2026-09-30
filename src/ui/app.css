@@ -166,6 +166,9 @@ body.busy [data-action=reload] { opacity: .5; pointer-events: none; }
 .rule-list { list-style: none; padding: 0; margin: 0 0 1em; display: flex; flex-direction: column; gap: .75em; }
 .rule-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .75em; display: flex; flex-direction: column; gap: .5em; align-items: flex-start; }
 .rule-card.disabled .rule-name, .rule-card.disabled .rule-body { opacity: .55; }
+/* Buttons, menus and text boxes in a rule share one height. */
+.rule-card :is(button:not(.rule-toggle, .tag-text, .tag-remove), select, input[type=text], input[type=number]) { box-sizing: border-box; height: 2rem; }
+.rule-card button:not(.rule-toggle, .tag-text, .tag-remove) { display: inline-flex; align-items: center; padding-block: 0; }
 .rule-name { font-weight: 600; }
 .target input { min-width: 14em; }
 .organize .selection-bar h2 { font-size: 1.05em; }
@@ -227,7 +230,9 @@ dialog.folder-picker::backdrop { background: rgb(0 0 0 / .35); }
   --rqb-border-radius: var(--radius);
 }
 .query-editor .ruleGroup .ruleGroup { --rqb-background-color: var(--surface); }
-.query-editor .ruleGroup-combinators { display: inline-flex; align-items: center; gap: .4em; }
+.rule-row { width: 100%; align-items: flex-start; }
+.rule-row .row-label { padding-top: .5em; }
+.rule-row .query-box { flex: 1; min-width: 0; }
 .query-editor .ruleGroup-header .ruleGroup-remove, .query-editor .rule .rule-remove { margin-left: auto; }
 /* Fixed widths line the columns up from one condition to the next. */
 .query-editor .rule-fields { width: 9.5em; flex: none; }

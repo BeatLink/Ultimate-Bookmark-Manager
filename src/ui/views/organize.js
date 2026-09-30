@@ -148,7 +148,7 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
       h('input', { type: 'checkbox', checked: rule.enabled !== false, 'aria-label': 'Rule enabled', onchange: (e) => { rule.enabled = e.target.checked; redraw(); } }),
       'Enabled'),
     rule.catchAll && h('p', { class: 'muted small' }, 'Catch-all ', helpLink('Files whatever no other rule matches where its folder conditions hold; any matching rule beats it unless this one ranks above it', 'organize')),
-    queryEditor(ctx, rule, changed),
+    h('div', { class: 'row rule-row' }, h('span', { class: 'row-label', text: 'Rule' }), queryEditor(ctx, rule, changed)),
     h('div', { class: 'row wrap target' }, 'Destination folder', targetPicker(ctx, rule, redraw)),
     ranksAbovePicker(rule, rules, redraw),
     parts.info).childNodes);
