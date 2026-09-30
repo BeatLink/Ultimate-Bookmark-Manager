@@ -24,3 +24,24 @@ test('other files are rejected with a readable reason', () => {
   assert.throws(() => parseImport('{"format":"something-else"}'), /not a Bookmark Manager settings file/);
   assert.throws(() => parseImport('{"format":"bookmark-manager-settings","version":9,"settings":{}}'), /newer version/);
 });
+
+test('rules in an older file are converted on import', () => {
+  const file = JSON.stringify({ format: 'bookmark-manager-settings', version: 1, settings: { organize: { rules: [{ id: 'r', match: 'none', conditions: [{ field: 'title', op: 'contains', values: ['a'] }] }] } } });
+  const { settings } = parseImport(file);
+  assert.equal(settings.organize.rules[0].query.not, true);
+  assert.equal(settings.organize.rules[0].query.rules[0].operator, 'contains');
+});
+
+test('rules saved in the old shape are converted once and saved back', async () => {
+  const { loadSettings } = await import('../src/lib/settings.js');
+  const storage = fakeStorage();
+  await storage.set({ settings: { dupesFolderName: 'Copies', organize: { autoApply: true, rules: [{ id: 'r', match: 'all', conditions: [{ field: 'title', op: 'equals', values: ['a'] }] }] } } });
+  const loaded = await loadSettings(storage);
+  assert.equal(loaded.organize.rules[0].query.rules[0].operator, '=');
+  assert.equal(storage.data.settings.organize.rules[0].query.combinator, 'and', 'the converted rules are stored');
+  assert.equal(storage.data.settings.organize.autoApply, true, 'other settings are kept');
+  assert.equal(storage.data.settings.dupesFolderName, 'Copies');
+  const saved = JSON.stringify(storage.data.settings);
+  await loadSettings(storage);
+  assert.equal(JSON.stringify(storage.data.settings), saved, 'loading again changes nothing');
+});

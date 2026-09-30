@@ -1,9 +1,10 @@
 // Organize rules: edit rules that file bookmarks into folders, preview the moves, then apply them.
 
 import { h, Selection, toast, confirmDialog } from '../dom.js';
-import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, tagInput, pickFolder, marked, helpLink } from '../components.js';
+import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, pickFolder, marked, helpLink } from '../components.js';
+import { mountQueryEditor } from '../query-editor.bundle.js';
 import { saveSettings } from '../../lib/settings.js';
-import { WORD_OPS, URL_OPS, OPERATORS, FIELDS, MODES, newRule, newCatchAll, newCondition, newGroup, isGroup, keywords, duplicateRule, planMoves, resolveTarget, maxScore, rankingWarnings } from '../../lib/organize.js';
+import { newRule, newCatchAll, duplicateRule, planMoves, resolveTarget, maxScore, rankingWarnings } from '../../lib/organize.js';
 import { eligibleToOutrank } from '../../lib/rule-order.js';
 import { formatScore } from '../../lib/specificity.js';
 
@@ -28,48 +29,6 @@ export function plan(ctx, rules) {
   return result;
 }
 
-function select(options, value, onchange, label) {
-  return h('select', { 'aria-label': label, onchange: (e) => onchange(e.target.value) },
-    Object.entries(options).map(([v, text]) => h('option', { value: v, text, selected: v === value })));
-}
-
-const PLACEHOLDERS = { regex: 'Type a pattern, press Enter', domain: 'example.com, press Enter', param: 'v or list=PL123, press Enter' };
-
-function conditionRow(cond, onRemove, changed) {
-  cond.values = keywords(cond);
-  delete cond.value;
-  const field = select(FIELDS, cond.field, (v) => { cond.field = v; changed(); }, 'Field');
-  // Off, "cat" also matches inside "category"; on, only the word itself.
-  const whole = h('label', { class: 'check-line small', title: 'Only match whole words, so “cat” does not match “category”', hidden: !WORD_OPS.has(cond.op) },
-    h('input', { type: 'checkbox', checked: !!cond.wholeWords, 'aria-label': 'Whole words', onchange: (e) => { cond.wholeWords = e.target.checked; changed(); } }), 'Whole words');
-  field.hidden = URL_OPS.has(cond.op);
-  const makeTags = () => tagInput({
-    values: cond.values,
-    onchange: changed,
-    commaSeparates: cond.op !== 'regex',
-    mono: cond.op === 'regex',
-    placeholder: PLACEHOLDERS[cond.op] ?? 'Type a keyword, press Enter',
-    label: 'Keywords',
-  });
-  let tags = makeTags();
-  return h('li', { class: 'condition' },
-    field,
-    select(OPERATORS, cond.op, (v) => {
-      cond.op = v;
-      field.hidden = URL_OPS.has(v);
-      whole.hidden = !WORD_OPS.has(v);
-      const next = makeTags();
-      tags.replaceWith(next);
-      tags = next;
-      changed();
-    }, 'Operator'),
-    tags,
-    h('label', { class: 'check-line small', title: 'Match upper and lower case exactly' },
-      h('input', { type: 'checkbox', checked: cond.caseSensitive, onchange: (e) => { cond.caseSensitive = e.target.checked; changed(); } }), 'Aa'),
-    whole,
-    h('button', { class: 'small', text: '×', title: 'Remove condition', 'aria-label': 'Remove condition', onclick: onRemove }));
-}
-
 // A button showing the rule's target folder that opens the folder picker.
 function targetPicker(ctx, rule, changed) {
   const label = () => rule.target ? rule.target.split('/').join(' › ') : 'Choose folder…';
@@ -84,55 +43,15 @@ function targetPicker(ctx, rule, changed) {
   return button;
 }
 
-// The folders a rule looks in, as removable chips; with none it looks everywhere.
-function sourcesPicker(ctx, rule, changed) {
-  const chips = h('span', { class: 'row wrap source-list' });
-  const subfolders = h('label', { class: 'check-line small' },
-    h('input', { type: 'checkbox', checked: rule.sourceSubfolders !== false, onchange: (e) => { rule.sourceSubfolders = e.target.checked; changed(); } }),
-    'and their subfolders');
-  const draw = () => {
-    const sources = rule.sources ?? [];
-    chips.replaceChildren(...(sources.length ? sources.map((s, j) => h('span', { class: 'tag' },
-      h('span', { class: 'tag-text', text: s.split('/').join(' › ') }),
-      h('button', { class: 'tag-remove', text: '×', 'aria-label': `Stop looking in “${s}”`, onclick: () => { sources.splice(j, 1); draw(); changed(); } })))
-      : [h('span', { class: 'muted', text: 'All folders' })]));
-    subfolders.hidden = !sources.length;
-  };
-  const add = h('button', { class: 'small', type: 'button', text: '+ Folder', title: 'Only sort bookmarks that are in this folder', onclick: async () => {
-    const picked = await pickFolder(ctx.state.root, '', { heading: 'Choose a source folder', verb: 'Source folder', allowCreate: false });
-    if (!picked) return;
-    rule.sources ??= [];
-    if (!rule.sources.includes(picked)) rule.sources.push(picked);
-    draw();
-    changed();
-  } });
-  draw();
-  return h('div', { class: 'row wrap target' }, 'Source folder', chips, add, subfolders);
-}
+// Each open rule's query editor, taken down when the tree is redrawn.
+const editors = new Map();
 
-// A group of conditions and nested groups; the rule itself is the outermost group, which cannot be removed.
-function groupEditor(group, changed, onRemove) {
-  const items = h('ul', { class: 'conditions' });
-  const draw = () => items.replaceChildren(...group.conditions.map((item, j) => {
-    const remove = () => { group.conditions.splice(j, 1); draw(); changed(); };
-    return isGroup(item) ? h('li', { class: 'group-item' }, groupEditor(item, changed, remove)) : conditionRow(item, remove, changed);
-  }));
-  draw();
-  const add = (item) => {
-    group.conditions.push(item);
-    draw();
-    changed();
-    items.lastElementChild?.querySelector('.tag-input input')?.focus();
-  };
-  return h('div', { class: `cond-group${onRemove ? ' nested' : ''}` },
-    h('div', { class: 'row wrap' },
-      'Inclusion:',
-      select(MODES, group.match, (v) => { group.match = v; changed(); }, onRemove ? 'Group inclusion' : 'Inclusion'),
-      onRemove && h('button', { class: 'small group-remove', text: 'Remove group', onclick: onRemove })),
-    items,
-    h('div', { class: 'row wrap' },
-      h('button', { class: 'small', text: '+ Condition', onclick: () => add(newCondition()) }),
-      h('button', { class: 'small', text: '+ Group', title: 'Add a group with its own any / all / none setting', onclick: () => add(newGroup()) })));
+// The rule's conditions in a react-querybuilder editor.
+function queryEditor(ctx, rule, changed) {
+  const box = h('div', { class: 'query-box' });
+  editors.get(rule.id)?.();
+  editors.set(rule.id, mountQueryEditor(box, rule.query, (query) => { rule.query = query; changed(); }, { root: ctx.state.root }));
+  return box;
 }
 
 // Rules shown open; saved rules start closed, while new and duplicated ones open for editing.
@@ -226,10 +145,8 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
   const fillBody = () => body.append(
     h('label', { class: 'row wrap' }, 'Name',
       h('input', { type: 'text', class: 'grow rule-name', value: rule.name, placeholder: 'Rule name (optional)', 'aria-label': 'Rule name', oninput: (e) => { rule.name = e.target.value; changed(); } })),
-    sourcesPicker(ctx, rule, changed),
-    rule.catchAll
-      ? h('p', { class: 'muted small' }, 'Catch-all: no conditions ', helpLink('Files whatever no other rule matches in its source folders; any matching rule beats it unless this one ranks above it', 'organize'))
-      : groupEditor(rule, changed, null),
+    rule.catchAll && h('p', { class: 'muted small' }, 'Catch-all ', helpLink('Files whatever no other rule matches where its folder conditions hold; any matching rule beats it unless this one ranks above it', 'organize')),
+    queryEditor(ctx, rule, changed),
     h('div', { class: 'row wrap target' }, 'Destination folder', targetPicker(ctx, rule, redraw)),
     ranksAbovePicker(rule, rules, redraw),
     parts.info);
@@ -347,11 +264,13 @@ export default {
       redraw();
       const el = treeBox.querySelector(`[data-rule="${rule.id}"]`);
       el?.scrollIntoView?.({ block: 'nearest' });
-      el?.querySelector('.tag-input input, .folder-button')?.focus();
+      el?.querySelector('.folder-button')?.focus();
     };
 
     // The whole tree is rebuilt when rules are added, removed or moved; typing only refreshes the cards' text.
     const drawTree = () => {
+      for (const unmount of editors.values()) unmount();
+      editors.clear();
       cardParts.clear();
       folderCounts.clear();
       const tree = folderTree(ctx.state.root);

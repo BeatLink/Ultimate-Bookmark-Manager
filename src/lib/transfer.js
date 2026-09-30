@@ -1,6 +1,6 @@
 // Settings files: what an export contains and how an import is checked before it is applied.
 
-import { DEFAULT_SETTINGS, merge } from './settings.js';
+import { DEFAULT_SETTINGS, merge, migrateRules } from './settings.js';
 
 export const FORMAT = 'bookmark-manager-settings';
 
@@ -27,7 +27,10 @@ export function parseImport(text) {
   if (data.version > 1) throw new Error('This file comes from a newer version of the add-on.');
   if (typeof data.settings !== 'object' || data.settings === null) throw new Error('The file has no settings in it.');
   const whitelist = data.whitelist && typeof data.whitelist === 'object' ? data.whitelist : {};
-  return { settings: merge(DEFAULT_SETTINGS, data.settings), whitelist, rules: data.settings.organize?.rules?.length ?? 0 };
+  const settings = merge(DEFAULT_SETTINGS, data.settings);
+  // Files exported before rules used react-querybuilder's shape are converted as they are read.
+  settings.organize.rules = migrateRules(settings.organize.rules ?? []);
+  return { settings, whitelist, rules: settings.organize.rules.length };
 }
 
 // Replaces the settings and adds the file's ignored items to the ones already here.

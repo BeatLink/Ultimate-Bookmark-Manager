@@ -6,9 +6,18 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.js",
-    "lint": "npx --yes web-ext lint --ignore-files 'test/**' 'package.json' 'README.md'",
-    "start": "npx --yes web-ext run --ignore-files 'test/**'",
-    "build": "npx --yes web-ext build --overwrite-dest --ignore-files 'test/**' 'package.json' 'README.md'"
+    "bundle": "esbuild src/ui/query-editor.jsx --bundle --format=esm --jsx=automatic --define:process.env.NODE_ENV='\"production\"' --outfile=src/ui/query-editor.bundle.js",
+    "lint": "npm run bundle && npx --yes web-ext lint --ignore-files 'test/**' 'package.json' 'package-lock.json' 'README.md' 'node_modules/**' 'src/ui/query-editor.jsx'",
+    "start": "npm run bundle && npx --yes web-ext run --ignore-files 'test/**' 'package.json' 'package-lock.json' 'README.md' 'node_modules/**' 'src/ui/query-editor.jsx'",
+    "build": "npm run bundle && npx --yes web-ext build --overwrite-dest --ignore-files 'test/**' 'package.json' 'package-lock.json' 'README.md' 'node_modules/**' 'src/ui/query-editor.jsx'"
   },
-  "license": "MPL-2.0"
+  "license": "MPL-2.0",
+  "dependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-querybuilder": "^8.24.3"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
 }

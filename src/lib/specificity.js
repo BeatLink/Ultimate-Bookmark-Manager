@@ -74,16 +74,16 @@ export function urlTextPoints(value) {
 
 // Points for one keyword that matched, given which part of the bookmark it matched.
 export function valuePoints(op, value, on) {
-  if (op === 'domain') return domainPoints(value);
+  if (op === 'onDomain') return domainPoints(value);
   // Text looked for in a part of the URL scores by what it spells out, not as a single word.
-  if (op === 'contains' || op === 'containsAll' || op === 'startsWith') {
+  if (op === 'contains' || op === 'beginsWith') {
     if (on === 'host' && String(value).includes('.')) return domainPoints(value);
     if (on === 'path' && String(value).includes('/')) return pathPoints(value);
-    if (on === 'url' && /[./]/.test(String(value)) && op !== 'startsWith') return urlTextPoints(value);
+    if (on === 'url' && /[./]/.test(String(value)) && op !== 'beginsWith') return urlTextPoints(value);
   }
-  if (op === 'param') return String(value).includes('=') ? POINTS.paramValue : POINTS.param;
-  if (op === 'regex') return POINTS.regex;
-  if (op === 'equals') {
+  if (op === 'hasParam') return String(value).includes('=') ? POINTS.paramValue : POINTS.param;
+  if (op === 'matchesRegex') return POINTS.regex;
+  if (op === '=') {
     if (on === 'url') return POINTS.exactUrl;
     if (on === 'host') return domainPoints(value);
     // An exact path counts one segment more than a prefix of the same depth, so it wins over one.
@@ -91,7 +91,7 @@ export function valuePoints(op, value, on) {
     if (on === 'query') return POINTS.exactQuery;
     return POINTS.exactTitle;
   }
-  if (op === 'startsWith' && on === 'url') return prefixPoints(value);
-  if (op === 'startsWith' && on === 'path') return pathPoints(value);
+  if (op === 'beginsWith' && on === 'url') return prefixPoints(value);
+  if (op === 'beginsWith' && on === 'path') return pathPoints(value);
   return POINTS.keyword;
 }

@@ -1,19 +1,36 @@
-// Organize rules: match bookmarks by title, URL or part of the URL and plan moves into target folders.
+// Organize rules: match bookmarks by title, URL, part of the URL or folder, and plan moves into target folders.
 
-import { byText } from './text.js';
 import { valuePoints, CATCH_ALL_SCORE, URL_TIER, formatScore } from './specificity.js';
 import { buildOrder, rankCandidates, lostBecause } from './rule-order.js';
 
+// A rule's conditions are a react-querybuilder query. Each condition is { field, operator, value } with one keyword
+// as its value, plus `caseSensitive` and `wholeWords`; several keywords are several conditions in a group.
+// Operator names follow react-querybuilder's where one fits.
 export const OPERATORS = {
-  contains: 'contains any of',
-  containsAll: 'contains all of',
-  notContains: 'contains none of',
-  startsWith: 'starts with',
+  contains: 'contains',
+  doesNotContain: 'does not contain',
+  beginsWith: 'starts with',
   endsWith: 'ends with',
-  equals: 'is exactly',
-  domain: 'is on domain',
-  param: 'has query parameter',
-  regex: 'matches any regex',
+  '=': 'is',
+  matchesRegex: 'matches regex',
+  onDomain: 'is on domain',
+  hasParam: 'has query parameter',
+  inFolder: 'is in or under',
+  directlyInFolder: 'is directly in',
+};
+
+const TEXT_OPS = ['contains', 'doesNotContain', 'beginsWith', 'endsWith', '=', 'matchesRegex'];
+
+// The operators each field offers; domains belong to the site name and parameters to the query string.
+export const FIELD_OPERATORS = {
+  either: TEXT_OPS,
+  title: TEXT_OPS,
+  url: TEXT_OPS,
+  host: [...TEXT_OPS, 'onDomain'],
+  path: TEXT_OPS,
+  query: [...TEXT_OPS, 'hasParam'],
+  fragment: TEXT_OPS,
+  folder: ['inFolder', 'directlyInFolder'],
 };
 
 export const FIELDS = {
@@ -24,10 +41,14 @@ export const FIELDS = {
   path: 'URL path',
   query: 'query string',
   fragment: 'part after #',
+  folder: 'folder',
 };
 
-// Operators that always look at the URL, so the field choice does not apply to them.
-export const URL_OPS = new Set(['domain', 'param']);
+// Folder conditions narrow a rule down to where a bookmark sits; they never add to how specific its match is.
+export const FOLDER_OPS = new Set(['inFolder', 'directlyInFolder']);
+
+// Operators where "whole words" applies; domains, regexes and exact matches already have their own edges.
+export const WORD_OPS = new Set(['contains', 'doesNotContain', 'beginsWith', 'endsWith']);
 
 // Short names accepted as the first segment of a target path, alongside the root folders' own titles.
 const ROOT_ALIASES = {
@@ -38,58 +59,97 @@ const ROOT_ALIASES = {
   mobile: 'mobile______',
 };
 
-// How a group combines its items; "none" is true when none of them are.
-export const MODES = { any: 'any', all: 'all', none: 'none' };
-
-export function newGroup() {
-  return { type: 'group', match: 'any', conditions: [newCondition()] };
+// A group is react-querybuilder's { combinator: 'and' | 'or', not, rules }; `not` inverts the whole group.
+export function newGroup(rules = [newCondition()]) {
+  return { id: crypto.randomUUID(), combinator: 'or', not: false, rules };
 }
 
 export function isGroup(item) {
-  return item?.type === 'group';
+  return Array.isArray(item?.rules);
 }
 
-export function newCondition() {
-  return { field: 'either', op: 'contains', values: [], caseSensitive: false, wholeWords: true };
+export function newCondition(field = 'either', operator = 'contains', value = '') {
+  if (field === 'folder') return { id: crypto.randomUUID(), field, operator, value };
+  return { id: crypto.randomUUID(), field, operator, value, caseSensitive: false, wholeWords: true };
 }
-
-// Operators where "whole words" applies; domains, regexes and exact matches already have their own edges.
-export const WORD_OPS = new Set(['contains', 'containsAll', 'notContains', 'startsWith', 'endsWith']);
 
 export function newRule() {
   return {
     id: crypto.randomUUID(),
     name: '',
     enabled: true,
-    match: 'any',
-    conditions: [newCondition()],
+    query: newGroup(),
     target: '',
-    sources: [],
-    sourceSubfolders: true,
     // The rules this one ranks above when both match; the built-in ranking only applies between unrelated rules.
     outranks: [],
     createdAt: Date.now(),
   };
 }
 
-// Copies a rule under a new id so it can be edited separately; the copy's name is marked as such.
-// A rule with no conditions that takes whatever no other rule matches in the folders it looks in; it always runs last.
-export function newCatchAll(sources = []) {
-  return { ...newRule(), catchAll: true, conditions: [], sources, sourceSubfolders: false };
+// A rule that takes whatever no other rule matches in the folders its conditions name; it always runs last.
+export function newCatchAll(folders = []) {
+  return { ...newRule(), catchAll: true, query: newGroup(folders.map((f) => newCondition('folder', 'directlyInFolder', f))) };
 }
 
+// Copies a rule under a new id so it can be edited separately; the copy's name is marked as such.
 export function duplicateRule(rule) {
   const copy = structuredClone(rule);
   copy.id = crypto.randomUUID();
   copy.createdAt = Date.now();
   copy.name = rule.name ? `${rule.name} (copy)` : '';
+  // react-querybuilder needs every rule and group id to be unique on the page.
+  const renumber = (item) => ({ ...item, id: crypto.randomUUID(), ...(isGroup(item) && { rules: item.rules.map(renumber) }) });
+  copy.query = renumber(copy.query);
   return copy;
 }
 
-// The condition's keywords; a plain comma-separated `value` string is still read for older rules.
-export function keywords(cond) {
-  const list = Array.isArray(cond.values) ? cond.values : String(cond.value ?? '').split(',');
-  return list.map((t) => String(t).trim()).filter(Boolean);
+// The condition's keyword, or its folder path.
+export function valueOf(cond) {
+  return String(cond.value ?? '').trim();
+}
+
+const OLD_OPERATORS = { notContains: 'doesNotContain', containsAll: 'contains', startsWith: 'beginsWith', equals: '=', domain: 'onDomain', param: 'hasParam', regex: 'matchesRegex' };
+const OLD_FIELDS = { domain: 'host', param: 'query' };
+
+// An old condition with a list of keywords, as one condition per keyword. "Contains all of" and "contains none of"
+// become an "and" group; every other operator matched any of its keywords, so it becomes an "or" group.
+function migrateCondition(old) {
+  const list = (Array.isArray(old.values) ? old.values : String(old.value ?? '').split(',')).map((t) => String(t).trim()).filter(Boolean);
+  const field = OLD_FIELDS[old.op] ?? old.field ?? 'either';
+  const operator = OLD_OPERATORS[old.op] ?? old.op ?? 'contains';
+  const items = (list.length ? list : ['']).map((value) => ({ ...newCondition(field, operator, value), caseSensitive: !!old.caseSensitive, wholeWords: !!old.wholeWords }));
+  if (items.length === 1) return items[0];
+  return { ...newGroup(items), combinator: old.op === 'containsAll' || old.op === 'notContains' ? 'and' : 'or', fromList: true };
+}
+
+// An old { match: 'any' | 'all' | 'none', conditions } group in react-querybuilder's shape; "none" is "not any".
+// A keyword list that combines the same way as its group is merged into it rather than nested.
+function migrateGroup(old) {
+  const combinator = old.match === 'all' ? 'and' : 'or';
+  const rules = [];
+  for (const item of old.conditions ?? []) {
+    const next = item?.type === 'group' ? migrateGroup(item) : migrateCondition(item);
+    const { fromList, ...clean } = next;
+    if (fromList && clean.combinator === combinator) rules.push(...clean.rules);
+    else rules.push(clean);
+  }
+  return { ...newGroup(rules), combinator, not: old.match === 'none' };
+}
+
+// Converts a rule saved before rules used react-querybuilder's shape; its source folders become folder conditions.
+// Rules already converted come back unchanged.
+export function migrateRule(rule) {
+  if (rule.query) return rule;
+  const { match, conditions, sources, sourceSubfolders, ...rest } = rule;
+  let query = migrateGroup({ match, conditions });
+  const folders = (sources ?? []).map((path) => newCondition('folder', sourceSubfolders === false ? 'directlyInFolder' : 'inFolder', path));
+  if (folders.length) {
+    const scope = folders.length === 1 ? folders[0] : newGroup(folders);
+    if (!query.rules.length) query = isGroup(scope) ? scope : newGroup([scope]);
+    else if (query.combinator === 'and' && !query.not) query = { ...query, rules: [scope, ...query.rules] };
+    else query = { ...newGroup([scope, query]), combinator: 'and' };
+  }
+  return { ...rest, query };
 }
 
 const hosts = new Map();
@@ -115,11 +175,11 @@ const patterns = new Map();
 
 // The pattern for one keyword under a condition's operator and options, built once and reused.
 function patternFor(cond, value) {
-  const whole = cond.wholeWords && WORD_OPS.has(cond.op);
-  const key = `${cond.op}|${cond.caseSensitive ? 1 : 0}|${whole ? 1 : 0}|${value}`;
+  const whole = cond.wholeWords && WORD_OPS.has(cond.operator);
+  const key = `${cond.operator}|${cond.caseSensitive ? 1 : 0}|${whole ? 1 : 0}|${value}`;
   if (patterns.has(key)) return patterns.get(key);
   let re;
-  if (cond.op === 'regex') {
+  if (cond.operator === 'matchesRegex') {
     re = new RegExp(value, cond.caseSensitive ? 'g' : 'gi');
   } else {
     const v = escapeRe(value);
@@ -128,9 +188,9 @@ function patternFor(cond, value) {
     const before = whole && wordChar.test(value.at(0)) ? `(?<!${WORD})` : '';
     const after = whole && wordChar.test(value.at(-1)) ? `(?!${WORD})` : '';
     const flags = cond.caseSensitive ? 'gu' : 'giu';
-    if (cond.op === 'startsWith') re = new RegExp(`^${v}${after}`, flags);
-    else if (cond.op === 'endsWith') re = new RegExp(`${before}${v}$`, flags);
-    else if (cond.op === 'equals') re = new RegExp(`^${v}$`, flags);
+    if (cond.operator === 'beginsWith') re = new RegExp(`^${v}${after}`, flags);
+    else if (cond.operator === 'endsWith') re = new RegExp(`${before}${v}$`, flags);
+    else if (cond.operator === '=') re = new RegExp(`^${v}$`, flags);
     else re = new RegExp(`${before}${v}${after}`, flags);
   }
   patterns.set(key, re);
@@ -200,60 +260,59 @@ function paramRanges(cond, value, url) {
 
 // The parts of a bookmark a condition looks at: the title, the whole URL or one part of it.
 function fieldsOf(cond) {
-  if (URL_OPS.has(cond.op)) return ['url'];
   return !cond.field || cond.field === 'either' ? ['title', 'url'] : [cond.field];
 }
 
-// Where one keyword occurs in one part of a bookmark, as ranges in the title (for "title") or else in the URL.
+// Where the keyword occurs in one part of a bookmark, as ranges in the title (for "title") or else in the URL.
 // Throws on an invalid regex so callers can report it.
 function rangesIn(cond, value, bookmark, on) {
   const url = bookmark.url ?? '';
-  if (cond.op === 'domain') return domainRanges(value, url);
-  if (cond.op === 'param') return paramRanges(cond, value, url);
+  if (cond.operator === 'onDomain') return domainRanges(value, url);
+  if (cond.operator === 'hasParam') return paramRanges(cond, value, url);
   if (on === 'title') return occurrences(cond, value, bookmark.title ?? '');
   const part = urlPart(url, on);
   return occurrences(cond, value, part.text).map(([s, e]) => [s + part.start, e + part.start]);
 }
 
-export function conditionMatches(cond, bookmark) {
-  const words = keywords(cond);
-  if (!words.length) return false;
-  const fields = fieldsOf(cond);
-  const has = (on) => (w) => rangesIn(cond, w, bookmark, on).length > 0;
-  // "Contains none of" on several fields must hold for all of them; "contains all of" needs every keyword in one field.
-  if (cond.op === 'notContains') return fields.every((on) => !words.some(has(on)));
-  if (cond.op === 'containsAll') return fields.some((on) => words.every(has(on)));
-  return fields.some((on) => words.some(has(on)));
+// A folder condition's folder as a path of titles; without the root folders to resolve it, the path as written.
+function folderPath(value, rootFolders) {
+  if (rootFolders) return resolveTarget(value, rootFolders)?.path ?? null;
+  const segments = value.split('/').map((s) => s.trim()).filter(Boolean);
+  return segments.length ? segments : null;
 }
 
-// A rule is itself a group: `match` says how its `conditions` combine, and each of those may be a nested group.
-// Conditions without keywords and groups with nothing active are ignored, so a half-written rule never matches everything.
+// A rule's `query` is a group: `combinator` says how its `rules` combine, `not` inverts it, and any item may be a nested group.
+// Conditions without a value and groups with nothing active are ignored, so a half-written rule never matches everything.
 function activeItems(group) {
-  return (group.conditions ?? []).filter((item) => (isGroup(item) ? activeItems(item).length : keywords(item).length));
+  return (group?.rules ?? []).filter((item) => (isGroup(item) ? activeItems(item).length : valueOf(item)));
 }
 
 function allConditions(group) {
-  return (group.conditions ?? []).flatMap((item) => (isGroup(item) ? allConditions(item) : [item]));
+  return (group?.rules ?? []).flatMap((item) => (isGroup(item) ? allConditions(item) : [item]));
 }
 
-// A condition prepared once per plan: its keywords, the parts of a bookmark it reads, and a test for one keyword in one part.
-function compileCondition(cond) {
-  const values = keywords(cond);
+// A condition prepared once per plan: which parts of a bookmark it reads and a test of one part.
+function compileCondition(cond, rootFolders) {
+  const value = valueOf(cond);
+  const op = cond.operator;
+  if (FOLDER_OPS.has(op)) {
+    const path = folderPath(value, rootFolders);
+    const inside = (p) => !!path && startsWithPath(p, path) && (op === 'inFolder' || p.length === path.length);
+    return { op, folder: true, test: (text) => inside(text.path) };
+  }
   const fields = fieldsOf(cond);
   let hit;
-  if (cond.op === 'domain') {
-    const doms = new Map(values.map((v) => [v, v.toLowerCase().replace(/^\*?\./, '')]));
-    hit = (value, text) => {
+  if (op === 'onDomain') {
+    const dom = value.toLowerCase().replace(/^\*?\./, '');
+    hit = (text) => {
       const host = hostOf(text.url);
-      const dom = doms.get(value);
       return host === dom || host.endsWith('.' + dom);
     };
-  } else if (cond.op === 'param') {
-    hit = (value, text) => paramRanges(cond, value, text.url).length > 0;
+  } else if (op === 'hasParam') {
+    hit = (text) => paramRanges(cond, value, text.url).length > 0;
   } else {
-    const res = new Map(values.map((v) => [v, patternFor(cond, v)]));
-    hit = (value, text, on) => {
-      const re = res.get(value);
+    const re = patternFor(cond, value);
+    hit = (text, on) => {
       re.lastIndex = 0;
       const found = re.test(text.part(on));
       re.lastIndex = 0;
@@ -261,90 +320,89 @@ function compileCondition(cond) {
     };
   }
   // Conditions aimed only at the URL rank in the URL tier; "title or URL" stays a keyword condition.
-  return { op: cond.op, values, fields, hit, tier: fields.includes('title') ? 1 : URL_TIER };
+  return { op, value, fields, hit, tier: fields.includes('title') ? 1 : URL_TIER };
 }
 
 // A rule's conditions prepared once per plan, with inactive items already dropped.
-function compileGroup(group) {
-  return { match: group.match, items: activeItems(group).map((item) => (isGroup(item) ? compileGroup(item) : compileCondition(item))) };
+function compileGroup(group, rootFolders) {
+  return { combinator: group.combinator, not: !!group.not, items: activeItems(group).map((item) => (isGroup(item) ? compileGroup(item, rootFolders) : compileCondition(item, rootFolders))) };
 }
 
-// The specificity of a condition's match, or null when it does not hold; only the keywords that matched count.
+// The specificity of a condition's match, or null when it does not hold.
 function conditionScore(c, text) {
-  const { op, values, fields, hit } = c;
-  if (op === 'notContains') return fields.every((on) => !values.some((v) => hit(v, text, on))) ? 0 : null;
-  if (op === 'containsAll') {
-    // Every keyword has to be in the same part of the bookmark.
-    const on = fields.find((f) => values.every((v) => hit(v, text, f)));
-    return on ? values.reduce((sum, v) => sum + valuePoints(op, v, on), 0) * c.tier : null;
-  }
-  let score = null;
-  for (const v of values) {
-    const on = fields.find((f) => hit(v, text, f));
-    if (on) score = (score ?? 0) + valuePoints(op, v, on);
-  }
-  return score === null ? null : score * c.tier;
+  if (c.folder) return c.test(text) ? 0 : null;
+  // "Does not contain" on the title and URL must hold for both.
+  if (c.op === 'doesNotContain') return c.fields.every((on) => !c.hit(text, on)) ? 0 : null;
+  const on = c.fields.find((f) => c.hit(text, f));
+  return on ? valuePoints(c.op, c.value, on) * c.tier : null;
 }
 
+// Only the conditions that hold count towards a group's score, so "any" of several keywords scores the ones found.
 function groupScore(group, text) {
   const scores = group.items.map((item) => (item.items ? groupScore(item, text) : conditionScore(item, text)));
-  if (group.match === 'all') return scores.includes(null) ? null : scores.reduce((a, b) => a + b, 0);
-  if (group.match === 'none') return scores.every((x) => x === null) ? 0 : null;
   const hits = scores.filter((x) => x !== null);
-  return hits.length ? hits.reduce((a, b) => a + b, 0) : null;
+  const sum = hits.reduce((a, b) => a + b, 0);
+  const held = group.combinator === 'and' ? hits.length === scores.length : hits.length > 0;
+  // An inverted group scores nothing when it holds, as what it rules out is not a match.
+  if (group.not) return held ? null : 0;
+  return held ? sum : null;
 }
 
-// A bookmark's title and URL, with each part of the URL split out once when first asked for.
+// A bookmark's title, URL and folder path, with each part of the URL split out once when first asked for.
 function bookmarkText(bookmark) {
   const title = bookmark.title ?? '';
   const url = bookmark.url ?? '';
   const parts = {};
-  return { url, part: (on) => (on === 'title' ? title : on === 'url' ? url : (parts[on] ??= urlPart(url, on).text)) };
+  return { url, path: bookmark.path ?? [], part: (on) => (on === 'title' ? title : on === 'url' ? url : (parts[on] ??= urlPart(url, on).text)) };
 }
 
 // Scores bookmarks against one rule, or null when the rule does not match; build it once and reuse it for every bookmark.
-function scorer(rule) {
-  if (rule.catchAll) return () => CATCH_ALL_SCORE;
-  const compiled = compileGroup(rule);
+// A catch-all scores below any other match, whatever its conditions scored.
+function scorer(rule, rootFolders) {
+  const compiled = compileGroup(rule.query ?? {}, rootFolders);
   if (!compiled.items.length) return () => null;
+  if (rule.catchAll) return (bookmark) => (groupScore(compiled, bookmarkText(bookmark)) === null ? null : CATCH_ALL_SCORE);
   return (bookmark) => groupScore(compiled, bookmarkText(bookmark));
 }
 
-// The most a rule can score: every keyword it lists matching, in the part of the bookmark worth the most.
+// The most a rule can score: every condition it lists matching, in the part of the bookmark worth the most.
 export function maxScore(rule) {
   if (rule.catchAll) return CATCH_ALL_SCORE;
   const cond = (c) => {
-    if (c.op === 'notContains') return 0;
+    if (FOLDER_OPS.has(c.operator) || c.operator === 'doesNotContain') return 0;
     const fields = fieldsOf(c);
     const tier = fields.includes('title') ? 1 : URL_TIER;
-    return keywords(c).reduce((sum, v) => sum + Math.max(...fields.map((f) => valuePoints(c.op, v, f))), 0) * tier;
+    return Math.max(...fields.map((f) => valuePoints(c.operator, valueOf(c), f))) * tier;
   };
-  const group = (g) => (g.match === 'none' ? 0 : activeItems(g).reduce((sum, item) => sum + (isGroup(item) ? group(item) : cond(item)), 0));
-  return group(rule);
+  const group = (g) => (g.not ? 0 : activeItems(g).reduce((sum, item) => sum + (isGroup(item) ? group(item) : cond(item)), 0));
+  return group(rule.query);
 }
 
-// What made a condition hold: each keyword that matched, where, and the character ranges to highlight.
-// Null when the condition does not hold; an empty list for a "contains none of" that holds.
-function conditionHits(cond, bookmark) {
-  if (!conditionMatches(cond, bookmark)) return null;
-  if (cond.op === 'notContains') return [];
+// Whether one condition holds for a bookmark.
+export function conditionMatches(cond, bookmark, rootFolders) {
+  return !!valueOf(cond) && conditionScore(compileCondition(cond, rootFolders), bookmarkText(bookmark)) !== null;
+}
+
+// What made a condition hold: the keyword, where it matched, and the character ranges to highlight.
+// Null when the condition does not hold; an empty list for folder and "does not contain" conditions that hold.
+function conditionHits(cond, bookmark, rootFolders) {
+  if (!conditionMatches(cond, bookmark, rootFolders)) return null;
+  if (FOLDER_OPS.has(cond.operator) || cond.operator === 'doesNotContain') return [];
+  const value = valueOf(cond);
   const hits = [];
-  for (const value of keywords(cond)) {
-    for (const on of fieldsOf(cond)) {
-      const ranges = rangesIn(cond, value, bookmark, on);
-      // A query parameter is reported as found in the query string, everything else in the part it looked at.
-      if (ranges.length) hits.push({ value, on: cond.op === 'param' ? 'query' : on, ranges });
-    }
+  for (const on of fieldsOf(cond)) {
+    const ranges = rangesIn(cond, value, bookmark, on);
+    if (ranges.length) hits.push({ value, on, ranges });
   }
   return hits;
 }
 
-function groupHits(group, bookmark) {
-  const parts = activeItems(group).map((item) => (isGroup(item) ? groupHits(item, bookmark) : conditionHits(item, bookmark)));
-  if (group.match === 'all') return parts.includes(null) ? null : parts.flat();
-  if (group.match === 'none') return parts.every((x) => x === null) ? [] : null;
+function groupHits(group, bookmark, rootFolders) {
+  const parts = activeItems(group).map((item) => (isGroup(item) ? groupHits(item, bookmark, rootFolders) : conditionHits(item, bookmark, rootFolders)));
   const hit = parts.filter((x) => x !== null);
-  return hit.length ? hit.flat() : null;
+  const held = group.combinator === 'and' ? hit.length === parts.length : hit.length > 0;
+  if (group.not) return held ? null : [];
+  return held ? hit.flat() : null;
 }
 
 function mergeRanges(ranges) {
@@ -360,11 +418,11 @@ function mergeRanges(ranges) {
 
 // Why a rule matched a bookmark: the keywords that matched and where, plus merged ranges to highlight in the
 // title and the URL. Null when the rule does not match; a catch-all matches with nothing to show.
-export function explainMatch(rule, bookmark) {
-  if (rule.catchAll) return { terms: [], title: [], url: [] };
-  if (!activeItems(rule).length) return null;
-  const hits = groupHits(rule, bookmark);
+export function explainMatch(rule, bookmark, rootFolders) {
+  if (!activeItems(rule.query).length) return null;
+  const hits = groupHits(rule.query, bookmark, rootFolders);
   if (!hits) return null;
+  if (rule.catchAll) return { terms: [], title: [], url: [] };
   const terms = new Map();
   for (const hit of hits) {
     if (!terms.has(hit.value)) terms.set(hit.value, new Set());
@@ -378,34 +436,35 @@ export function explainMatch(rule, bookmark) {
 }
 
 // How specifically the rule matches the bookmark, or null when it does not match at all.
-export function ruleScore(rule, bookmark) {
-  return scorer(rule)(bookmark);
+export function ruleScore(rule, bookmark, rootFolders) {
+  return scorer(rule, rootFolders)(bookmark);
 }
 
-export function ruleMatches(rule, bookmark) {
-  return ruleScore(rule, bookmark) !== null;
+export function ruleMatches(rule, bookmark, rootFolders) {
+  return ruleScore(rule, bookmark, rootFolders) !== null;
 }
 
-// One condition in plain words, e.g. `title contains any of “rust”, “cargo”`.
+// One condition in plain words, e.g. `title contains “rust”` or `folder is in or under “Other Bookmarks › Inbox”`.
 export function describeCondition(cond) {
-  const list = keywords(cond).sort(byText).map((w) => `“${w}”`).join(', ');
-  const subject = URL_OPS.has(cond.op) ? 'URL' : FIELDS[cond.field] ?? FIELDS.either;
+  const value = valueOf(cond);
+  const subject = FIELDS[cond.field] ?? FIELDS.either;
+  if (FOLDER_OPS.has(cond.operator)) return `${subject} ${OPERATORS[cond.operator]} “${value.split('/').join(' › ')}”`;
   // Matching inside words is the risky setting ("cat" in "category"), so the summary says when it is on.
-  const inside = WORD_OPS.has(cond.op) && !cond.wholeWords ? ' (also inside words)' : '';
-  return `${subject} ${OPERATORS[cond.op] ?? cond.op} ${list}${cond.caseSensitive && cond.op !== 'domain' ? ' (exact case)' : ''}${inside}`;
+  const inside = WORD_OPS.has(cond.operator) && !cond.wholeWords ? ' (also inside words)' : '';
+  return `${subject} ${OPERATORS[cond.operator] ?? cond.operator} “${value}”${cond.caseSensitive && cond.operator !== 'onDomain' ? ' (exact case)' : ''}${inside}`;
 }
 
 function describeGroup(group, nested) {
   const parts = activeItems(group).map((item) => (isGroup(item) ? describeGroup(item, true) : describeCondition(item)));
-  const joined = parts.join(group.match === 'all' ? ' and ' : ' or ');
-  if (group.match === 'none') return `not (${joined})`;
+  const joined = parts.join(group.combinator === 'and' ? ' and ' : ' or ');
+  if (group.not) return `not (${joined})`;
   return nested && parts.length > 1 ? `(${joined})` : joined;
 }
 
-// The rule's logic in one line, with nested groups in brackets and "none" groups always as "not (…)" so they read unambiguously.
+// The rule's logic in one line, with nested groups in brackets and inverted groups always as "not (…)" so they read unambiguously.
 export function describeRule(rule) {
-  if (rule.catchAll) return 'Anything no other rule matches';
-  return activeItems(rule).length ? describeGroup(rule, false) : 'No conditions yet';
+  const text = activeItems(rule.query).length ? describeGroup(rule.query, false) : 'No conditions yet';
+  return rule.catchAll ? `Anything no other rule matches where ${text}` : text;
 }
 
 // Resolves "Root/Sub/Folder" against the top-level folders; a path not starting with one goes under Other Bookmarks.
@@ -424,47 +483,37 @@ function startsWithPath(path, prefix) {
   return prefix.length <= path.length && prefix.every((seg, i) => path[i] === seg);
 }
 
-// The folders a rule looks in, as resolved paths; an empty list means it looks everywhere.
-function resolveSources(rule, rootFolders) {
-  return (rule.sources ?? []).map((s) => resolveTarget(s, rootFolders)).filter(Boolean);
-}
-
-// Whether a bookmark sits in one of the rule's source folders, or anywhere when it has none.
-function inScope(sources, subfolders, bookmark) {
-  if (!sources.length) return true;
-  return sources.some((s) => (subfolders ? startsWithPath(bookmark.path, s.path) : bookmark.path.length === s.path.length && startsWithPath(bookmark.path, s.path)));
-}
-
-// Whether the rule's conditions match the bookmark and it lies within the rule's source folders.
+// Whether the rule's conditions, folder conditions included, match the bookmark.
 export function ruleApplies(rule, bookmark, rootFolders) {
-  return inScope(resolveSources(rule, rootFolders), rule.sourceSubfolders !== false, bookmark) && ruleMatches(rule, bookmark);
+  return ruleMatches(rule, bookmark, rootFolders);
 }
 
-// Checks each rule once so the editor can show a problem next to the rule that has it; source folders are checked only when `flat` is given.
+// Checks each rule once so the editor can show a problem next to the rule that has it; folders are checked only when `flat` is given.
 export function validateRules(rules, rootFolders, flat = null) {
   const problems = new Map();
   const folders = flat && new Set(flat.filter((n) => n.type === 'folder').map((n) => [...n.path, n.title].join('\0')));
   for (const rule of rules) {
     const issues = [];
+    const active = allConditions(rule.query).filter(valueOf);
+    const inFolders = active.filter((c) => FOLDER_OPS.has(c.operator));
     if (rule.catchAll) {
-      if (!(rule.sources ?? []).length) issues.push('A catch-all rule needs at least one source folder, or it would move every bookmark you have.');
-    } else if (!activeItems(rule).length) {
-      issues.push('Add at least one keyword to a condition.');
+      if (!inFolders.length) issues.push('A catch-all rule needs a folder condition, or it would move every bookmark you have.');
+    } else if (active.length === inFolders.length) {
+      issues.push('Add a condition on the title or URL; folder conditions only narrow a rule down.');
     }
     if (!resolveTarget(rule.target, rootFolders)) issues.push('Choose a target folder.');
     if (folders) {
-      for (const s of resolveSources(rule, rootFolders)) {
-        if (!folders.has(s.path.join('\0'))) issues.push(`The source folder “${s.path.join(' › ')}” no longer exists.`);
+      for (const c of inFolders) {
+        const path = folderPath(valueOf(c), rootFolders);
+        if (path && !folders.has(path.join('\0'))) issues.push(`The folder “${path.join(' › ')}” no longer exists.`);
       }
     }
-    for (const c of allConditions(rule)) {
-      if (c.op !== 'regex') continue;
-      for (const pattern of keywords(c)) {
-        try {
-          new RegExp(pattern);
-        } catch (err) {
-          issues.push(`Invalid regex “${pattern}”: ${err.message}`);
-        }
+    for (const c of active) {
+      if (c.operator !== 'matchesRegex') continue;
+      try {
+        new RegExp(valueOf(c));
+      } catch (err) {
+        issues.push(`Invalid regex “${valueOf(c)}”: ${err.message}`);
       }
     }
     if (issues.length) problems.set(rule.id, issues);
@@ -482,10 +531,10 @@ export function rankingWarnings(rules) {
   return warnings;
 }
 
-// Works out where each bookmark should go. Of the enabled, valid rules that match it and look in its folder, a rule
+// Works out where each bookmark should go. Of the enabled, valid rules that match it, a rule
 // wins over any it ranks above by the ranking lists; between rules no list relates, the more specific match wins
 // (URL conditions before keywords), then the newer rule, and catch-alls only take what nothing else matches.
-// `tree` is the whole flattened tree, used to check source folders exist when `flat` holds only some bookmarks.
+// `tree` is the whole flattened tree, used to check the folders conditions name exist when `flat` holds only some bookmarks.
 export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree = flat) {
   const problems = validateRules(rules, rootFolders, tree);
   const order = buildOrder(rules);
@@ -493,7 +542,7 @@ export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree
   const valid = rules
     .map((rule, index) => ({ rule, index }))
     .filter(({ rule }) => !problems.has(rule.id))
-    .map((u) => ({ ...u, target: resolveTarget(u.rule.target, rootFolders), sources: resolveSources(u.rule, rootFolders), score: scorer(u.rule), on: u.rule.enabled !== false }));
+    .map((u) => ({ ...u, target: resolveTarget(u.rule.target, rootFolders), score: scorer(u.rule, rootFolders), on: u.rule.enabled !== false }));
   const moves = [];
   const wins = new Map();
   const matches = new Map();
@@ -501,7 +550,6 @@ export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree
     if (b.type !== 'bookmark' || ignoredIds.has(b.id)) continue;
     const candidates = [];
     for (const u of valid) {
-      if (!inScope(u.sources, u.rule.sourceSubfolders !== false, b)) continue;
       const score = u.score(b);
       if (score === null) continue;
       matches.set(u.rule.id, (matches.get(u.rule.id) ?? 0) + 1);
@@ -516,12 +564,12 @@ export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree
     // The winning rule decides even when the bookmark is already where it says, so a weaker rule cannot move it away.
     if (startsWithPath(b.path, best.target.path)) continue;
     let ranking = null;
-    moves.push({ bookmark: b, ruleId: best.rule.id, ruleName: best.rule.name, target: best.target, score: best.score, others: candidates.length - 1, why: explainMatch(best.rule, b),
+    moves.push({ bookmark: b, ruleId: best.rule.id, ruleName: best.rule.name, target: best.target, score: best.score, others: candidates.length - 1, why: explainMatch(best.rule, b, rootFolders),
       // Every matching rule, strongest first, each with what it matched and, below the winner, why it lost; worked out when first read.
       get ranking() {
         ranking ??= ranked.map((c) => ({
           ruleId: c.rule.id, ruleName: c.rule.name, target: c.target, score: c.score, catchAll: !!c.rule.catchAll,
-          why: explainMatch(c.rule, b), lost: c === best ? null : lostBecause(c, best, ranked, order, formatScore),
+          why: explainMatch(c.rule, b, rootFolders), lost: c === best ? null : lostBecause(c, best, ranked, order, formatScore),
         }));
         return ranking;
       } });

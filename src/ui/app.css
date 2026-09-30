@@ -212,7 +212,7 @@ dialog.folder-picker::backdrop { background: rgb(0 0 0 / .35); }
 .rule-actions { flex: none; display: flex; gap: .3em; }
 .source-list .tag-text { padding: .05em .2em .05em .6em; font-size: .9em; }
 .rule-body { display: flex; flex-direction: column; gap: .5em; align-items: flex-start; padding: .5em 0 0 3.2em; width: 100%; }
-.rule-body > .row, .rule-body > .conditions, .rule-body > .target { width: 100%; }
+.rule-body > .row, .rule-body > .query-box, .rule-body > .target { width: 100%; }
 @media (max-width: 720px) {
   .rule-head { flex-wrap: wrap; }
   .rule-toggle { flex-basis: calc(100% - 4em); }
@@ -220,10 +220,13 @@ dialog.folder-picker::backdrop { background: rgb(0 0 0 / .35); }
   .rule-body { padding-left: 0; }
 }
 
+.query-box, .query-editor { width: 100%; }
 .cond-group { display: flex; flex-direction: column; gap: .4em; width: 100%; }
-.cond-group.nested { border-left: 3px solid var(--accent); background: var(--bg); border-radius: 0 var(--radius) var(--radius) 0; padding: .4em .6em; }
+.cond-group > .row { align-items: center; }
+.conditions .cond-group { border-left: 3px solid var(--accent); background: var(--bg); border-radius: 0 var(--radius) var(--radius) 0; padding: .4em .6em; }
 .cond-group .group-remove { margin-left: auto; }
-.group-item { list-style: none; }
+.condition .keyword { flex: 1; }
+.keyword.mono { font-family: ui-monospace, monospace; }
 
 .rule-card.catch-all { border-style: dashed; }
 

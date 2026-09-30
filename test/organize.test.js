@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { conditionMatches, ruleMatches, resolveTarget, planMoves, validateRules, duplicateRule, describeRule, ruleApplies } from '../src/lib/organize.js';
+import { ruleMatches, resolveTarget, planMoves, validateRules, duplicateRule, describeRule, ruleApplies, migrateRule } from '../src/lib/organize.js';
 
 const roots = [
   { id: 'menu________', title: 'Bookmarks Menu' },
@@ -8,8 +8,10 @@ const roots = [
   { id: 'unfiled_____', title: 'Other Bookmarks' },
 ];
 const bm = (id, title, url, path = ['Bookmarks Menu']) => ({ id, title, url, type: 'bookmark', path });
+// Conditions and rules are written in the old shape and converted, so every test also exercises the migration.
 const cond = (op, words, extra = {}) => ({ field: 'either', op, values: words ? words.split(',') : [], caseSensitive: false, wholeWords: true, ...extra });
-const rule = (id, conditions, target, extra = {}) => ({ id, name: id, enabled: true, match: 'any', conditions, target, ...extra });
+const rule = (id, conditions, target, extra = {}) => migrateRule({ id, name: id, enabled: true, match: 'any', conditions, target, ...extra });
+const conditionMatches = (c, b) => ruleMatches(rule('t', [c], 'X'), b);
 
 test('contains matches any comma-separated word in title or URL, ignoring case', () => {
   const b = bm('1', 'Learn RUST today', 'https://example.com/x');
@@ -90,11 +92,13 @@ test('invalid and disabled rules are left out of the plan', () => {
   assert.deepEqual([...validateRules(rules, roots).keys()], ['bad', 'notarget']);
 });
 
-test('keywords may contain commas, and older comma-separated values still work', () => {
+test('a keyword may contain commas, and old comma-separated lists become one condition each', () => {
   const b = bm('1', 'Smith, John — profile', 'https://a.test');
-  assert.ok(conditionMatches({ field: 'title', op: 'contains', values: ['Smith, John'] }, b));
-  assert.ok(!conditionMatches({ field: 'title', op: 'contains', values: ['Smith, Jane'] }, b));
+  const one = (value) => ({ ...rule('t', [], 'X'), query: { id: 'g', combinator: 'or', not: false, rules: [{ id: 'c', field: 'title', operator: 'contains', value }] } });
+  assert.ok(ruleMatches(one('Smith, John'), b));
+  assert.ok(!ruleMatches(one('Smith, Jane'), b));
   assert.ok(conditionMatches({ field: 'title', op: 'contains', value: 'nobody, profile' }, b));
+  assert.equal(rule('t', [{ field: 'title', op: 'contains', value: 'nobody, profile' }], 'X').query.rules.length, 2);
 });
 
 test('regex conditions match when any pattern does, and each bad pattern is reported', () => {
@@ -110,21 +114,18 @@ test('a duplicated rule is an independent copy with its own id', () => {
   assert.notEqual(copy.id, original.id);
   assert.equal(copy.name, 'Rust (copy)');
   assert.equal(copy.target, 'Dev');
-  copy.conditions[0].values.push('go');
-  assert.deepEqual(original.conditions[0].values, ['rust'], 'editing the copy leaves the original alone');
+  copy.query.rules[0].value = 'go';
+  assert.equal(original.query.rules[0].value, 'rust', 'editing the copy leaves the original alone');
+  assert.notEqual(copy.query.id, original.query.id, 'groups get new ids too');
+  assert.notEqual(copy.query.rules[0].id, original.query.rules[0].id, 'and so do conditions');
   assert.equal(duplicateRule(rule('x', [], 'A', { name: '' })).name, '', 'an unnamed rule stays unnamed');
 });
 
 test('rules are summed up in plain words', () => {
   const r = rule('r', [cond('contains', 'rust,cargo', { field: 'title' }), cond('domain', 'github.com'), cond('contains', '')], 'Dev', { match: 'all' });
-  assert.equal(describeRule(r), 'title contains any of “cargo”, “rust” and URL is on domain “github.com”');
+  assert.equal(describeRule(r), '(title contains “rust” or title contains “cargo”) and site name is on domain “github.com”');
   assert.equal(describeRule(rule('r', [cond('startsWith', 'Doc', { caseSensitive: true })], 'X')), 'title or URL starts with “Doc” (exact case)');
   assert.equal(describeRule(rule('r', [cond('contains', '')], 'X')), 'No conditions yet');
-});
-
-test('summaries list keywords alphabetically, ignoring case and ordering numbers by value', () => {
-  const r = rule('r', [{ field: 'title', op: 'contains', values: ['zeta', 'Alpha', 'item10', 'item2', 'beta'], wholeWords: true }], 'X');
-  assert.equal(describeRule(r), 'title contains any of “Alpha”, “beta”, “item2”, “item10”, “zeta”');
 });
 
 const group = (match, conditions) => ({ type: 'group', match, conditions });
@@ -156,7 +157,7 @@ test('empty groups are ignored and a rule made only of them never matches', () =
   assert.ok(ruleMatches(r, bm('1', 'rust', 'https://a.test')));
   const empty = rule('e', [group('none', [cond('contains', '')])], 'X');
   assert.ok(!ruleMatches(empty, bm('1', 'anything', 'https://a.test')));
-  assert.deepEqual(validateRules([empty], roots).get('e'), ['Add at least one keyword to a condition.']);
+  assert.deepEqual(validateRules([empty], roots).get('e'), ['Add a condition on the title or URL; folder conditions only narrow a rule down.']);
 });
 
 test('nested groups are summed up with brackets and "not"', () => {
@@ -165,7 +166,7 @@ test('nested groups are summed up with brackets and "not"', () => {
     group('none', [cond('domain', 'reddit.com'), cond('contains', 'meme', { field: 'title' })]),
     group('any', [cond('contains', 'book', { field: 'title' })]),
   ], 'Dev', { match: 'all' });
-  assert.equal(describeRule(r), 'title contains any of “rust” and not (URL is on domain “reddit.com” or title contains any of “meme”) and title contains any of “book”');
+  assert.equal(describeRule(r), 'title contains “rust” and not (site name is on domain “reddit.com” or title contains “meme”) and title contains “book”');
 });
 
 test('invalid regexes inside nested groups are reported', () => {
@@ -175,10 +176,10 @@ test('invalid regexes inside nested groups are reported', () => {
 
 test('a none group always gets brackets, even with one condition', () => {
   const r = rule('r', [cond('contains', 'work')], 'X', { match: 'none' });
-  assert.equal(describeRule(r), 'not (title or URL contains any of “work”)');
+  assert.equal(describeRule(r), 'not (title or URL contains “work”)');
 });
 
-test('source folders limit which bookmarks a rule looks at', () => {
+test('folder conditions limit which bookmarks a rule looks at', () => {
   const folder = (title, path) => ({ id: title, title, type: 'folder', path });
   const flat = [
     folder('Other Bookmarks', []),
@@ -190,7 +191,8 @@ test('source folders limit which bookmarks a rule looks at', () => {
   ];
   const scoped = rule('s', [cond('contains', 'rust')], 'Dev', { sources: ['other/Inbox'] });
   assert.deepEqual(planMoves(flat, [scoped], roots).moves.map((m) => m.bookmark.id), ['a', 'c']);
-  const shallow = { ...scoped, sourceSubfolders: false };
+  const shallow = rule('s', [cond('contains', 'rust')], 'Dev', { sources: ['other/Inbox'], sourceSubfolders: false });
+  assert.equal(shallow.query.rules[0].operator, 'directlyInFolder');
   assert.deepEqual(planMoves(flat, [shallow], roots).moves.map((m) => m.bookmark.id), ['a']);
   assert.ok(!ruleApplies(scoped, flat[4], roots));
 
@@ -202,7 +204,9 @@ test('source folders limit which bookmarks a rule looks at', () => {
   const gone = rule('g', [cond('contains', 'rust')], 'Dev', { sources: ['other/Nowhere'] });
   assert.equal(planMoves(flat, [gone], roots).moves.length, 0);
   assert.match(validateRules([gone], roots, flat).get('g')[0], /no longer exists/);
-  assert.ok(!validateRules([gone], roots).has('g'), 'without the tree, source folders are not checked');
+  assert.ok(!validateRules([gone], roots).has('g'), 'without the tree, folders are not checked');
+  const onlyFolder = { ...rule('o', [], 'Dev'), query: { id: 'g', combinator: 'and', not: false, rules: [{ id: 'f', field: 'folder', operator: 'inFolder', value: 'other/Inbox' }] } };
+  assert.match(validateRules([onlyFolder], roots).get('o')[0], /folder conditions only narrow/);
 });
 
 test('a catch-all rule takes only what no other rule matches, and only in its folders', async () => {
@@ -221,13 +225,13 @@ test('a catch-all rule takes only what no other rule matches, and only in its fo
   const { moves, problems } = planMoves(flat, rules, roots);
   assert.equal(problems.size, 0);
   assert.deepEqual(moves.map((m) => [m.bookmark.id, m.ruleId]), [['rust', 'dev'], ['misc', 'c']]);
-  assert.equal(describeRule(catchAll), 'Anything no other rule matches');
+  assert.equal(describeRule(catchAll), 'Anything no other rule matches where folder is directly in “Other Bookmarks”');
 });
 
-test('a catch-all rule needs a source folder', async () => {
+test('a catch-all rule needs a folder condition', async () => {
   const { newCatchAll } = await import('../src/lib/organize.js');
   const everywhere = { ...newCatchAll(), id: 'c', target: 'Inbox' };
-  assert.match(validateRules([everywhere], roots).get('c')[0], /needs at least one source folder/);
+  assert.match(validateRules([everywhere], roots).get('c')[0], /needs a folder condition/);
   assert.equal(planMoves([bm('x', 'x', 'https://x.test')], [everywhere], roots).moves.length, 0);
 });
 
@@ -240,12 +244,12 @@ test('whole words stops keywords matching inside other words', async () => {
   assert.notEqual(planMoves([meraki], [men(false)], roots).moves.length, 0, 'inside a word, as before, when the option is off');
   assert.equal(planMoves([meraki], [men(true)], roots).moves.length, 0);
   assert.equal(planMoves([bm('c', 'Clothing for men', 'https://x.test')], [men(true)], roots).moves.length, 1, 'the word on its own still matches');
-  const ww = (op) => ({ op, field: 'title', wholeWords: true });
+  const ww = (operator) => ({ operator, field: 'title', wholeWords: true });
   assert.deepEqual(occurrences(ww('contains'), 'git', 'git rebase, github, Git!'), [[0, 3], [20, 23]]);
   assert.deepEqual(occurrences(ww('contains'), 'c++', 'Learn C++ today'), [[6, 9]], 'keywords ending in symbols work');
   assert.deepEqual(occurrences(ww('contains'), 'café', 'Le café, cafés'), [[3, 7]], 'letters in any language count as word characters');
-  assert.deepEqual(occurrences(ww('startsWith'), 'git', 'github guide'), []);
-  assert.deepEqual(occurrences(ww('startsWith'), 'git', 'git guide'), [[0, 3]]);
+  assert.deepEqual(occurrences(ww('beginsWith'), 'git', 'github guide'), []);
+  assert.deepEqual(occurrences(ww('beginsWith'), 'git', 'git guide'), [[0, 3]]);
   assert.deepEqual(occurrences(ww('endsWith'), 'news', 'BBC News'), [[4, 8]]);
   assert.equal(newCondition().wholeWords, true, 'new conditions default to whole words');
 });
@@ -417,4 +421,69 @@ test('retired priority numbers and fallback flags are dropped when settings load
   const { dropRetiredRanking } = await import('../src/lib/rule-order.js');
   const out = dropRetiredRanking([{ id: 'a', priority: 3, fallback: true, outranks: ['b'] }, { id: 'b' }]);
   assert.deepEqual(out, [{ id: 'a', outranks: ['b'] }, { id: 'b' }]);
+});
+
+test('rules saved in the old shape convert to react-querybuilder groups, one keyword per condition', () => {
+  const old = {
+    id: 'r', name: 'Rust', enabled: true, target: 'Dev', sources: ['Other Bookmarks', 'Bookmarks Menu/Inbox'], sourceSubfolders: true, outranks: ['x'], createdAt: 5,
+    match: 'all',
+    conditions: [
+      { field: 'title', op: 'startsWith', value: 'rust, cargo', caseSensitive: true, wholeWords: false },
+      { field: 'title', op: 'domain', values: ['github.com'] },
+      { field: 'title', op: 'containsAll', values: ['book', 'guide'], wholeWords: true },
+      { type: 'group', match: 'none', conditions: [{ field: 'either', op: 'param', values: ['v', 'list'] }, { field: 'url', op: 'equals', values: ['https://a.test/'] }] },
+      { type: 'group', match: 'any', conditions: [{ field: 'either', op: 'regex', values: ['^x'] }, { field: 'either', op: 'notContains', values: ['meme', 'joke'] }] },
+    ],
+  };
+  const r = migrateRule(old);
+  assert.deepEqual({ ...r, query: undefined }, { id: 'r', name: 'Rust', enabled: true, target: 'Dev', outranks: ['x'], createdAt: 5, query: undefined }, 'everything else is kept');
+  const strip = (item) => {
+    const { id, ...rest } = item;
+    assert.equal(typeof id, 'string');
+    return rest.rules ? { ...rest, rules: rest.rules.map(strip) } : rest;
+  };
+  const c = (field, operator, value, caseSensitive = false, wholeWords = false) => ({ field, operator, value, caseSensitive, wholeWords });
+  assert.deepEqual(strip(r.query), {
+    combinator: 'and', not: false, rules: [
+      // Source folders come first, as "any of" these folders.
+      { combinator: 'or', not: false, rules: [
+        { field: 'folder', operator: 'inFolder', value: 'Other Bookmarks' },
+        { field: 'folder', operator: 'inFolder', value: 'Bookmarks Menu/Inbox' },
+      ] },
+      { combinator: 'or', not: false, rules: [c('title', 'beginsWith', 'rust', true), c('title', 'beginsWith', 'cargo', true)] },
+      c('host', 'onDomain', 'github.com'),
+      // "Contains all of" joins an "all" group, so its keywords sit in it directly.
+      c('title', 'contains', 'book', false, true),
+      c('title', 'contains', 'guide', false, true),
+      { combinator: 'or', not: true, rules: [c('query', 'hasParam', 'v'), c('query', 'hasParam', 'list'), c('url', '=', 'https://a.test/')] },
+      { combinator: 'or', not: false, rules: [
+        c('either', 'matchesRegex', '^x'),
+        { combinator: 'and', not: false, rules: [c('either', 'doesNotContain', 'meme'), c('either', 'doesNotContain', 'joke')] },
+      ] },
+    ],
+  });
+  assert.equal(migrateRule(r), r, 'a converted rule is left alone');
+
+  const catchAll = migrateRule({ id: 'c', catchAll: true, conditions: [], target: 'X', sources: ['Other Bookmarks'], sourceSubfolders: false });
+  assert.deepEqual(strip(catchAll.query), { combinator: 'or', not: false, rules: [{ field: 'folder', operator: 'directlyInFolder', value: 'Other Bookmarks' }] });
+  const anyWithFolder = migrateRule({ id: 'a', match: 'any', conditions: [{ field: 'title', op: 'contains', values: ['a'] }], sources: ['Other Bookmarks'] });
+  assert.deepEqual(strip(anyWithFolder.query), { combinator: 'and', not: false, rules: [
+    { field: 'folder', operator: 'inFolder', value: 'Other Bookmarks' },
+    { combinator: 'or', not: false, rules: [c('title', 'contains', 'a')] },
+  ] }, 'an "any" rule is wrapped so its folder still has to match');
+});
+
+test('a converted rule matches the same bookmarks it did before', () => {
+  const b = bm('1', 'Rust book', 'https://github.com/rust-lang/book?tab=readme');
+  const r = rule('r', [cond('contains', 'rust', { field: 'title' }), cond('domain', 'github.com'), { type: 'group', match: 'none', conditions: [cond('param', 'v')] }], 'Dev', { match: 'all' });
+  assert.ok(ruleMatches(r, b));
+  assert.ok(!ruleMatches(r, { ...b, url: 'https://github.com/x?v=1' }), 'the "none" group still rules out a query parameter');
+  assert.deepEqual(planMoves([b], [r], roots).moves[0].why.terms, [{ value: 'rust', on: ['title'] }, { value: 'github.com', on: ['host'] }]);
+});
+
+test('an inverted "all" group holds unless every condition in it does', () => {
+  const b = bm('1', 'Rust news', 'https://a.test');
+  const notBoth = (words) => ({ ...rule('r', [], 'X'), query: { id: 'g', combinator: 'and', not: true, rules: words.map((value, i) => ({ id: `c${i}`, field: 'either', operator: 'contains', value })) } });
+  assert.ok(ruleMatches(notBoth(['rust', 'python']), b));
+  assert.ok(!ruleMatches(notBoth(['rust', 'news']), b));
 });

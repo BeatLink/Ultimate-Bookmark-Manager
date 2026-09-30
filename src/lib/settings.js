@@ -2,6 +2,7 @@
 
 import { DEFAULT_MATCHING } from './duplicates.js';
 import { dropRetiredRanking } from './rule-order.js';
+import { migrateRule } from './organize.js';
 
 export const DEFAULT_SETTINGS = {
   matching: { ...DEFAULT_MATCHING },
@@ -33,7 +34,19 @@ export async function loadSettings(storage = browser.storage.local) {
   const loaded = merge(DEFAULT_SETTINGS, settings);
   // Priority numbers and fallback flags are retired; ranking lists replace them.
   loaded.organize.rules = dropRetiredRanking(loaded.organize.rules ?? []);
+  const rules = migrateRules(loaded.organize.rules);
+  if (rules !== loaded.organize.rules) {
+    loaded.organize.rules = rules;
+    // Converted rules are saved straight back, so they are converted once and synced in the new shape.
+    await storage.set({ settings: { ...settings, organize: { ...settings.organize, rules } } });
+  }
   return loaded;
+}
+
+// Rules in react-querybuilder's shape; the same list comes back when none needed converting.
+export function migrateRules(rules) {
+  const out = rules.map(migrateRule);
+  return out.some((r, i) => r !== rules[i]) ? out : rules;
 }
 
 export async function saveSettings(settings, storage = browser.storage.local) {
