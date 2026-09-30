@@ -115,6 +115,13 @@ section > .items, section > div > .items { background: var(--surface); border: 1
 .status { color: var(--danger); }
 .redirect-to { font-size: .9em; overflow-wrap: anywhere; margin-top: .2em; }
 .folder-icon::before { content: "📁"; margin-right: .3em; }
+.rule-icon::before { content: "≣"; margin-right: .4em; color: var(--accent); font-weight: 700; }
+.rank-all-icon::before { content: "⇅"; margin-right: .4em; color: var(--accent); font-weight: 700; }
+.rule-button { display: inline-flex; align-items: center; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.rule-button.unset { color: var(--muted); border-style: dashed; }
+.rule-tree-picker summary { cursor: default; }
+.folder-name.selected .rule-icon::before, .folder-name.selected .rank-all-icon::before { color: inherit; }
+.rule-tree-picker .folder-label { display: inline-flex; align-items: center; padding: .15em .4em; }
 .edit-form { display: flex; flex-direction: column; gap: .4em; }
 .edit-form input { width: 100%; }
 .empty-state { text-align: center; padding: 2.5em 1em; color: var(--muted); background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius); }
@@ -372,4 +379,3 @@ kbd { font-family: ui-monospace, monospace; font-size: .85em; border: 1px solid 
 .keyword-with-remove .keyword-remove { border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 0 .55em; }
 .keyword-with-remove .keyword-remove:hover { color: var(--danger); }
 .query-editor .rule-value .keyword-with-remove { flex: 1; min-width: 8em; display: flex; }
-.merge-menu { width: 7em; }

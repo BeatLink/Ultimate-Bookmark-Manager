@@ -1,7 +1,7 @@
 // Organize rules: edit rules that file bookmarks into folders, preview the moves, then apply them.
 
 import { h, Selection, toast, confirmDialog } from '../dom.js';
-import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, pickFolder, marked, helpLink } from '../components.js';
+import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, pickFolder, pickRule, marked, helpLink } from '../components.js';
 import { mountQueryEditor } from '../query-editor.bundle.js';
 import { saveSettings } from '../../lib/settings.js';
 import { newRule, newCatchAll, duplicateRule, moveToNewRule, mergeRules, mergeCandidates, planMoves, resolveTarget, maxScore, rankingWarnings } from '../../lib/organize.js';
@@ -108,9 +108,23 @@ const ruleLabel = (r) => `${r.name || 'Unnamed rule'} → ${r.target ? r.target.
 const ALL = '*';
 const RELATIONS = { above: 'ranks above', below: 'ranks below' };
 
+// Every other rule as an entry for the rule picker, filed under its destination folder; rules not in `allowed` are
+// shown greyed out with `reason` as their tooltip.
+function ruleEntries(ctx, rule, rules, allowed, reason) {
+  const roots = rootFolders(ctx);
+  const ok = new Set(allowed.map((r) => r.id));
+  return rules.filter((r) => r !== rule).map((r) => ({
+    id: r.id,
+    label: r.name || 'Unnamed rule',
+    folder: resolveTarget(r.target, roots)?.path.join('/') ?? '',
+    disabled: !ok.has(r.id),
+    reason: ok.has(r.id) ? ruleLabel(r) : reason,
+  }));
+}
+
 // The rule's ranking as rows of "ranks above / below" a rule or all other rules. "Ranks below X" is stored in X's list,
 // so both rules always agree; the menus offer only rules that would not make a loop or go against the tiers.
-function rankingEditor(rule, rules, redraw) {
+function rankingEditor(ctx, rule, rules, redraw) {
   const byId = new Map(rules.map((r) => [r.id, r]));
   const links = [
     ...(rule.rankAll ? [{ rel: rule.rankAll, target: ALL }] : []),
@@ -141,18 +155,22 @@ function rankingEditor(rule, rules, redraw) {
   };
   const row = (link) => {
     let rel = link?.rel ?? 'above';
-    const targets = () => [
-      ...(!rule.rankAll || link?.target === ALL ? [[ALL, 'all other rules']] : []),
-      ...(link && link.target !== ALL ? [[link.target, ruleLabel(byId.get(link.target))]] : []),
-      ...(rel === 'above' ? eligibleToOutrank : eligibleToRankBelow)(rule, rules).map((r) => [r.id, ruleLabel(r)]),
-    ];
-    const target = h('select', { class: 'rank-target', 'aria-label': 'Rule it ranks against', onchange: (e) => change(link, { rel, target: e.target.value }) },
-      !link && h('option', { value: '', text: 'Choose a rule…' }),
-      targets().map(([value, text]) => h('option', { value, text, selected: value === link?.target })));
+    // The rule it ranks against is chosen from the folder tree; the current one stays choosable.
+    const pick = async () => {
+      const eligible = (rel === 'above' ? eligibleToOutrank : eligibleToRankBelow)(rule, rules);
+      const current = link && link.target !== ALL ? [byId.get(link.target)] : [];
+      const why = rel === 'above' ? 'Not offered: it ranks above this rule already, or is in a higher tier' : 'Not offered: this rule ranks above it already, or it is in a lower tier';
+      const extras = !rule.rankAll || link?.target === ALL ? [{ id: ALL, label: 'All other rules' }] : [];
+      const chosen = await pickRule(ctx.state.root, ruleEntries(ctx, rule, rules, [...current, ...eligible], why),
+        { heading: `This rule ${RELATIONS[rel]}…`, current: link?.target ?? '', extras });
+      if (chosen && chosen !== link?.target) change(link, { rel, target: chosen });
+    };
+    const targetText = !link ? 'Choose a rule…' : link.target === ALL ? 'all other rules' : ruleLabel(byId.get(link.target));
+    const target = h('button', { class: `rank-target rule-button${link ? '' : ' unset'}`, type: 'button', 'aria-label': 'Rule it ranks against', onclick: pick },
+      h('span', { class: link?.target === ALL ? 'rank-all-icon' : 'rule-icon', 'aria-hidden': 'true' }), targetText);
     const relation = h('select', { class: 'rank-relation', 'aria-label': 'Ranks above or below', onchange: (e) => {
       rel = e.target.value;
-      if (link) return change(link, { rel, target: link.target });
-      target.replaceChildren(h('option', { value: '', text: 'Choose a rule…' }), ...targets().map(([value, text]) => h('option', { value, text })));
+      if (link) change(link, { rel, target: link.target });
     } }, Object.entries(RELATIONS).map(([value, text]) => h('option', { value, text, selected: value === rel })));
     const el = h('div', { class: 'rank-row' }, relation, target,
       h('button', { class: 'small', text: '×', title: 'Remove', 'aria-label': 'Remove ranking', onclick: () => (link ? (remove(link), redraw()) : el.remove()) }));
@@ -164,12 +182,13 @@ function rankingEditor(rule, rules, redraw) {
     h('button', { class: 'small', text: '+ Ranking', onclick: () => list.append(row(null)) }));
 }
 
-// A menu of rules to merge into this one; the chosen rule's conditions join this rule's and the chosen rule is removed.
-function mergeMenu(rule, rules, redraw) {
+// A button that picks a rule to merge into this one; the chosen rule's conditions join this rule's and it is removed.
+function mergeButton(ctx, rule, rules, redraw) {
   const others = mergeCandidates(rule, rules);
-  const menu = h('select', { class: 'merge-menu', 'aria-label': 'Merge another rule into this one', title: 'Merge another rule into this one', disabled: !others.length, onchange: async (e) => {
-    const other = others.find((r) => r.id === e.target.value);
-    e.target.value = '';
+  return h('button', { class: 'small', type: 'button', text: 'Merge…', title: 'Merge another rule into this one', disabled: !others.length, onclick: async () => {
+    const why = rule.catchAll ? 'Catch-alls only merge with other catch-alls' : 'Catch-alls only merge with other catch-alls, not with rules that have conditions';
+    const id = await pickRule(ctx.state.root, ruleEntries(ctx, rule, rules, others, why), { heading: `Merge into “${rule.name || 'Unnamed rule'}”`, confirm: 'Merge this rule' });
+    const other = others.find((r) => r.id === id);
     if (!other) return;
     const name = (r) => `“${r.name || 'Unnamed rule'}”`;
     const elsewhere = other.target !== rule.target ? ` Bookmarks it matches will go to ${rule.target ? rule.target.split('/').join(' › ') : 'this rule’s folder'} instead.` : '';
@@ -177,8 +196,7 @@ function mergeMenu(rule, rules, redraw) {
     rules.splice(0, rules.length, ...mergeRules(rules, rule.id, other.id));
     expanded.add(rule.id);
     redraw();
-  } }, h('option', { value: '', text: 'Merge…' }), others.map((r) => h('option', { value: r.id, text: ruleLabel(r) })));
-  return menu;
+  } });
 }
 
 // One labelled row of a rule's editor; the labels share a column, so every row's controls start at the same place.
@@ -206,7 +224,7 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
       setTimeout(redraw);
     })),
     field('Destination folder', targetPicker(ctx, rule, redraw)),
-    rankingEditor(rule, rules, redraw),
+    rankingEditor(ctx, rule, rules, redraw),
     field('', parts.info)).childNodes);
   if (isOpen) fillBody();
 
@@ -246,7 +264,7 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
           name?.focus();
           name?.select();
         } }),
-        mergeMenu(rule, rules, redraw),
+        mergeButton(ctx, rule, rules, redraw),
         h('button', { class: 'small danger', text: 'Delete', onclick: () => {
           expanded.delete(rule.id);
           rules.splice(rules.indexOf(rule), 1);

@@ -175,6 +175,73 @@ export function tagInput({ values, onchange, placeholder = 'Type and press Enter
   return box;
 }
 
+// Asks for a rule in a dialog that shows the folder tree with each folder's rules under it; resolves to the chosen
+// id, or null when cancelled. `entries` are { id, label, folder, disabled, reason }, where `folder` is the rule's
+// destination as a "Root/Sub/Folder" path; `extras` are choices listed above the tree, such as "all other rules".
+export function pickRule(root, entries, { heading = 'Choose a rule', current = '', extras = [], confirm = 'Use this rule' } = {}) {
+  return new Promise((resolve) => {
+    let chosen = current;
+    const ok = h('button', { value: 'ok', class: 'primary', text: confirm });
+    const tree = h('ul', { class: 'folder-tree rule-tree-picker', role: 'tree' });
+    const search = h('input', { type: 'search', placeholder: 'Search rules and folders', 'aria-label': 'Search rules and folders' });
+    const update = () => {
+      ok.disabled = !chosen;
+      for (const b of tree.querySelectorAll('.rule-choice')) b.classList.toggle('selected', b.dataset.id === chosen);
+    };
+    const choice = (e) => h('li', {}, h('button', {
+      class: 'rule-choice folder-name', type: 'button', role: 'treeitem', 'data-id': e.id, disabled: !!e.disabled, title: e.reason ?? e.label,
+      onclick: () => { chosen = e.id; update(); },
+      ondblclick: () => { chosen = e.id; update(); dialog.close('ok'); },
+    }, h('span', { class: e.extra ? 'rank-all-icon' : 'rule-icon', 'aria-hidden': 'true' }), e.label));
+
+    const drawTree = () => {
+      const q = search.value.trim().toLowerCase();
+      const shown = entries.filter((e) => !q || e.label.toLowerCase().includes(q) || e.folder.toLowerCase().includes(q));
+      const byFolder = new Map();
+      for (const e of shown) byFolder.set(e.folder, [...(byFolder.get(e.folder) ?? []), e]);
+      const placed = new Set();
+      // A folder is listed when it or a folder inside it has a rule; its rules come before its subfolders.
+      const folderItem = (node, segments) => {
+        const path = segments.join('/');
+        const own = byFolder.get(path) ?? [];
+        if (own.length) placed.add(path);
+        const kids = (node.children ?? []).filter((c) => !c.url && c.children).map((c) => folderItem(c, [...segments, c.title ?? ''])).filter(Boolean);
+        if (!own.length && !kids.length) return null;
+        return h('li', {}, h('details', { open: true },
+          h('summary', {}, h('span', { class: 'folder-label' }, h('span', { class: 'folder-icon', 'aria-hidden': 'true' }), node.title || '(no name)')),
+          h('ul', { role: 'group' }, own.map(choice), kids)));
+      };
+      const folders = root.children.map((c) => folderItem(c, [c.title ?? ''])).filter(Boolean);
+      const elsewhere = shown.filter((e) => !placed.has(e.folder));
+      tree.replaceChildren(
+        ...extras.filter((e) => !q || e.label.toLowerCase().includes(q)).map((e) => choice({ ...e, extra: true })),
+        ...folders,
+        elsewhere.length > 0 && h('li', {}, h('details', { open: true },
+          h('summary', {}, h('span', { class: 'folder-label muted', text: 'Folders that do not exist yet' })),
+          h('ul', { role: 'group' }, elsewhere.map(choice)))),
+      );
+      if (!tree.childElementCount) tree.append(h('li', { class: 'muted', text: 'No matching rules.' }));
+      update();
+    };
+    search.addEventListener('input', drawTree);
+
+    const dialog = h('dialog', { class: 'folder-picker' },
+      h('h2', { text: heading }),
+      search,
+      tree,
+      h('form', { method: 'dialog', class: 'row end' }, h('button', { value: 'cancel', text: 'Cancel' }), ok));
+    dialog.addEventListener('close', () => {
+      resolve(dialog.returnValue === 'ok' ? chosen : null);
+      dialog.remove();
+    });
+    drawTree();
+    document.body.append(dialog);
+    dialog.showModal();
+    search.focus();
+    tree.querySelector('.selected')?.scrollIntoView?.({ block: 'center' });
+  });
+}
+
 // Joins a folder's path into the "Root/Sub/Folder" form rules store; null when a name contains "/" and cannot be written that way.
 function folderPath(segments) {
   return segments.some((s) => s.includes('/')) ? null : segments.join('/');
