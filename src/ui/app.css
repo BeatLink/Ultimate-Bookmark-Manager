@@ -222,3 +222,15 @@ dialog.folder-picker::backdrop { background: rgb(0 0 0 / .35); }
 .cond-group.nested { border-left: 3px solid var(--accent); background: var(--bg); border-radius: 0 var(--radius) var(--radius) 0; padding: .4em .6em; }
 .cond-group .group-remove { margin-left: auto; }
 .group-item { list-style: none; }
+
+.notice { background: var(--surface); border: 1px solid var(--warn); border-left-width: 4px; border-radius: var(--radius); padding: .6em 1em; margin-bottom: 1em; }
+.notice ol { margin: .3em 0; }
+.confidence { font-weight: 600; }
+.confidence.high { color: var(--ok); }
+.confidence.medium { color: var(--accent); }
+.confidence.low { color: var(--warn); }
+.new-folder-name { font: inherit; font-weight: 600; padding: .1em .4em; width: 12em; }
+.ai .check-line { align-items: flex-start; }
+.ai .check-line input { margin-top: .25em; }
+.ai fieldset { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); margin: 0 0 1em; padding: .75em 1em 1em; }
+.ai legend { font-weight: 600; padding: 0 .3em; }

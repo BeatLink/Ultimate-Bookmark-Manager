@@ -14,6 +14,7 @@ const VIEWS = {
   broken: 'Broken links',
   redirects: 'Redirects',
   organize: 'Organize',
+  ai: 'AI organizer',
   all: 'All bookmarks',
   history: 'Undo history & backup',
   settings: 'Settings',
@@ -26,6 +27,11 @@ async function openDashboard(view = 'duplicates') {
 }
 
 browser.action.onClicked.addListener(() => openDashboard());
+
+// The AI organizer restarts the add-on to switch models; reopen it so the run can carry on.
+browser.storage.local.get('aiResume').then(({ aiResume }) => {
+  if (aiResume && Date.now() - aiResume < 60 * 1000) browser.tabs.create({ url: browser.runtime.getURL('src/ui/app.html#ai') });
+});
 
 browser.commands.onCommand.addListener((command) => {
   if (command === 'open-dashboard') openDashboard();
