@@ -122,9 +122,8 @@ function ranksAbovePicker(rule, rules, redraw) {
   h('option', { value: '', text: offered.length ? '+ Add a rule it ranks above…' : 'No other rules to add' }),
   offered.map((r) => h('option', { value: r.id, text: ruleLabel(r) })));
   menu.disabled = !offered.length;
-  return h('div', { class: 'ranks-above' },
-    h('div', { class: 'row wrap' }, h('span', { text: 'Ranks above' }), helpLink('When this rule and one listed here both match, this rule wins; unrelated rules are ranked by specificity', 'organize'),
-      h('span', { class: 'row wrap source-list' }, listed.length
+  return field([h('span', { text: 'Ranks above ' }), helpLink('When this rule and one listed here both match, this rule wins; unrelated rules are ranked by specificity', 'organize')],
+    h('span', { class: 'row wrap source-list' }, listed.length
         ? listed.map((id) => h('span', { class: 'tag' },
           h('span', { class: 'tag-text', text: ruleLabel(byId.get(id)) }),
           h('button', { class: 'tag-remove', text: '×', 'aria-label': `Stop ranking above “${byId.get(id).name || 'Unnamed rule'}”`, onclick: () => {
@@ -132,8 +131,13 @@ function ranksAbovePicker(rule, rules, redraw) {
             redraw();
           } })))
         : [h('span', { class: 'muted', text: 'No rules' })]),
-      menu),
-    above.length > 0 && h('p', { class: 'small', text: `Ranked below: ${above.map((r) => `“${r.name || 'Unnamed rule'}”`).join(', ')}` }));
+    menu,
+    above.length > 0 && h('p', { class: 'small full', text: `Ranked below: ${above.map((r) => `“${r.name || 'Unnamed rule'}”`).join(', ')}` }));
+}
+
+// One labelled row of a rule's editor; the labels share a column, so every row's controls start at the same place.
+function field(label, ...controls) {
+  return h('div', { class: 'field-row' }, h('span', { class: 'field-label' }, label), h('div', { class: 'field-value' }, ...controls));
 }
 
 // A rule as a one-line summary row that expands into its editor; `parts` receives the bits refreshed while editing.
@@ -144,14 +148,13 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
   // The editor is only built the first time the rule is opened.
   // Built with h() rather than append(), which would print a skipped part as the text "undefined".
   const fillBody = () => body.append(...h('div', {},
-    h('label', { class: 'check-line' },
-      h('input', { type: 'checkbox', checked: rule.enabled !== false, 'aria-label': 'Rule enabled', onchange: (e) => { rule.enabled = e.target.checked; redraw(); } }),
-      'Enabled'),
-    rule.catchAll && h('p', { class: 'muted small' }, 'Catch-all ', helpLink('Files whatever no other rule matches where its folder conditions hold; any matching rule beats it unless this one ranks above it', 'organize')),
-    h('div', { class: 'row rule-row' }, h('span', { class: 'row-label', text: 'Rule' }), queryEditor(ctx, rule, changed)),
-    h('div', { class: 'row wrap target' }, 'Destination folder', targetPicker(ctx, rule, redraw)),
+    h('label', { class: 'field-row' }, h('span', { class: 'field-label', text: 'Enabled' }), h('span', { class: 'field-value' },
+      h('input', { type: 'checkbox', checked: rule.enabled !== false, 'aria-label': 'Rule enabled', onchange: (e) => { rule.enabled = e.target.checked; redraw(); } }))),
+    rule.catchAll && field('', h('p', { class: 'muted small' }, 'Catch-all ', helpLink('Files whatever no other rule matches where its folder conditions hold; any matching rule beats it unless this one ranks above it', 'organize'))),
+    field('Rule', queryEditor(ctx, rule, changed)),
+    field('Destination folder', targetPicker(ctx, rule, redraw)),
     ranksAbovePicker(rule, rules, redraw),
-    parts.info).childNodes);
+    field('', parts.info)).childNodes);
   if (isOpen) fillBody();
 
   // The chevron alone opens and closes the rule, so the name beside it can be edited in place.

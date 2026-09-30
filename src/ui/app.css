@@ -211,13 +211,23 @@ dialog.folder-picker::backdrop { background: rgb(0 0 0 / .35); }
 .rule-badge.error { background: var(--danger); color: var(--bg); }
 .rule-actions { flex: none; display: flex; gap: .3em; }
 .source-list .tag-text { padding: .05em .2em .05em .6em; font-size: .9em; }
-.rule-body { display: flex; flex-direction: column; gap: .5em; align-items: flex-start; padding: .5em 0 0 3.2em; width: 100%; }
-.rule-body > .row, .rule-body > .query-box, .rule-body > .target { width: 100%; }
+/* Labels in the first column, sized to the longest, and each row's controls in the second. */
+.rule-body { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .5em .75em; align-items: start; padding: .5em 0 0 3.2em; width: 100%; box-sizing: border-box; }
+.field-row { display: contents; }
+.field-label { grid-column: 1; min-height: 2rem; display: flex; align-items: center; }
+.field-value { grid-column: 2; min-width: 0; min-height: 2rem; display: flex; flex-wrap: wrap; align-items: center; gap: .4em; }
+.field-value > .query-box { flex: 1; }
+/* The Rule label lines up with the editor's first row, inside its border and padding. */
+.field-row:has(.query-box) > .field-label { margin-top: calc(.4rem + 1px); }
+.field-value > .full { flex-basis: 100%; margin: 0; }
 @media (max-width: 720px) {
   .rule-head { flex-wrap: wrap; }
   .rule-toggle { flex-basis: calc(100% - 4em); }
   .rule-actions { margin-left: auto; }
-  .rule-body { padding-left: 0; }
+  .rule-body { padding-left: 0; grid-template-columns: minmax(0, 1fr); }
+  .field-label, .field-value { grid-column: 1; }
+  .field-label { min-height: 0; }
+  .field-label:empty { display: none; }
 }
 
 .query-box, .query-editor { width: 100%; }
@@ -230,9 +240,6 @@ dialog.folder-picker::backdrop { background: rgb(0 0 0 / .35); }
   --rqb-border-radius: var(--radius);
 }
 .query-editor .ruleGroup .ruleGroup { --rqb-background-color: var(--surface); }
-.rule-row { width: 100%; align-items: flex-start; }
-.rule-row .row-label { padding-top: .5em; }
-.rule-row .query-box { flex: 1; min-width: 0; }
 .query-editor .ruleGroup-header .ruleGroup-remove, .query-editor .rule .rule-remove { margin-left: auto; }
 /* Fixed widths line the columns up from one condition to the next. */
 .query-editor .rule-fields { width: 9.5em; flex: none; }
@@ -329,7 +336,6 @@ mark { background: var(--mark-bg); color: var(--text); border-radius: 2px; paddi
 .ranking-pick { border: 1px solid transparent; background: none; padding: .1em .4em; border-radius: var(--radius); text-align: left; font: inherit; color: inherit; margin-left: -.4em; }
 .ranking-pick:hover { background: var(--hover); }
 .ranking-pick[aria-pressed="true"] { border-color: var(--accent); background: var(--hover); }
-.ranks-above { display: flex; flex-direction: column; gap: .3em; width: 100%; }
 .ranks-above select { max-width: 24em; }
 
 /* Help links and the Help page */
