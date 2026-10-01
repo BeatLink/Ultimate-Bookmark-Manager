@@ -47,7 +47,7 @@ browser.commands.onCommand.addListener((command) => {
 
 browser.runtime.onInstalled.addListener(() => {
   browser.menus.removeAll();
-  browser.menus.create({ id: 'root', title: 'Bookmark Manager', contexts: ['tools_menu'] });
+  browser.menus.create({ id: 'root', title: 'Ultimate Bookmark Manager', contexts: ['tools_menu'] });
   for (const [id, title] of Object.entries(VIEWS)) {
     browser.menus.create({ id: `view:${id}`, parentId: 'root', title, contexts: ['tools_menu'] });
   }
@@ -57,7 +57,7 @@ browser.menus.onClicked.addListener((info) => {
   if (String(info.menuItemId).startsWith('view:')) openDashboard(info.menuItemId.slice(5));
 });
 
-browser.omnibox.setDefaultSuggestion({ description: 'Bookmark Manager — type a view: duplicates, broken, redirects, empty-folders, untitled…' });
+browser.omnibox.setDefaultSuggestion({ description: 'Ultimate Bookmark Manager — type a view: duplicates, broken, redirects, empty-folders, untitled…' });
 
 browser.omnibox.onInputChanged.addListener((text, suggest) => {
   const q = text.trim().toLowerCase();

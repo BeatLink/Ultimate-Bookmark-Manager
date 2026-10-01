@@ -23,7 +23,7 @@ export function parseImport(text) {
   } catch {
     throw new Error('The file is not valid JSON.');
   }
-  if (data?.format !== FORMAT) throw new Error('This is not a Bookmark Manager settings file.');
+  if (data?.format !== FORMAT) throw new Error('This is not an Ultimate Bookmark Manager settings file.');
   if (data.version > 1) throw new Error('This file comes from a newer version of the add-on.');
   if (typeof data.settings !== 'object' || data.settings === null) throw new Error('The file has no settings in it.');
   const whitelist = readWhitelist(data.whitelist);

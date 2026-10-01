@@ -81,7 +81,7 @@ function syncAndBackup(ctx) {
     status,
     h('div', { class: 'row wrap' },
       h('button', { text: 'Export settings…', title: 'Saves settings, organize rules and ignored items to a file; undo history stays on this device', onclick: async () => {
-        download(await buildExport(), `bookmark-manager-settings-${new Date().toISOString().slice(0, 10)}.json`);
+        download(await buildExport(), `ultimate-bookmark-manager-settings-${new Date().toISOString().slice(0, 10)}.json`);
         toast('Settings exported.', 'success');
       } }),
       h('button', { text: 'Import settings…', onclick: () => file.click() }),

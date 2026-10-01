@@ -1,4 +1,4 @@
-# Bookmark Manager
+# Ultimate Bookmark Manager
 
 A Firefox add-on for finding and cleaning up problem bookmarks. Every change it makes is recorded first, so it can be undone.
 
@@ -27,9 +27,9 @@ A Firefox add-on for finding and cleaning up problem bookmarks. Every change it 
 ## Opening it
 
 - The toolbar button opens the dashboard in a tab.
-- It also works in the sidebar: View › Sidebar › Bookmark Manager.
+- It also works in the sidebar: View › Sidebar › Ultimate Bookmark Manager.
 - <kbd>Shift</kbd>+<kbd>F11</kbd> opens the dashboard. The sidebar toggle has no default key; set one in `about:addons` › ⚙ › Manage Extension Shortcuts.
-- Tools › Bookmark Manager › *view*.
+- Tools › Ultimate Bookmark Manager › *view*.
 - In the URL bar, type `bm` then a space and a view name, e.g. `bm broken`.
 
 ## Permissions

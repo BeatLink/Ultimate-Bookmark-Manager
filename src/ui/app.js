@@ -127,7 +127,7 @@ function render() {
   main.replaceChildren(current.render(ctx));
   window.scrollTo(0, sameView ? scroll : 0);
   renderNav();
-  document.title = `${current.label} — Bookmark Manager`;
+  document.title = `${current.label} — Ultimate Bookmark Manager`;
 }
 
 // "#organize" shows a page; "#help:organize" shows the Help page at that page's section.

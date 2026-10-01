@@ -1,5 +1,5 @@
 {
-  "name": "bookmark-manager",
+  "name": "ultimate-bookmark-manager",
   "version": "0.1.0",
   "private": true,
   "description": "Firefox add-on for finding and cleaning up duplicate, broken, redirected, unnamed and empty bookmarks.",

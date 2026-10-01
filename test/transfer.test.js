@@ -21,7 +21,7 @@ test('an export imports back, replacing settings and adding ignored items', asyn
 
 test('other files are rejected with a readable reason', () => {
   assert.throws(() => parseImport('nope'), /not valid JSON/);
-  assert.throws(() => parseImport('{"format":"something-else"}'), /not a Bookmark Manager settings file/);
+  assert.throws(() => parseImport('{"format":"something-else"}'), /not an Ultimate Bookmark Manager settings file/);
   assert.throws(() => parseImport('{"format":"bookmark-manager-settings","version":9,"settings":{}}'), /newer version/);
 });
 

@@ -363,7 +363,7 @@ export default {
         else if (where === 'current') await browser.tabs.update({ url: urls[0] });
         else for (const [i, url] of urls.entries()) await browser.tabs.create({ url, active: i === 0 && urls.length === 1, ...(cookieStoreId ? { cookieStoreId } : {}) });
       } catch (err) {
-        const why = where === 'private' ? 'Firefox may need this add-on allowed in private windows (Add-ons › Bookmark Manager › Run in Private Windows).' : 'Firefox does not let add-ons open some addresses, such as about: pages, file: and javascript: links.';
+        const why = where === 'private' ? 'Firefox may need this add-on allowed in private windows (Add-ons › Ultimate Bookmark Manager › Run in Private Windows).' : 'Firefox does not let add-ons open some addresses, such as about: pages, file: and javascript: links.';
         toast(`Could not open: ${err.message ?? err}. ${why}`, 'error');
       }
     };

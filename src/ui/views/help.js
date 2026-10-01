@@ -87,9 +87,9 @@ const SECTIONS = [
   ] },
   { id: 'shortcuts', title: 'Opening the add-on', body: () => [
     list(
-      ['The toolbar button opens this page in a tab, and View › Sidebar › Bookmark Manager opens it in the sidebar.'],
+      ['The toolbar button opens this page in a tab, and View › Sidebar › Ultimate Bookmark Manager opens it in the sidebar.'],
       [h('kbd', { text: 'Shift' }), '+', h('kbd', { text: 'F11' }), ' opens it; the sidebar shortcut can be set in about:addons › ⚙ › Manage Extension Shortcuts.'],
-      ['Tools › Bookmark Manager opens any page.'],
+      ['Tools › Ultimate Bookmark Manager opens any page.'],
       ['In the address bar, type ', code('bm'), ', a space and a page name, for example ', code('bm broken'), '.'],
       ['The ', b('⟳'), ' button reloads bookmarks and settings; pages also refresh on their own when bookmarks change elsewhere.']),
   ] },

@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "Bookmark Manager",
+  "name": "Ultimate Bookmark Manager",
   "version": "0.1.0",
   "description": "Find and clean up duplicate, broken, redirected, unnamed and empty bookmarks — with undo.",
   "browser_specific_settings": {
     "gecko": {
-      "id": "bookmark-manager@beatlink",
+      "id": "ultimate-bookmark-manager@beatlink",
       "strict_min_version": "140.0",
       "data_collection_permissions": { "required": ["none"] }
     }
@@ -15,9 +15,9 @@
   "optional_permissions": ["tabs", "history"],
   "optional_host_permissions": ["<all_urls>"],
   "background": { "scripts": ["src/background.js"], "type": "module" },
-  "action": { "default_title": "Bookmark Manager", "default_icon": "icons/icon.svg" },
+  "action": { "default_title": "Ultimate Bookmark Manager", "default_icon": "icons/icon.svg" },
   "sidebar_action": {
-    "default_title": "Bookmark Manager",
+    "default_title": "Ultimate Bookmark Manager",
     "default_panel": "src/ui/app.html?sidebar=1",
     "default_icon": "icons/icon.svg",
     "open_at_install": false
@@ -26,10 +26,10 @@
   "commands": {
     "open-dashboard": {
       "suggested_key": { "default": "Shift+F11" },
-      "description": "Open the Bookmark Manager dashboard"
+      "description": "Open the Ultimate Bookmark Manager dashboard"
     },
     "_execute_sidebar_action": {
-      "description": "Toggle the Bookmark Manager sidebar"
+      "description": "Toggle the Ultimate Bookmark Manager sidebar"
     }
   },
   "omnibox": { "keyword": "bm" }
