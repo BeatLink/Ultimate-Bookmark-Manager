@@ -247,9 +247,9 @@ export function pickRule(root, entries, { heading = 'Choose a rule', current = '
       tree.replaceChildren(
         ...extras.filter((e) => !q || e.label.toLowerCase().includes(q)).map((e) => choice({ ...e, extra: true })),
         ...folders,
-        elsewhere.length > 0 && h('li', {}, h('details', { open: true },
+        ...(elsewhere.length ? [h('li', {}, h('details', { open: true },
           h('summary', {}, h('span', { class: 'folder-label muted', text: 'Folders that do not exist yet' })),
-          h('ul', { role: 'group' }, elsewhere.map(choice)))),
+          h('ul', { role: 'group' }, elsewhere.map(choice))))] : []),
       );
       if (!tree.childElementCount) tree.append(h('li', { class: 'muted', text: 'No matching rules.' }));
       update();
@@ -310,14 +310,14 @@ export function pickFolder(root, current = '', { heading = 'Choose a folder', ve
         ondblclick: () => { chosen = path; update(); dialog.close('ok'); },
       }, h('span', { class: 'folder-icon', 'aria-hidden': 'true' }), node.title || '(no name)');
       if (!subfolders.length) return h('li', {}, name);
-      const open = segments.length === 1 || (current && current.startsWith(`${path}/`));
+      const open = segments.length === 1 || Boolean(current?.startsWith(`${path}/`));
       return h('li', {}, h('details', { open },
         h('summary', {}, name),
         h('ul', { role: 'group' }, subfolders.map((c) => folderItem(c, [...segments, c.title ?? ''])))));
     };
     const drawTree = () => {
       const q = search.value.trim().toLowerCase();
-      if (!q) return tree.replaceChildren(...root.children.map((c) => folderItem(c, [c.title])));
+      if (!q) return tree.replaceChildren(...root.children.map((c) => folderItem(c, [c.title ?? ''])));
       // Searching shows matching folders as a flat list of full paths.
       const hits = [];
       const walk = (node, segments) => {

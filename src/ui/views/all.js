@@ -801,7 +801,8 @@ export default {
         if (hoverId !== n.id) {
           hoverId = n.id;
           clearTimeout(hoverTimer);
-          hoverTimer = setTimeout(() => setOpen(n.id, true), 800);
+          // A redraw during the hover replaces this list, and the new one starts its own timer.
+          hoverTimer = setTimeout(() => list.isConnected && setOpen(n.id, true), 800);
         }
       } else {
         hoverId = null;
@@ -901,8 +902,9 @@ export default {
       onkeydown: (e) => {
         if (e.key === 'ArrowDown' && rows.length) {
           e.preventDefault();
-          if (!view.focus || indexOf(view.focus) < 0) selectOnly(rows[0].node.id);
-          focusRow(view.focus ?? rows[0].node.id);
+          const id = indexOf(view.focus) < 0 ? rows[0].node.id : view.focus;
+          if (id !== view.focus) selectOnly(id);
+          focusRow(id);
         }
       },
     });

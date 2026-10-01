@@ -13,10 +13,12 @@ const job = { running: false, done: 0, total: 0, controller: null, failures: new
 
 function paint() {
   for (const bar of job.bars) {
-    if (!bar.isConnected) {
+    // A new bar is painted once before the view puts it on the page.
+    if (!bar.isConnected && bar.dataset.painted) {
       job.bars.delete(bar);
       continue;
     }
+    bar.dataset.painted = '1';
     bar.hidden = !job.running;
     bar.querySelector('progress').max = Math.max(1, job.total);
     bar.querySelector('progress').value = job.done;
