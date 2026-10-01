@@ -325,3 +325,37 @@ export function pickFolder(root, current = '', { heading = 'Choose a folder', ve
     tree.querySelector('.selected')?.scrollIntoView?.({ block: 'center' });
   });
 }
+
+// A ☰ button that opens a menu of actions just below it; each item is { label, title, danger, disabled, run }, and null draws a divider.
+export function actionMenu(items, label = 'Actions') {
+  const menu = h('div', { class: 'action-menu', popover: 'auto', role: 'menu' },
+    items.map((item) => (item
+      ? h('button', { type: 'button', role: 'menuitem', class: item.danger ? 'danger-text' : '', text: item.label, title: item.title, disabled: item.disabled,
+        onclick: () => {
+          menu.hidePopover();
+          item.run();
+        } })
+      : h('hr', { role: 'separator' }))));
+  const button = h('button', { type: 'button', class: 'small menu-button', text: '☰', title: label, 'aria-label': label, 'aria-haspopup': 'menu', 'aria-expanded': 'false',
+    onclick: () => menu.togglePopover() });
+  const entries = () => [...menu.querySelectorAll('button:not(:disabled)')];
+  menu.addEventListener('toggle', (e) => {
+    const open = e.newState === 'open';
+    button.setAttribute('aria-expanded', String(open));
+    if (!open) return;
+    // Opens below the button, right edges lined up, and stays inside the window.
+    const r = button.getBoundingClientRect();
+    const below = r.bottom + 4 + menu.offsetHeight <= window.innerHeight;
+    menu.style.top = `${below ? r.bottom + 4 : Math.max(8, r.top - 4 - menu.offsetHeight)}px`;
+    menu.style.left = `${Math.max(8, Math.min(r.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8))}px`;
+    entries()[0]?.focus();
+  });
+  menu.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const list = entries();
+    const at = list.indexOf(document.activeElement);
+    list[(at + (e.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length]?.focus();
+  });
+  return h('span', { class: 'menu-wrap' }, button, menu);
+}

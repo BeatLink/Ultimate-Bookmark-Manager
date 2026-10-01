@@ -1,7 +1,7 @@
 // Organize rules: edit rules that file bookmarks into folders, preview the moves, then apply them.
 
 import { h, Selection, toast, confirmDialog, promptDialog } from '../dom.js';
-import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, pickFolder, pickRule, marked, helpLink } from '../components.js';
+import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, pickFolder, pickRule, marked, helpLink, actionMenu } from '../components.js';
 import { mountQueryEditor } from '../query-editor.bundle.js';
 import { saveSettings } from '../../lib/settings.js';
 import { newRule, duplicateRule, moveToNewRule, mergeRules, mergeCandidates, moveRulePaths, planMoves, resolveTarget, maxScore, rankingWarnings } from '../../lib/organize.js';
@@ -28,20 +28,6 @@ export function plan(ctx, rules) {
   const result = planMoves(flat, rules, rootFolders(ctx), ctx.ignoredIds());
   lastPlan = { flat, whitelist, key, result };
   return result;
-}
-
-// A button showing the rule's target folder that opens the folder picker.
-function targetPicker(ctx, rule, changed) {
-  const label = () => rule.target ? rule.target.split('/').join(' › ') : 'Choose folder…';
-  const button = h('button', { class: `folder-button${rule.target ? '' : ' unset'}`, type: 'button', 'aria-label': 'Target folder', onclick: async () => {
-    const picked = await pickFolder(ctx.state.root, rule.target);
-    if (picked === null) return;
-    rule.target = picked;
-    button.replaceChildren(h('span', { class: 'folder-icon', 'aria-hidden': 'true' }), label());
-    button.classList.toggle('unset', !picked);
-    changed();
-  } }, h('span', { class: 'folder-icon', 'aria-hidden': 'true' }), label());
-  return button;
 }
 
 // Each open rule's query editor, taken down when the tree is redrawn.
@@ -185,10 +171,10 @@ function rankingEditor(ctx, rule, rules, redraw) {
     h('button', { class: 'small', text: '+ Ranking', onclick: () => list.append(row(null)) }));
 }
 
-// A button that picks a rule to merge into this one; the chosen rule's conditions join this rule's and it is removed.
-function mergeButton(ctx, rule, rules, redraw) {
+// A menu item that picks a rule to merge into this one; the chosen rule's conditions join this rule's and it is removed.
+function mergeAction(ctx, rule, rules, redraw) {
   const others = mergeCandidates(rule, rules);
-  return h('button', { class: 'small', type: 'button', text: 'Merge…', title: 'Merge another rule into this one', disabled: !others.length, onclick: async () => {
+  return { label: 'Merge…', title: 'Merge another rule into this one', disabled: !others.length, run: async () => {
     const id = await pickRule(ctx.state.root, ruleEntries(ctx, rule, rules, others, ''), { heading: `Merge into “${rule.name || 'Unnamed rule'}”`, confirm: 'Merge this rule' });
     const other = others.find((r) => r.id === id);
     if (!other) return;
@@ -198,7 +184,7 @@ function mergeButton(ctx, rule, rules, redraw) {
     rules.splice(0, rules.length, ...mergeRules(rules, rule.id, other.id));
     expanded.add(rule.id);
     redraw();
-  } });
+  } };
 }
 
 // One labelled row of a rule's editor; the labels share a column, so every row's controls start at the same place.
@@ -224,12 +210,11 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
       // Redrawn after the click is handled, as the redraw takes down the editor the click came from.
       setTimeout(redraw);
     })),
-    field('Destination folder', targetPicker(ctx, rule, redraw)),
     rankingEditor(ctx, rule, rules, redraw),
     field('', parts.info)).childNodes);
   if (isOpen) fillBody();
 
-  // The chevron alone opens and closes the rule, so the name beside it can be edited in place.
+  // The chevron and the name both open and close the rule.
   const toggle = h('button', {
     class: 'rule-toggle', type: 'button', 'aria-expanded': String(isOpen), 'aria-controls': bodyId,
     title: isOpen ? 'Collapse' : 'Edit this rule', 'aria-label': isOpen ? 'Collapse rule' : 'Edit rule',
@@ -244,35 +229,49 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
       card.classList.toggle('open', open);
     },
   }, h('span', { class: 'chevron', 'aria-hidden': 'true' }));
-  const name = h('input', { type: 'text', class: 'rule-name', value: rule.name, placeholder: 'Unnamed rule', 'aria-label': 'Rule name',
-    oninput: (e) => { rule.name = e.target.value; changed(); } });
+  const name = h('span', { class: `rule-name${rule.name ? '' : ' unnamed'}`, text: rule.name || 'Unnamed rule', onclick: () => toggle.click() });
+  const scrollTo = (id) => document.querySelector(`.organize [data-rule="${id}"]`)?.scrollIntoView?.({ block: 'nearest' });
+  const menu = actionMenu([
+    { label: 'Rename…', run: async () => {
+      const value = await promptDialog('Rule name', 'Rename', rule.name ?? '');
+      if (value === null || value === rule.name) return;
+      rule.name = value;
+      redraw();
+    } },
+    { label: 'Duplicate', title: 'Add an editable copy of this rule', run: () => {
+      const copy = duplicateRule(rule);
+      expanded.add(copy.id);
+      rules.splice(rules.indexOf(rule) + 1, 0, copy);
+      redraw();
+      scrollTo(copy.id);
+    } },
+    { label: 'Move…', title: `Choose the folder this rule files into${rule.target ? ` (now ${rule.target.split('/').join(' › ')})` : ''}`, run: async () => {
+      const picked = await pickFolder(ctx.state.root, rule.target, { heading: `Move “${rule.name || 'Unnamed rule'}”`, verb: 'Move rule here' });
+      if (!picked || picked === rule.target) return;
+      rule.target = picked;
+      folderOpen.set(picked, true);
+      redraw();
+      scrollTo(rule.id);
+    } },
+    mergeAction(ctx, rule, rules, redraw),
+    null,
+    { label: 'Delete', danger: true, run: () => {
+      expanded.delete(rule.id);
+      rules.splice(rules.indexOf(rule), 1);
+      // Other rules stop listing it.
+      for (const r of rules) if (r.outranks?.includes(rule.id)) r.outranks = r.outranks.filter((id) => id !== rule.id);
+      redraw();
+    } },
+  ], 'Rule actions');
 
   const card = h('li', { class: `rule-card${rule.enabled === false ? ' disabled' : ''}${isOpen ? ' open' : ''}`, 'data-rule': rule.id },
     h('div', { class: 'rule-head' },
+      parts.handle,
       toggle,
       name,
       parts.score,
       parts.badge,
-      h('div', { class: 'rule-actions' },
-        h('button', { class: 'small', text: 'Duplicate', title: 'Add an editable copy of this rule', onclick: (e) => {
-          const list = e.currentTarget.closest('.organize');
-          const copy = duplicateRule(rule);
-          expanded.add(copy.id);
-          rules.splice(rules.indexOf(rule) + 1, 0, copy);
-          redraw();
-          const name = list.querySelector(`[data-rule="${copy.id}"] .rule-name`);
-          name?.scrollIntoView?.({ block: 'nearest' });
-          name?.focus();
-          name?.select();
-        } }),
-        mergeButton(ctx, rule, rules, redraw),
-        h('button', { class: 'small danger', text: 'Delete', onclick: () => {
-          expanded.delete(rule.id);
-          rules.splice(rules.indexOf(rule), 1);
-          // Other rules stop listing it.
-          for (const r of rules) if (r.outranks?.includes(rule.id)) r.outranks = r.outranks.filter((id) => id !== rule.id);
-          redraw();
-        } }))),
+      menu),
     body);
   return card;
 }
@@ -333,6 +332,7 @@ export default {
     });
     const card = (r) => {
       const parts = newParts();
+      parts.handle = ruleHandle(r);
       cardParts.set(r.id, parts);
       return ruleCard(ctx, r, rules, redraw, changed, parts);
     };
@@ -345,7 +345,6 @@ export default {
       redraw();
       const el = treeBox.querySelector(`[data-rule="${rule.id}"]`);
       el?.scrollIntoView?.({ block: 'nearest' });
-      el?.querySelector('.folder-button')?.focus();
     };
 
     // Creates a subfolder straight away, as one undoable change, and opens its parent so it shows.
@@ -360,10 +359,35 @@ export default {
       });
     };
 
-    // The folder being dragged; any folder but the root folders can be moved into another.
+    // The folder or rule being dragged. Any folder but the root folders can be moved into another, and a rule onto any folder but its own.
     let dragging = null;
+    let draggingRule = null;
     const contains = (folder, id) => folder.id === id || folder.children.some((c) => contains(c, id));
-    const canDrop = (target) => dragging && dragging.id !== target.id && !contains(dragging, target.id) && !target.children.some((c) => c.id === dragging.id);
+    const canDrop = (target) => (draggingRule
+      ? folderKeyOf(draggingRule) !== target.key
+      : dragging && dragging.id !== target.id && !contains(dragging, target.id) && !target.children.some((c) => c.id === dragging.id));
+    const clearDrag = () => {
+      dragging = null;
+      draggingRule = null;
+      for (const el of treeBox.querySelectorAll('.drop-into')) el.classList.remove('drop-into');
+    };
+    // A rule dropped on a folder files into it from then on; like any rule edit, it is saved with the other changes.
+    const moveRule = (rule, target) => {
+      rule.target = target.key;
+      folderOpen.set(target.key, true);
+      redraw();
+      treeBox.querySelector(`[data-rule="${rule.id}"]`)?.scrollIntoView?.({ block: 'nearest' });
+    };
+    const ruleHandle = (r) => h('span', { class: 'rule-drag', draggable: 'true', role: 'img', 'aria-label': 'Drag handle', title: 'Drag onto a folder to file this rule there', text: '⠿',
+      ondragstart: (e) => {
+        e.stopPropagation();
+        draggingRule = r;
+        e.dataTransfer.setData('application/x-organize-rule', r.id);
+        e.dataTransfer.effectAllowed = 'move';
+        const card = e.currentTarget.closest('.rule-card');
+        if (card) e.dataTransfer.setDragImage(card, 12, 12);
+      },
+      ondragend: clearDrag });
     const moveFolder = (folder, target) => {
       if (target.children.some((c) => c.path.at(-1) === folder.path.at(-1))) return toast(`${target.title} already has a folder called “${folder.title}”.`, 'error');
       const from = folder.path;
@@ -386,10 +410,7 @@ export default {
         e.dataTransfer.setData('application/x-bookmark-folder', n.id);
         e.dataTransfer.effectAllowed = 'move';
       },
-      ondragend: () => {
-        dragging = null;
-        for (const el of treeBox.querySelectorAll('.drop-into')) el.classList.remove('drop-into');
-      },
+      ondragend: clearDrag,
       ondragover: (e) => {
         if (!canDrop(n)) return;
         e.preventDefault();
@@ -401,13 +422,16 @@ export default {
         if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('drop-into');
       },
       ondrop: (e) => {
-        if (!dragging) return;
+        if (!dragging && !draggingRule) return;
         e.preventDefault();
         e.stopPropagation();
-        e.currentTarget.classList.remove('drop-into');
-        const folder = canDrop(n) ? dragging : null;
-        dragging = null;
-        if (folder) moveFolder(folder, n);
+        const ok = canDrop(n);
+        const folder = dragging;
+        const rule = draggingRule;
+        clearDrag();
+        if (!ok) return;
+        if (rule) moveRule(rule, n);
+        else moveFolder(folder, n);
       },
     });
 
@@ -657,7 +681,10 @@ export default {
           'Only folders with rules'),
         h('button', { class: 'small', text: 'Expand all', onclick: () => setAll(true) }),
         h('button', { class: 'small', text: 'Collapse all', onclick: () => setAll(false) }),
-        h('button', { class: 'small', text: '+ Rule for a new folder', title: 'Add a rule whose folder you pick or create', onclick: () => addRule(newRule(), '') })),
+        h('button', { class: 'small', text: '+ Rule for a new folder', title: 'Add a rule whose folder you pick or create', onclick: async () => {
+          const key = await pickFolder(ctx.state.root, '', { heading: 'Folder for the new rule', verb: 'Add rule here' });
+          if (key) addRule(newRule(), key);
+        } })),
       treeBox,
       previewBox,
       unmatchedBox);

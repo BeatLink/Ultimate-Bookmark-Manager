@@ -212,6 +212,7 @@ dialog.folder-picker::backdrop { background: rgb(0 0 0 / .35); }
 .rule-card { padding: .4em .6em; gap: 0; }
 .rule-card.open { padding-bottom: .75em; }
 .rule-head { display: flex; align-items: center; gap: .5em; width: 100%; }
+.rule-drag { cursor: grab; color: var(--muted); user-select: none; padding: 0 .1em; }
 .rule-toggle { flex: none; display: grid; place-items: center; width: 1.8em; height: 1.8em; border: 0; background: none; padding: 0; border-radius: var(--radius); }
 .rule-toggle:hover { background: var(--hover); }
 .chevron::before { content: "▸"; display: inline-block; width: 1em; color: var(--muted); transition: transform .15s; }
@@ -378,10 +379,8 @@ mark { background: var(--mark-bg); color: var(--text); border-radius: 2px; paddi
 kbd { font-family: ui-monospace, monospace; font-size: .85em; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 .3em; }
 
 /* Rule name edited in place in the header; the keyword and its × read as one unit. */
-.rule-head .rule-name { flex: 1; min-width: 8em; font-weight: 600; border-color: transparent; background: transparent; padding: .25em .4em; }
-.rule-head .rule-name:hover { border-color: var(--border); }
-.rule-head .rule-name:focus { border-color: var(--accent); background: var(--surface); }
-.rule-head .rule-name::placeholder { color: var(--muted); font-weight: 500; }
+.rule-head .rule-name { flex: 1; min-width: 8em; font-weight: 600; padding: .25em .4em; cursor: pointer; overflow-wrap: anywhere; }
+.rule-head .rule-name.unnamed { color: var(--muted); font-weight: 500; }
 .keyword-with-remove { display: inline-flex; align-items: stretch; }
 .keyword-with-remove .keyword, .keyword-with-remove .folder-button { border-top-right-radius: 0; border-bottom-right-radius: 0; min-width: 0; flex: 1; }
 .keyword-with-remove .keyword-remove { border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 0 .55em; }
@@ -390,3 +389,11 @@ kbd { font-family: ui-monospace, monospace; font-size: .85em; border: 1px solid 
 .unmatched { margin-top: 1.5em; }
 .unmatched > summary { color: inherit; font-size: inherit; }
 .unmatched > summary h2 { display: inline; }
+.action-menu { position: fixed; inset: auto; margin: 0; padding: .3em; min-width: 11em; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); box-shadow: 0 6px 20px rgb(0 0 0 / .18); }
+.action-menu:popover-open { display: flex; flex-direction: column; }
+.action-menu button { border: none; background: none; text-align: left; padding: .4em .7em; border-radius: var(--radius); }
+.action-menu button:hover:not(:disabled), .action-menu button:focus-visible { background: var(--hover); }
+.action-menu .danger-text { color: var(--danger); }
+.action-menu hr { border: none; border-top: 1px solid var(--border); margin: .3em 0; width: 100%; }
+.menu-button { padding-inline: .5em; }
+.rule-head .menu-wrap { flex: none; }
