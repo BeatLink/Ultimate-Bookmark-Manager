@@ -471,8 +471,16 @@ export default {
       const inside = targets.map(get).filter(isFolder).reduce((sum, f) => sum + (f.children?.length ?? 0), 0);
       if (inside && !(await confirmDialog(`Remove ${targets.length} item(s), including the folder contents (${inside} item(s) directly inside)?`, 'Remove'))) return;
       // The focus moves to the row after the last removed one, as in the Library.
-      const after = rows.slice(Math.max(...targets.map(indexOf)) + 1).find((r) => !within(r.node.id, new Set(targets)));
-      const before = rows.slice(0, Math.min(...targets.map(indexOf))).reverse().find((r) => !within(r.node.id, new Set(targets)));
+      const chosen = new Set(targets);
+      let first = -1;
+      let last = -1;
+      rows.forEach((r, i) => {
+        if (!chosen.has(r.node.id)) return;
+        if (first < 0) first = i;
+        last = i;
+      });
+      const after = rows.slice(last + 1).find((r) => !within(r.node.id, chosen));
+      const before = rows.slice(0, first).reverse().find((r) => !within(r.node.id, chosen));
       const next = (after ?? before)?.node.id ?? null;
       view.active = true;
       await ctx.run(async () => {

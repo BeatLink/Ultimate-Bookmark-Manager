@@ -269,6 +269,8 @@ function patternFor(cond, value) {
     else if (cond.operator === '=') re = new RegExp(`^${v}$`, flags);
     else re = new RegExp(`${before}${v}${after}`, flags);
   }
+  // Every keystroke in a rule's keyword makes a new pattern, so the cache starts over once it grows large.
+  if (patterns.size > 5000) patterns.clear();
   patterns.set(key, re);
   return re;
 }

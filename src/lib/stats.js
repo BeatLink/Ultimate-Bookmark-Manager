@@ -39,7 +39,7 @@ export function addedByMonth(bookmarks, now = Date.now(), maxMonths = 36) {
   const counts = new Map();
   for (const b of dated) counts.set(monthKey(b.dateAdded), (counts.get(monthKey(b.dateAdded)) ?? 0) + 1);
   const end = new Date(now);
-  const first = new Date(Math.min(...dated.map((b) => b.dateAdded)));
+  const first = new Date(dated.reduce((min, b) => Math.min(min, b.dateAdded), Infinity));
   let y = first.getFullYear();
   let m = first.getMonth();
   const earliest = new Date(end.getFullYear(), end.getMonth() - (maxMonths - 1), 1);
@@ -81,7 +81,7 @@ export function treeStats(flat, now = Date.now()) {
       .map((f) => ({ name: [...f.path, f.title].join(' › '), count: direct.get(f.id) ?? 0 }))
       .filter((f) => f.count > 0)
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
-    deepest: Math.max(0, ...bookmarks.map((b) => b.path.length)),
+    deepest: bookmarks.reduce((max, b) => Math.max(max, b.path.length), 0),
     months: addedByMonth(bookmarks, now),
     oldest: byDate[0] ?? null,
     newest: byDate.at(-1) ?? null,

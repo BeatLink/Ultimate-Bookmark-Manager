@@ -1,7 +1,7 @@
 // Folders with no bookmarks anywhere inside them.
 
 import { h, confirmDialog } from '../dom.js';
-import { viewHeader, emptyState, bindCheckboxes, selectionBar, selectAllToggle, row } from '../components.js';
+import { viewHeader, emptyState, bindCheckboxes, selectionBar, selectAllToggle, row, pagedList, pickIds } from '../components.js';
 import { addToWhitelist } from '../../lib/settings.js';
 import { formatPath } from '../../lib/tree.js';
 import * as scans from '../scans.js';
@@ -18,7 +18,7 @@ export default {
     if (!folders.length) return h('section', {}, header, emptyState('No empty folders.'));
 
     const bar = selectionBar(sel, [
-      { label: 'Ignore', run: (ids) => ctx.run(() => addToWhitelist(folders.filter((f) => ids.includes(f.id)))) },
+      { label: 'Ignore', run: (ids) => ctx.run(() => addToWhitelist(pickIds(folders, ids))) },
       { label: 'Remove selected', danger: true, run: async (ids) => {
         if (!(await confirmDialog(`Remove ${ids.length} empty folder(s)?`, 'Remove'))) return;
         await ctx.run(async () => {
@@ -28,10 +28,11 @@ export default {
       } },
     ], [selectAllToggle(sel, folders.map((f) => f.id))]);
 
-    const list = h('ul', { class: 'items' }, folders.map((f) => row(sel, f.id, h('div', { class: 'bm' },
+    const list = h('ul', { class: 'items' });
+    const more = pagedList('empty-folders', list, folders, (f) => row(sel, f.id, h('div', { class: 'bm' },
       h('div', { class: 'bm-title' }, h('span', { class: 'folder-icon', 'aria-hidden': 'true' }), h('span', { text: f.title || '(no name)' })),
-      h('div', { class: 'bm-meta muted' }, h('span', { text: formatPath(f.path) }), f.subfolders ? h('span', { text: `${f.subfolders} empty subfolder(s)` }) : null)))));
+      h('div', { class: 'bm-meta muted' }, h('span', { text: formatPath(f.path) }), f.subfolders ? h('span', { text: `${f.subfolders} empty subfolder(s)` }) : null))));
     bindCheckboxes(list, sel);
-    return h('section', {}, header, bar, list);
+    return h('section', {}, header, bar, list, more);
   },
 };

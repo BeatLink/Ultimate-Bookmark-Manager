@@ -50,6 +50,37 @@ export function selectionBar(sel, actions, leading = []) {
   return h('div', { class: 'selection-bar' }, h('div', { class: 'row wrap' }, leading), h('div', { class: 'row wrap end' }, count, buttons));
 }
 
+// How many rows each long list shows at first and adds with each "Show more".
+export const PAGE = 200;
+// How far each list has been opened, so a refresh does not fold it back up.
+const shownBy = new Map();
+
+// Fills `container` with the first rows of `items` made by `make`, and returns a button that adds the next page.
+export function pagedList(key, container, items, make) {
+  let shown = Math.min(items.length, Math.max(PAGE, shownBy.get(key) ?? 0));
+  container.append(...items.slice(0, shown).map(make));
+  const more = h('button', { class: 'small show-more', type: 'button' });
+  const update = () => {
+    more.hidden = shown >= items.length;
+    more.textContent = `Show ${Math.min(PAGE, items.length - shown)} more (${items.length - shown} not shown)`;
+  };
+  more.addEventListener('click', () => {
+    const next = items.slice(shown, shown + PAGE);
+    shown += next.length;
+    shownBy.set(key, shown);
+    container.append(...next.map(make));
+    update();
+  });
+  update();
+  return more;
+}
+
+// The items whose id is among `ids`, looked up in a set so large selections stay quick.
+export function pickIds(items, ids) {
+  const wanted = new Set(ids);
+  return items.filter((item) => wanted.has(item.id));
+}
+
 export function selectAllToggle(sel, ids, label = 'Select all') {
   return h('button', {
     class: 'small',

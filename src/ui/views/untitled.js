@@ -1,7 +1,7 @@
 // Bookmarks whose name is blank or just their URL, which can be renamed from the title their page shows.
 
 import { h, confirmDialog, toast } from '../dom.js';
-import { viewHeader, emptyState, bindCheckboxes, selectionBar, selectAllToggle, bookmarkInfo, row } from '../components.js';
+import { viewHeader, emptyState, bindCheckboxes, selectionBar, selectAllToggle, bookmarkInfo, row, pagedList, pickIds } from '../components.js';
 import { addToWhitelist } from '../../lib/settings.js';
 import { loadTitles } from '../../lib/page-titles.js';
 import * as scans from '../scans.js';
@@ -99,8 +99,8 @@ export default {
     paint();
 
     const bar = selectionBar(sel, [
-      { label: 'Fetch page titles', primary: true, title: 'Name each selected bookmark after its page title, using titles the link check already found and reading the other pages', run: (ids) => fetchTitles(ctx, items.filter((b) => ids.includes(b.id))) },
-      { label: 'Ignore', run: (ids) => ctx.run(() => addToWhitelist(items.filter((b) => ids.includes(b.id)))) },
+      { label: 'Fetch page titles', primary: true, title: 'Name each selected bookmark after its page title, using titles the link check already found and reading the other pages', run: (ids) => fetchTitles(ctx, pickIds(items, ids)) },
+      { label: 'Ignore', run: (ids) => ctx.run(() => addToWhitelist(pickIds(items, ids))) },
       { label: 'Remove selected', danger: true, run: async (ids) => {
         if (!(await confirmDialog(`Remove ${ids.length} bookmark(s)?`, 'Remove'))) return;
         await ctx.run(async () => {
@@ -110,14 +110,15 @@ export default {
       } },
     ], [selectAllToggle(sel, items.map((b) => b.id))]);
 
-    const list = h('ul', { class: 'items' }, items.map((b) => row(sel, b.id, bookmarkInfo(b, ctx, {
+    const list = h('ul', { class: 'items' });
+    const more = pagedList('untitled', list, items, (b) => row(sel, b.id, bookmarkInfo(b, ctx, {
       meta: [
         h('span', { class: 'reason', text: REASONS[b.reason] }),
         job.failures.has(b.id) && h('span', { class: 'status', text: `No title: ${job.failures.get(b.id)}` }),
         foundTitle(ctx, b) && h('span', { class: 'found-title', text: `Page title: ${foundTitle(ctx, b)}` }),
       ],
-    }))));
+    })));
     bindCheckboxes(list, sel);
-    return h('section', {}, header, bar, progress, list);
+    return h('section', {}, header, bar, progress, list, more);
   },
 };

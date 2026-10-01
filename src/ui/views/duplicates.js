@@ -1,7 +1,7 @@
 // Duplicate bookmarks grouped by URL, with bulk selection helpers and remove or move-to-folder actions.
 
 import { h, confirmDialog } from '../dom.js';
-import { viewHeader, emptyState, bindCheckboxes, selectionBar, bookmarkInfo, row } from '../components.js';
+import { viewHeader, emptyState, bindCheckboxes, selectionBar, bookmarkInfo, row, pagedList, pickIds } from '../components.js';
 import { addToWhitelist } from '../../lib/settings.js';
 import * as scans from '../scans.js';
 
@@ -31,10 +31,11 @@ export default {
         ctx.done(`Moved ${ids.length} bookmark(s) to “${folder}”.`);
       }) },
       { label: 'Ignore', title: 'Add to the whitelist so they are skipped by every check', run: (ids) => ctx.run(async () => {
-        await addToWhitelist(all.filter((b) => ids.includes(b.id)));
+        await addToWhitelist(pickIds(all, ids));
       }) },
       { label: 'Remove selected', danger: true, run: async (ids) => {
-        const wholeGroups = groups.filter((g) => g.items.every((i) => ids.includes(i.id))).length;
+        const chosen = new Set(ids);
+        const wholeGroups = groups.filter((g) => g.items.every((i) => chosen.has(i.id))).length;
         const warn = wholeGroups ? ` ${wholeGroups} group(s) would lose every copy.` : '';
         if (!(await confirmDialog(`Remove ${ids.length} bookmark(s)?${warn} You can undo this from the history.`, 'Remove'))) return;
         await ctx.run(async () => {
@@ -48,12 +49,12 @@ export default {
       h('button', { class: 'small', text: 'Clear', onclick: () => sel.clear() }),
     ]);
 
-    const list = h('div', { class: 'groups' }, groups.map((g) => h('section', { class: 'group' },
+    const list = h('div', { class: 'groups' });
+    const more = pagedList('duplicates', list, groups, (g) => h('section', { class: 'group' },
       h('h2', { class: 'group-title', text: g.key, title: 'Comparison key' }),
       h('ul', { class: 'items' }, g.items.map((b) => row(sel, b.id,
-        h('div', { class: 'row top grow' }, h('span', { class: 'order', text: b.order, title: `Added ${b.order === 1 ? 'first' : `#${b.order}`}` }), bookmarkInfo(b, ctx)))))),
-    ));
+        h('div', { class: 'row top grow' }, h('span', { class: 'order', text: b.order, title: `Added ${b.order === 1 ? 'first' : `#${b.order}`}` }), bookmarkInfo(b, ctx)))))));
     bindCheckboxes(list, sel);
-    return h('section', {}, header, bar, list);
+    return h('section', {}, header, bar, list, more);
   },
 };
