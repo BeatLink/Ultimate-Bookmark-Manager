@@ -250,7 +250,10 @@ dialog.folder-picker::backdrop { background: rgb(0 0 0 / .35); }
   --rqb-background-color: var(--bg);
   --rqb-border-radius: var(--radius);
 }
-.query-editor .ruleGroup .ruleGroup { --rqb-background-color: var(--surface); }
+/* Nested groups are drawn as branches of a tree, like the folders, rather than as boxes inside the box. */
+.query-editor .ruleGroup .ruleGroup { --rqb-border-width: 0px; background: none; padding: 0; }
+.query-editor.queryBuilder-branches .ruleGroup .ruleGroup::before { height: calc(1rem + var(--rqb-spacing)); }
+.query-editor.queryBuilder-branches .ruleGroup .ruleGroup::after { top: 1rem; height: calc(100% - 1rem); }
 .query-editor .ruleGroup-header .ruleGroup-remove, .query-editor .rule .rule-remove { margin-left: auto; }
 .query-editor .queryBuilder-dragHandle { cursor: grab; color: var(--muted); user-select: none; padding: 0 .1em; }
 .query-editor .ruleGroup-header .ruleGroup-cloneGroup { margin-left: auto; }
