@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { itemAt, withIds, moveItem, groupItems, insertItem, addItem, removeItem, canDropOnCondition, canDropOnGroup, dropPath } from '../src/lib/query-tree.js';
+import { newEditorGroup, itemAt, withIds, moveItem, groupItems, insertItem, addItem, removeItem, canDropOnCondition, canDropOnGroup, dropPath } from '../src/lib/query-tree.js';
 
 const c = (id) => ({ id, field: 'title', operator: 'contains', value: id });
 const g = (id, ...rules) => ({ id, combinator: 'or', not: false, rules });
@@ -93,4 +93,14 @@ test('missing ids are filled in and existing ones kept', () => {
   assert.ok(q.id);
   assert.equal(q.rules[0].id, 'keep');
   assert.ok(q.rules[1].id && q.rules[1].rules[0].id);
+});
+
+test('a new editor group holds one empty keyword condition and every id is unique', () => {
+  const a = newEditorGroup();
+  const b = newEditorGroup();
+  assert.equal(a.combinator, 'and');
+  assert.equal(a.not, false);
+  assert.equal(a.rules.length, 1);
+  assert.equal(a.rules[0].value, '');
+  assert.equal(new Set([a.id, b.id, a.rules[0].id, b.rules[0].id]).size, 4);
 });

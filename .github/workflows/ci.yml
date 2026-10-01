@@ -16,8 +16,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - name: Unit tests
-        run: npm test
       - name: Mozilla lint
         run: npm run lint
       - name: Package

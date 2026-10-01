@@ -190,3 +190,14 @@ test('our own backup format restores too, and other files are refused', async ()
   assert.throws(() => parseBackup('nope'), /not a JSON/);
   assert.throws(() => parseBackup('{"a":1}'), /not a bookmarks backup/);
 });
+
+test('a list without a folder heading, nested or after the first, becomes an untitled folder', () => {
+  const nested = '<DL><p><DT><A HREF="https://a.test/">A</A><DL><p><DT><A HREF="https://b.test/">B</A></DL></DL>';
+  const after = '<DL><p><DT><A HREF="https://a.test/">A</A></DL><DL><DT><A HREF="https://b.test/">B</A></DL>';
+  const expected = [
+    { type: 'bookmark', title: 'A', url: 'https://a.test/' },
+    { type: 'folder', title: '', children: [{ type: 'bookmark', title: 'B', url: 'https://b.test/' }] },
+  ];
+  assert.deepEqual(parseBookmarkHtml(nested), expected);
+  assert.deepEqual(parseBookmarkHtml(after), expected);
+});

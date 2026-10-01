@@ -45,3 +45,8 @@ test('tree stats count, rank and find extremes', () => {
   assert.equal(s.oldest.id, 'b2');
   assert.equal(s.newest.id, 'b3');
 });
+
+test('an address that is not a URL has an invalid protocol', () => {
+  assert.equal(protocolOf('not a url'), 'invalid');
+  assert.equal(protocolOf('ftp://a.test/'), 'ftp');
+});

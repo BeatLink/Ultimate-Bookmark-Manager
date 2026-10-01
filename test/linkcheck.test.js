@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkUrl, checkAll, isSkipped, isCheckable, isLoginRedirect } from '../src/lib/linkcheck.js';
+import { checkUrl, checkAll, isSkipped, isCheckable, isLoginRedirect, hasRiskyWord, credentialsFor, categorize } from '../src/lib/linkcheck.js';
 
 const response = (status, { url, redirected = false } = {}) => ({ status, statusText: '', url, redirected, body: null });
 
@@ -129,4 +129,57 @@ test('links are checked without cookies unless asked, and never for account-chan
   for (const url of ['https://example.com/account/delete?id=1', 'https://example.com/email/confirm/abc', 'https://example.com/share?token=xyz', 'https://example.com/password-reset']) {
     assert.equal(credentialsFor(url, { cookies: true }), 'omit', url);
   }
+});
+
+test('text that is not a URL is never skipped, risky or a login redirect', () => {
+  assert.equal(isSkipped('not a url', ['example.com']), false);
+  assert.equal(hasRiskyWord('not a url', ['logout']), false);
+  assert.equal(credentialsFor('not a url', { cookies: true }), 'include');
+  assert.equal(isLoginRedirect('not a url', 'https://accounts.google.com/'), false);
+  assert.equal(isLoginRedirect('https://a.test/', 'nowhere'), false);
+});
+
+test('blank risky words never match', () => {
+  assert.equal(hasRiskyWord('https://a.test/logout', ['  ', '']), false);
+  assert.equal(hasRiskyWord('https://a.test/Account/LOGOUT', [' logout ']), true);
+});
+
+test('each error status falls into its category and success has none', () => {
+  assert.deepEqual([404, 410, 401, 403, 429, 503, 418, 200, 301].map(categorize), ['notFound', 'notFound', 'denied', 'denied', 'rateLimited', 'serverError', 'clientError', null, null]);
+});
+
+test('a redirect to something that is not a URL is still reported as a redirect', async () => {
+  const fetchImpl = async () => response(200, { url: 'elsewhere', redirected: true });
+  const r = await checkUrl('https://a.test/', { fetchImpl });
+  assert.deepEqual([r.status, r.finalUrl], ['redirect', 'elsewhere']);
+});
+
+test('a redirect back to the same address, written differently, counts as no redirect', async () => {
+  const fetchImpl = async () => response(200, { url: 'HTTPS://A.TEST/', redirected: true });
+  const r = await checkUrl('https://a.test', { fetchImpl });
+  assert.equal(r.status, 'ok');
+});
+
+test('a check that throws is reported as unreachable and the rest still run', async () => {
+  const fetchImpl = async (url) => response(200, { url });
+  const seen = [];
+  const results = await checkAll([
+    { id: '1', url: 'https://a.test/', title: 'A', path: ['M'] },
+    { id: '2', url: 'https://b.test/', title: 'B', path: ['M'] },
+  ], { fetchImpl, concurrency: 0, cookies: true, noCookieWords: null, onProgress: (done, total) => seen.push([done, total]) });
+  assert.deepEqual(results.map((r) => [r.id, r.status, r.category, r.title]), [['1', 'broken', 'unreachable', 'A'], ['2', 'broken', 'unreachable', 'B']]);
+  assert.match(results[0].detail, /TypeError/);
+  assert.deepEqual(seen, [[1, 2], [2, 2]]);
+});
+
+test('cancelling a run part-way stops it and keeps the results already in', async () => {
+  const ctrl = new AbortController();
+  const fetchImpl = (url) => {
+    if (url === 'https://a.test/') return Promise.resolve(response(200, { url }));
+    ctrl.abort();
+    return Promise.reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+  };
+  const bookmarks = ['a', 'b', 'c'].map((h) => ({ id: h, url: `https://${h}.test/`, title: h, path: [] }));
+  const results = await checkAll(bookmarks, { fetchImpl, concurrency: 1, signal: ctrl.signal });
+  assert.deepEqual(results.map((r) => r.id), ['a']);
 });

@@ -1,6 +1,9 @@
 # Ultimate Bookmark Manager
 
-[![CI](https://github.com/BeatLink/Ultimate-Bookmark-Manager/actions/workflows/ci.yml/badge.svg)](https://github.com/BeatLink/Ultimate-Bookmark-Manager/actions/workflows/ci.yml)
+[![Build](https://img.shields.io/github/actions/workflow/status/BeatLink/Ultimate-Bookmark-Manager/ci.yml?branch=main&label=build&logo=githubactions&logoColor=white)](https://github.com/BeatLink/Ultimate-Bookmark-Manager/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/github/actions/workflow/status/BeatLink/Ultimate-Bookmark-Manager/tests.yml?branch=main&label=tests&logo=nodedotjs&logoColor=white)](https://github.com/BeatLink/Ultimate-Bookmark-Manager/actions/workflows/tests.yml)
+[![Coverage](https://img.shields.io/codecov/c/github/BeatLink/Ultimate-Bookmark-Manager?logo=codecov&logoColor=white)](https://codecov.io/gh/BeatLink/Ultimate-Bookmark-Manager)
+[![Mozilla publishing](https://img.shields.io/github/actions/workflow/status/BeatLink/Ultimate-Bookmark-Manager/release.yml?label=AMO%20publish&logo=firefoxbrowser&logoColor=white)](https://github.com/BeatLink/Ultimate-Bookmark-Manager/actions/workflows/release.yml)
 
 A Firefox add-on for finding and cleaning up problem bookmarks. Every change it makes is recorded first, so it can be undone.
 
@@ -53,10 +56,12 @@ Two features contact websites, and only when you start them:
 
 ## Development
 
-The add-on is plain JavaScript with no dependencies and no build step, and needs Firefox 140 or newer. The files in the repository are the files that ship. `web-ext-config.mjs` lists the files left out of the package.
+The add-on is plain JavaScript with no runtime dependencies and no build step, and needs Firefox 140 or newer. The files in the repository are the files that ship. `web-ext-config.mjs` lists the files left out of the package.
 
 ```sh
+npm install              # test-only tools: happy-dom gives the UI tests a page to render into
 npm test                 # unit tests (node:test)
+npm run coverage         # the same tests with a coverage table; coverage/lcov.info is what CI sends to Codecov
 npm run lint
 npm start                # launches Firefox with the add-on loaded
 npm run build            # packages the add-on into web-ext-artifacts/

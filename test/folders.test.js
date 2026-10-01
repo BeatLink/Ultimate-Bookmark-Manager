@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findEmptyFolders, findSameNameFolders, findUntitled, ignoredIdSet } from '../src/lib/folders.js';
+import { findEmptyFolders, findSameNameFolders, findUntitled, ignoredIdSet, unhelpfulName } from '../src/lib/folders.js';
 import { flatten } from '../src/lib/tree.js';
 
 const tree = {
@@ -37,4 +37,9 @@ test('a folder ignored with its contents hides everything inside it, while a pla
   assert.deepEqual([...ignored].sort(), ['e1', 'e2', 'f1', 's']);
   assert.deepEqual(findEmptyFolders(tree, ignored), []);
   assert.deepEqual(findUntitled(flatten(tree), ignoredIdSet(tree, { f1: { title: 'News', inside: true } })), []);
+});
+
+test('a name with a stray percent sign is compared as written', () => {
+  assert.equal(unhelpfulName('100% sure', 'https://a.test/'), null);
+  assert.equal(unhelpfulName('a.test/%zz', 'https://a.test/%zz'), 'url');
 });

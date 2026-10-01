@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ruleMatches, resolveTarget, moveRulePaths, planMoves, validateRules, duplicateRule, describeRule, ruleApplies, migrateRule } from '../src/lib/organize.js';
+import { ruleMatches, resolveTarget, moveRulePaths, planMoves, validateRules, duplicateRule, describeRule, ruleApplies, migrateRule, maxScore } from '../src/lib/organize.js';
+import { POINTS, URL_TIER } from '../src/lib/specificity.js';
 
 const roots = [
   { id: 'menu________', title: 'Bookmarks Menu' },
@@ -557,4 +558,23 @@ test('moving a folder points destinations and folder conditions inside it at the
   assert.equal(out[0].query.rules[2].value, 'Dev', 'keywords are left alone');
   assert.equal(out[1], other, 'a folder that only starts with the same letters is not inside it');
   assert.equal(moveRulePaths(rules, ['Bookmarks Toolbar', 'X'], ['Other Bookmarks', 'X'], roots), rules, 'untouched rules come back as the same list');
+});
+
+test('a domain condition never matches a bookmark whose address is not a URL', () => {
+  const r = rule('d', [cond('domain', 'example.com')], 'X');
+  assert.ok(!ruleMatches(r, bm('1', 'example.com', 'not a url')));
+  assert.ok(ruleMatches(r, bm('2', 'x', 'https://www.example.com/')));
+});
+
+test('the most a rule can score counts every condition in its best part, and nothing for folders, exclusions or negated groups', () => {
+  const words = rule('w', [cond('contains', 'rust')], 'X');
+  assert.equal(maxScore(words), POINTS.keyword);
+  const site = rule('s', [cond('domain', 'blog.example.com'), cond('contains', 'rust')], 'X', { match: 'all' });
+  assert.equal(maxScore(site), POINTS.subdomain * URL_TIER + POINTS.keyword);
+  const scoped = rule('f', [cond('contains', 'rust'), cond('notContains', 'go')], 'X', { match: 'all', sources: ['Bookmarks Menu'] });
+  assert.equal(maxScore(scoped), POINTS.keyword);
+  const negated = rule('n', [cond('contains', 'rust')], 'X', { match: 'none' });
+  assert.equal(maxScore(negated), 0);
+  const blank = rule('b', [cond('contains', '')], 'X');
+  assert.equal(maxScore(blank), 0);
 });

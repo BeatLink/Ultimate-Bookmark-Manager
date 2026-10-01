@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Actions } from '../src/lib/actions.js';
+import { Actions, exportTree } from '../src/lib/actions.js';
 import { fakeBookmarks, fakeStorage } from './fake-browser.js';
 
 const spec = () => [
@@ -130,4 +130,61 @@ test('loading the history saves it once old entries have been forgotten', async 
   const entries = await new Actions({ storage, days: 30 }).list();
   assert.deepEqual(entries, []);
   assert.deepEqual(stored.history, { entries: [], idMap: {}, redo: [] });
+});
+
+test('renaming a folder points the organize rules at its new name, and undo puts both back', async () => {
+  const bookmarks = fakeBookmarks(spec());
+  const storage = fakeStorage();
+  const query = { id: 'q', combinator: 'or', not: false, rules: [{ id: 'c', field: 'either', operator: 'contains', value: 'x' }] };
+  await storage.set({ settings: { organize: { rules: [{ id: 'r', name: 'r', target: 'Menu/Folder/Sub', query }] } } });
+  const actions = new Actions({ bookmarks, storage });
+  await actions.edit('f', { title: 'Renamed' }, { from: ['Menu', 'Folder'], to: ['Menu', 'Renamed'] });
+  assert.equal((await bookmarks.get('f'))[0].title, 'Renamed');
+  assert.equal(storage.data.settings.organize.rules[0].target, 'Menu/Renamed/Sub');
+  assert.equal((await actions.list())[0].label, 'Edited “Renamed”');
+  await actions.undoLatest();
+  assert.equal((await bookmarks.get('f'))[0].title, 'Folder');
+  assert.equal(storage.data.settings.organize.rules[0].target, 'Menu/Folder/Sub');
+});
+
+test('an edit without a folder rename leaves the organize rules alone and is labelled by its URL when untitled', async () => {
+  const bookmarks = fakeBookmarks(spec());
+  const storage = fakeStorage();
+  const actions = new Actions({ bookmarks, storage });
+  await actions.edit('a', { url: 'https://new.test/' });
+  await actions.edit('g', { title: 'Folder' }, { from: ['Menu', 'Folder'], to: ['Menu', 'Folder'] });
+  assert.equal((await bookmarks.get('a'))[0].url, 'https://new.test/');
+  assert.deepEqual((await actions.list()).map((e) => [e.label, e.ops.map((o) => o.kind)]), [['Edited “Folder”', ['update']], ['Edited “https://new.test/”', ['update']]]);
+  assert.equal(storage.data.settings, undefined);
+});
+
+test('removing a folder together with something inside it removes the folder once and undo restores it', async () => {
+  const bookmarks = fakeBookmarks(spec());
+  const actions = new Actions({ bookmarks, storage: fakeStorage() });
+  const before = await shape(bookmarks);
+  await actions.remove(['f', 'b']);
+  const [entry] = await actions.list();
+  assert.deepEqual(entry.ops.map((o) => [o.kind, o.snapshot.id]), [['remove', 'f']]);
+  await actions.undoLatest();
+  assert.deepEqual(await shape(bookmarks), before);
+});
+
+test('clearing the history forgets every undo and redo step', async () => {
+  const storage = fakeStorage();
+  const actions = new Actions({ bookmarks: fakeBookmarks(spec()), storage });
+  await actions.remove(['a']);
+  await actions.remove(['c']);
+  await actions.undoLatest();
+  await actions.clearHistory();
+  assert.deepEqual(storage.data.history, { entries: [], idMap: {}, redo: [] });
+  assert.equal(await actions.nextRedo(), null);
+});
+
+test('a backup export holds the whole tree with its format, version and time', async () => {
+  const bookmarks = fakeBookmarks(spec());
+  const backup = await exportTree(bookmarks);
+  assert.equal(backup.format, 'bookmark-manager-backup');
+  assert.equal(backup.version, 1);
+  assert.ok(!Number.isNaN(Date.parse(backup.exported)));
+  assert.deepEqual(backup.tree, (await bookmarks.getTree())[0]);
 });
