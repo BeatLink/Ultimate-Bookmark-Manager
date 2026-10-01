@@ -17,10 +17,12 @@ test('names and folder paths are shown in words', () => {
   assert.equal(folderLabel('Other Bookmarks/Dev/Rust'), 'Other Bookmarks › Dev › Rust');
 });
 
-test('new conditions match inside words until whole words is ticked, and new groups default to "any"', () => {
+test('new conditions match inside words until whole words is ticked, and a new group holds one empty condition', () => {
   assert.equal(newCondition().wholeWords, false);
-  assert.equal(newGroup().combinator, 'or');
-  assert.equal(newGroup([], 'and').combinator, 'and');
+  const a = newGroup();
+  const b = newGroup(undefined, 'and');
+  assert.deepEqual([a.combinator, b.combinator, a.not, a.rules.length, a.rules[0].value], ['or', 'and', false, 1, '']);
+  assert.equal(new Set([a.id, b.id, a.rules[0].id, b.rules[0].id]).size, 4, 'every id is unique');
 });
 
 test('a duplicated rule is an independent copy with its own id', () => {

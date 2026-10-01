@@ -84,6 +84,7 @@ const SECTIONS = [
     p('Each check contacts only the bookmarked page’s own site; nothing is sent to the add-on’s author or anyone else.'),
     h('h3', { text: 'Ignored items' }),
     p('Ignored bookmarks and folders are skipped by every check. Stop ignoring one to bring it back.'),
+    p(b('Ignore a folder…'), ' here, or ', b('Ignore folder and everything inside'), ' in the right-click menu of All bookmarks, also skips every bookmark and folder inside it, including ones added later, in every check and in Organize.'),
   ] },
   { id: 'shortcuts', title: 'Opening the add-on', body: () => [
     list(

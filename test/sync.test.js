@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { splitChunks, push, pull, reconcile, enableSync, hasConflictingRemote, guarded } from '../src/lib/sync.js';
+import { splitChunks, push, pull, reconcile, enableSync, disableSync, isSyncEnabled, hasConflictingRemote, guarded } from '../src/lib/sync.js';
 import { fakeStorage } from './fake-browser.js';
 
 const itemBytes = (k, v) => new TextEncoder().encode(k + JSON.stringify(v)).length;
@@ -84,4 +84,15 @@ test('failures are recorded for the settings page', async () => {
   await a.set({ settings: {} });
   assert.equal(await guarded(a, () => push(a, broken)), 'error');
   assert.equal(a.data.syncState.error, 'Quota exceeded');
+});
+
+test('turning sync off stops startup syncing and clears the last sync state', async () => {
+  const local = fakeStorage();
+  const sync = fakeStorage();
+  await enableSync(local, sync, { preferRemote: false });
+  assert.equal(await isSyncEnabled(local), true);
+  await disableSync(local);
+  assert.equal(await isSyncEnabled(local), false);
+  assert.deepEqual(local.data.syncState, {});
+  assert.equal(await reconcile(local, sync), 'disabled');
 });

@@ -20,6 +20,23 @@ export class LinkChecker {
     return this.job.running;
   }
 
+  get done() {
+    return this.job.done;
+  }
+
+  get total() {
+    return this.job.total;
+  }
+
+  // A progress bar that follows the running check.
+  progress() {
+    return this.job.bar();
+  }
+
+  cancel() {
+    this.job.cancel();
+  }
+
   // Must be called straight from a click handler: Firefox only shows the permission prompt for a user action.
   start(ids = null) {
     if (this.running) return;
@@ -70,5 +87,5 @@ export function checkControls(ctx, title, description) {
     viewHeader(title, description,
       h('button', { class: 'primary', text: saved ? 'Check again' : 'Check all links', disabled: checker.running, onclick: () => checker.start() })),
     h('p', { class: 'muted', text: summary }),
-    checker.job.bar());
+    checker.progress());
 }

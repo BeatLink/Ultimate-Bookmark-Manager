@@ -39,3 +39,16 @@ test('cancelling stops reading further pages', async () => {
   const results = await loadTitles(items(pages), { fetchImpl: fakeFetch(pages), concurrency: 1, timeout: 200, signal: ctrl.signal, onProgress: (n) => n === 2 && ctrl.abort() });
   assert.equal(results.size, 2);
 });
+
+test('a page whose check throws is reported as not loaded, or as cancelled once the run is stopped', async () => {
+  const broken = await loadTitles([{ id: 'x', url: 'https://x.test/' }], { fetchImpl: fakeFetch({ 'https://x.test/': { html: '<title>X</title>' } }), cookies: true, noCookieWords: null });
+  assert.deepEqual(broken.get('x'), { error: 'Could not load the page' });
+  const ctrl = new AbortController();
+  const fetchImpl = async () => {
+    ctrl.abort();
+    throw new Error('stopped');
+  };
+  const items = [{ id: 'a', url: 'https://a.test/' }, { id: 'b', url: 'https://b.test/' }];
+  const cancelled = await loadTitles(items, { fetchImpl, signal: ctrl.signal, concurrency: 1 });
+  assert.deepEqual([...cancelled], [['a', { error: 'Cancelled' }]]);
+});

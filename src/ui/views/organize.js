@@ -495,10 +495,11 @@ export default {
       };
 
       const visible = tree.filter(shown);
+      const orphanBox = orphans.length > 0 && h('section', { class: 'orphan-rules' },
+        h('h2', {}, 'Rules for folders that do not exist yet ', helpLink('A missing folder is created when its rule first moves something into it; rules still choosing a folder are here too', 'organize')),
+        h('ul', { class: 'folder-children' }, orphans.map(card)));
       treeBox.replaceChildren(
-        orphans.length > 0 && h('section', { class: 'orphan-rules' },
-          h('h2', {}, 'Rules for folders that do not exist yet ', helpLink('A missing folder is created when its rule first moves something into it; rules still choosing a folder are here too', 'organize')),
-          h('ul', { class: 'folder-children' }, orphans.map(card))),
+        ...(orphanBox ? [orphanBox] : []),
         visible.length ? h('ul', { class: 'folder-tree-list' }, visible.map(node)) : emptyState('No folders match.'));
     };
 

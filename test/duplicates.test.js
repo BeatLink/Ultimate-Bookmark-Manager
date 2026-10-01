@@ -51,3 +51,8 @@ test('invalid rules are reported, not thrown', () => {
   const { errors } = findDuplicates([], { rules: [{ kind: 'filter', pattern: '(' }] });
   assert.equal(errors.length, 1);
 });
+
+test('text that is not a URL is compared as written, folding case only when asked', () => {
+  assert.equal(normalizeUrl('Not A URL'), 'Not A URL');
+  assert.equal(normalizeUrl('Not A URL', { ...DEFAULT_MATCHING, ignoreCase: true }), 'not a url');
+});

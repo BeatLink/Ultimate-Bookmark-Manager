@@ -18,6 +18,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          cache: npm
+      - run: npm ci
       - name: Tag matches the manifest version
         run: |
           version=$(node -p "require('./manifest.json').version")

@@ -74,7 +74,7 @@ export default {
     const bar = selectionBar(sel, [
       { label: 'Fetch page titles', primary: true, title: 'Name each selected bookmark after its page title, using titles the link check already found and reading the other pages', run: (ids) => fetchTitles(ctx, pickIds(items, ids)) },
       ignoreAction(ctx, items),
-      removeAction(ctx, { label: (n) => `Removed ${n} bookmark(s) without a useful name` }),
+      removeAction(ctx, { ask: (ids) => `Remove ${ids.length} bookmark(s)?`, label: (ids) => `Removed ${ids.length} bookmark(s) without a useful name`, done: (ids) => `Removed ${ids.length} bookmark(s).` }),
     ], [selectAllToggle(sel, items.map((b) => b.id))]);
 
     const list = h('ul', { class: 'items' });

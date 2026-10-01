@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findEmptyFolders, findSameNameFolders, findUntitled, unhelpfulName } from '../src/lib/folders.js';
+import { findEmptyFolders, findSameNameFolders, findUntitled, ignoredIdSet, unhelpfulName } from '../src/lib/folders.js';
 import { flatten } from '../src/lib/tree.js';
 
 const tree = {
@@ -50,4 +50,16 @@ test('findUntitled tags each bookmark with the reason', () => {
   ];
   assert.deepEqual(findUntitled(flat).map((b) => [b.id, b.reason]), [['1', 'blank'], ['2', 'url']]);
   assert.deepEqual(findUntitled(flatten(tree)).map((b) => b.id), ['b1']);
+});
+
+test('a folder ignored with its contents hides everything inside it, while a plain ignored folder hides only itself', () => {
+  const ignored = ignoredIdSet(tree, { e1: { title: 'Empty', inside: true }, f1: { title: 'News' } });
+  assert.deepEqual([...ignored].sort(), ['e1', 'e2', 'f1', 's']);
+  assert.deepEqual(findEmptyFolders(tree, ignored), []);
+  assert.deepEqual(findUntitled(flatten(tree), ignoredIdSet(tree, { f1: { title: 'News', inside: true } })), []);
+});
+
+test('a name with a stray percent sign is compared as written', () => {
+  assert.equal(unhelpfulName('100% sure', 'https://a.test/'), null);
+  assert.equal(unhelpfulName('a.test/%zz', 'https://a.test/%zz'), 'url');
 });

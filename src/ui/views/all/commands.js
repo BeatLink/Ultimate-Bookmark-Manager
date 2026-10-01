@@ -5,6 +5,7 @@ import { ROOT_IDS, OTHER, nodeType, isFolder, isBookmark, pathTo } from '../../.
 import { snapshot } from '../../../lib/actions.js';
 import { isValidUrl, urlsInText, bookmarkableTabs } from '../../../lib/links.js';
 import { nextAfterRemoval } from '../../../lib/library.js';
+import { addToWhitelist, removeFromWhitelist } from '../../../lib/settings.js';
 import { askPermission } from '../../permissions.js';
 import { view, setSearch, searching } from './state.js';
 
@@ -140,6 +141,16 @@ export function commandsOf(lib) {
       ctx.done(`Sorted “${f.title}” by name.`);
     });
   };
+  // Ignores a folder with everything inside it in every check, or stops ignoring it.
+  const toggleIgnoredFolder = (folder) => ctx.run(async () => {
+    if (ctx.state.whitelist[folder.id]?.inside) {
+      await removeFromWhitelist([folder.id]);
+      toast(`Checks include “${folder.title || '(no name)'}” again.`, 'success');
+    } else {
+      await addToWhitelist([{ id: folder.id, title: folder.title, inside: true }]);
+      toast(`Every check now skips “${folder.title || '(no name)'}” and everything inside it.`, 'success');
+    }
+  });
   const undo = () => {
     view.active = true;
     ctx.undo();
@@ -204,7 +215,7 @@ export function commandsOf(lib) {
   return {
     open, openInContainer, urlsOf, folderUrls, activate,
     create, newBookmark, newFolder, newSeparator, bookmarkTabs,
-    properties, saveEdit, remove, sortByName, undo, redo,
+    properties, saveEdit, remove, sortByName, toggleIgnoredFolder, undo, redo,
     moveTo, copyTo, toClipboard, paste, pasteText, showInFolder,
   };
 }

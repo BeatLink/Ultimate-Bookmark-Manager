@@ -2,7 +2,7 @@
 
 import { readSettings, readWhitelist } from './settings.js';
 
-const FORMAT = 'bookmark-manager-settings';
+export const FORMAT = 'bookmark-manager-settings';
 
 export async function buildExport(storage = browser.storage.local) {
   const { settings, whitelist } = await storage.get(['settings', 'whitelist']);

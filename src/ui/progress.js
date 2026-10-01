@@ -56,14 +56,14 @@ export class ProgressJob {
 
   paint() {
     for (const bar of this.#bars) {
-      // A bar is only forgotten once it has been on the page and left it, so a freshly built one survives until it is shown.
-      if (!bar.isConnected && bar.dataset.shown) this.#bars.delete(bar);
+      // A bar is painted once when built, before the view puts it on the page; one that is off the page after that has left it.
+      if (!bar.isConnected && bar.dataset.painted) this.#bars.delete(bar);
       else this.#paintBar(bar);
     }
   }
 
   #paintBar(bar) {
-    if (bar.isConnected) bar.dataset.shown = '1';
+    bar.dataset.painted = '1';
     bar.hidden = !this.running;
     bar.querySelector('progress').max = Math.max(1, this.total);
     bar.querySelector('progress').value = this.done;

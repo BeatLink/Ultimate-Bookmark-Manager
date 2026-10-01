@@ -57,13 +57,13 @@ export function ignoreAction(ctx, items) {
   return { label: 'Ignore', title: 'Skip these in every check', run: (ids) => ctx.run(() => addToWhitelist(pickIds(items, ids))) };
 }
 
-// The "Remove selected" action of a selection bar; `noun` names what is removed and `label` the history entry.
-export function removeAction(ctx, { noun = 'bookmark(s)', label = (n) => `Removed ${n} ${noun}`, warn = () => '' } = {}) {
+// The "Remove selected" action of a selection bar: `ask` is the question, `label` the history entry and `done` the toast, each from the ids.
+export function removeAction(ctx, { ask, label, done }) {
   return { label: 'Remove selected', danger: true, run: async (ids) => {
-    if (!(await confirmDialog(`Remove ${ids.length} ${noun}?${warn(ids)} You can undo this from the history.`, 'Remove'))) return;
+    if (!(await confirmDialog(ask(ids), 'Remove'))) return;
     await ctx.run(async () => {
-      await ctx.actions.remove(ids, label(ids.length));
-      ctx.done(`Removed ${ids.length} ${noun}.`);
+      await ctx.actions.remove(ids, label(ids));
+      ctx.done(done(ids));
     });
   } };
 }
@@ -212,12 +212,13 @@ export function pickRule(root, entries, { heading = 'Choose a rule', current = '
     };
     const folders = root.children.map((c) => folderItem(c, [c.title ?? ''])).filter(Boolean);
     const elsewhere = shown.filter((e) => !placed.has(e.folder));
+    const missing = elsewhere.length > 0 && h('li', {}, h('details', { open: true },
+      h('summary', {}, h('span', { class: 'folder-label muted', text: 'Folders that do not exist yet' })),
+      h('ul', { role: 'group' }, elsewhere.map(choice))));
     tree.replaceChildren(
       ...extras.filter((e) => !q || e.label.toLowerCase().includes(q)).map((e) => choice({ ...e, extra: true })),
       ...folders,
-      elsewhere.length > 0 && h('li', {}, h('details', { open: true },
-        h('summary', {}, h('span', { class: 'folder-label muted', text: 'Folders that do not exist yet' })),
-        h('ul', { role: 'group' }, elsewhere.map(choice)))),
+      ...(missing ? [missing] : []),
     );
     if (!tree.childElementCount) tree.append(h('li', { class: 'muted', text: 'No matching rules.' }));
     update();
@@ -274,14 +275,14 @@ export function pickFolder(root, current = '', { heading = 'Choose a folder', ve
       title: path === null ? 'Folders with “/” in their name cannot be used as a target' : folderLabel(path),
     }, node.title || '(no name)');
     if (!subfolders.length) return h('li', {}, name);
-    const open = segments.length === 1 || (current && current.startsWith(`${path}/`));
+    const open = segments.length === 1 || Boolean(current?.startsWith(`${path}/`));
     return h('li', {}, h('details', { open },
       h('summary', {}, name),
       h('ul', { role: 'group' }, subfolders.map((c) => folderItem(c, [...segments, c.title ?? ''])))));
   };
   const drawTree = () => {
     const q = search.value.trim().toLowerCase();
-    if (!q) return tree.replaceChildren(...root.children.map((c) => folderItem(c, [c.title])));
+    if (!q) return tree.replaceChildren(...root.children.map((c) => folderItem(c, [c.title ?? ''])));
     // Searching shows matching folders as a flat list of full paths.
     const hits = [];
     const walk = (node, segments) => {

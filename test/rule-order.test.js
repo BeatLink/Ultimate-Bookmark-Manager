@@ -2,55 +2,69 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildOrder, eligibleToOutrank, eligibleToRankBelow, rankCandidates, lostBecause } from '../src/lib/rule-order.js';
 
-const cand = (rule, score) => ({ rule, score, index: 0 });
+const rule = (id, outranks = [], extra = {}) => ({ id, name: id, outranks, ...extra });
+const fmt = (s) => `#${s}`;
+const none = buildOrder([]);
 
-test('ranking lists follow through other rules', () => {
-  const a = { id: 'a', name: 'A', outranks: ['b'] };
-  const b = { id: 'b', name: 'B', outranks: ['c'] };
-  const c = { id: 'c', name: 'C', outranks: [] };
-  const d = { id: 'd', name: 'D', outranks: [] };
-  const order = buildOrder([a, b, c, d]);
-  assert.ok(order.ranksAbove('a', 'c'), 'A ranks above C through B');
-  assert.ok(!order.ranksAbove('c', 'a') && !order.ranksAbove('a', 'd'));
-  assert.deepEqual(eligibleToOutrank(c, [a, b, c, d]).map((r) => r.id), ['d'], 'C cannot list A or B: that would make a loop');
-  assert.deepEqual(eligibleToOutrank(a, [a, b, c, d]).map((r) => r.id), ['c', 'd'], 'already listed and itself are left out');
-  const ranked = rankCandidates([cand(c, 900), cand(d, 50), cand(a, 20), cand(b, 10)], order);
-  assert.deepEqual(ranked.map((x) => x.rule.id), ['d', 'a', 'b', 'c'], 'C scores highest but A and B both rank above it');
+test('the order follows ranking lists through other rules', () => {
+  const order = buildOrder([rule('a', ['b']), rule('b', ['c']), rule('c'), rule('d', ['missing'])]);
+  assert.ok(order.ranksAbove('a', 'c'));
+  assert.ok(!order.ranksAbove('c', 'a'));
+  assert.ok(!order.ranksAbove('d', 'missing'));
+  assert.ok(!order.ranksAbove('unknown', 'a'));
+  assert.deepEqual(order.loops, []);
 });
 
-test('links inside a loop are ignored', () => {
-  const loopA = { id: 'a', name: 'A', outranks: ['b'] };
-  const loopB = { id: 'b', name: 'B', outranks: ['a'] };
-  const order = buildOrder([loopA, loopB, { id: 'c', name: 'C', outranks: [] }]);
+test('links inside a loop, to the rule itself, or against the tiers are ignored and reported', () => {
+  const top = rule('top', [], { rankAll: 'above' });
+  const order = buildOrder([rule('a', ['b']), rule('b', ['a']), rule('self', ['self']), rule('low', ['top']), top]);
+  assert.deepEqual(order.loops.map((g) => g.map((r) => r.id).sort()), [['a', 'b'], ['self']]);
   assert.ok(!order.ranksAbove('a', 'b') && !order.ranksAbove('b', 'a'));
-  assert.equal(order.loops.length, 1);
+  assert.ok(!order.ranksAbove('low', 'top'));
+  assert.deepEqual(order.against.map(([hi, lo]) => [hi.id, lo.id]), [['low', 'top']]);
 });
 
-test('rules can rank above or below all other rules, and links against those tiers are ignored', () => {
-  const top = { id: 't', name: 'Top', rankAll: 'above', outranks: [] };
-  const top2 = { id: 't2', name: 'Top 2', rankAll: 'above', outranks: ['t'] };
-  const mid = { id: 'm', name: 'Mid', outranks: [] };
-  const low = { id: 'l', name: 'Low', rankAll: 'below', outranks: [] };
-  const rules = [top, top2, mid, low];
-  const ranked = rankCandidates([cand(low, 900), cand(mid, 500), cand(top, 10), cand(top2, 5)], buildOrder(rules));
-  assert.deepEqual(ranked.map((x) => x.rule.id), ['t2', 't', 'm', 'l'], 'tiers first, then links within a tier, then score');
-  assert.match(lostBecause(ranked[2], ranked[0], ranked, buildOrder(rules), String), /“Top 2” ranks above all other rules/);
-  assert.match(lostBecause(ranked[3], ranked[2], ranked, buildOrder(rules), String), /ranks below all other rules/);
-
-  assert.deepEqual(eligibleToOutrank(mid, rules).map((r) => r.id), ['l'], 'a middle rule cannot rank above a top one');
-  assert.deepEqual(eligibleToRankBelow(mid, rules).map((r) => r.id), ['t', 't2'], 'but it can rank below one');
-  assert.deepEqual(eligibleToOutrank(top, rules).map((r) => r.id), ['m', 'l'], 'Top 2 already ranks above Top, so Top cannot list it');
-
-  const order = buildOrder([top, { ...mid, outranks: ['t'] }]);
-  assert.ok(!order.ranksAbove('m', 't'), 'a link against the tiers is ignored');
-  assert.equal(order.against.length, 1);
+test('a rule may outrank or rank below only rules that make no loop and respect the tiers', () => {
+  const rules = [rule('a', ['b']), rule('b'), rule('c'), rule('top', [], { rankAll: 'above' }), rule('low', [], { rankAll: 'below' })];
+  assert.deepEqual(eligibleToOutrank(rules[1], rules).map((r) => r.id), ['c', 'low']);
+  assert.deepEqual(eligibleToOutrank(rules[3], rules).map((r) => r.id), ['a', 'b', 'c', 'low']);
+  assert.deepEqual(eligibleToRankBelow(rules[0], rules).map((r) => r.id), ['c', 'top']);
+  assert.deepEqual(eligibleToRankBelow(rules[1], rules).map((r) => r.id), ['c', 'top']);
+  assert.deepEqual(eligibleToRankBelow(rules[4], rules).map((r) => r.id), ['a', 'b', 'c', 'top']);
 });
 
-test('a loser is told whether a list, the score or the rule age decided', () => {
-  const older = { id: 'o', name: 'Old', createdAt: 1 };
-  const newer = { id: 'n', name: 'New', createdAt: 2 };
-  const order = buildOrder([older, newer]);
-  assert.equal(lostBecause(cand(older, 20), cand(newer, 20), [], order, String), 'older rule, equally specific');
-  assert.equal(lostBecause(cand(older, 10), cand(newer, 20), [], order, String), 'less specific (10 vs 20)');
-  assert.equal(lostBecause(cand({ id: 'x' }, 5), cand({ id: 'y' }, 5), [], order, String), 'earlier in the list, equally specific');
+test('the built-in ranking prefers the higher score, then the newer rule, then the later one in the list', () => {
+  const c = (id, score, createdAt, index) => ({ score, index, rule: rule(id, [], { createdAt }) });
+  const first = (...cands) => rankCandidates(cands, none)[0].rule.id;
+  assert.equal(first(c('old', 2, 0, 0), c('new', 1, 9, 9)), 'old');
+  assert.equal(first(c('older', 1, 4, 9), c('newer', 1, 5, 0)), 'newer');
+  assert.equal(first(c('earlier', 1, undefined, 1), c('later', 1, undefined, 2)), 'later');
+});
+
+test('candidates are ranked by tier, then by the lists, then by the built-in ranking', () => {
+  const rules = [rule('weak', ['strong']), rule('strong'), rule('top', [], { rankAll: 'above' }), rule('low', [], { rankAll: 'below' })];
+  const order = buildOrder(rules);
+  const cands = [
+    { rule: rules[3], score: 900, index: 3 },
+    { rule: rules[1], score: 90, index: 1 },
+    { rule: rules[0], score: 10, index: 0 },
+    { rule: rules[2], score: 1, index: 2 },
+  ];
+  assert.deepEqual(rankCandidates(cands, order).map((c) => c.rule.id), ['top', 'weak', 'strong', 'low']);
+});
+
+test('a losing rule is told why it lost in plain words', () => {
+  const order = buildOrder([rule('w', ['l']), rule('l')]);
+  const c = (r, score = 1) => ({ rule: r, score });
+  const top = c(rule('t', [], { rankAll: 'above', name: '' }));
+  const bottom = c(rule('b', [], { rankAll: 'below' }));
+  const mid = c(rule('m'));
+  assert.equal(lostBecause(mid, top, [], none, fmt), '“Unnamed rule” ranks above all other rules');
+  assert.equal(lostBecause(bottom, mid, [], none, fmt), 'this rule ranks below all other rules');
+  const winner = c(rule('w', ['l']));
+  const loser = c(rule('l'));
+  assert.equal(lostBecause(loser, winner, [winner, loser], order, fmt), 'ranked below “w” by your rule order');
+  assert.equal(lostBecause(c(rule('x', [], { name: '' })), c(rule('y'), 2), [], none, fmt), 'less specific (#1 vs #2)');
+  assert.equal(lostBecause(c(rule('x', [], { createdAt: 1 })), c(rule('y', [], { createdAt: 2 })), [], none, fmt), 'older rule, equally specific');
+  assert.equal(lostBecause(c(rule('x')), c(rule('y')), [], none, fmt), 'earlier in the list, equally specific');
 });

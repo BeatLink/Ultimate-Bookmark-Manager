@@ -4,6 +4,7 @@ import { h, toast, Selection } from './dom.js';
 import { flatten, bookmarksOnly } from '../lib/tree.js';
 import { Actions } from '../lib/actions.js';
 import { loadSettings, loadWhitelist, loadLinkResults } from '../lib/settings.js';
+import { ignoredIdSet } from '../lib/folders.js';
 import { LinkChecker } from './link-checker.js';
 import stats from './views/stats.js';
 import duplicates from './views/duplicates.js';
@@ -29,6 +30,7 @@ let current = VIEWS[0];
 let busy = 0;
 let refreshTimer;
 let refreshWaiting = false;
+let dragging = false;
 const selections = new Map();
 let cache = new Map();
 
@@ -36,7 +38,7 @@ const ctx = {
   state,
   actions: new Actions(),
   isSidebar,
-  ignoredIds: () => new Set(Object.keys(state.whitelist)),
+  ignoredIds: () => ctx.memo('ignored', () => ignoredIdSet(state.root, state.whitelist)),
 
   // A view's selection, kept across re-renders so a refresh does not untick anything still on screen.
   selection(key, ids) {
@@ -144,9 +146,9 @@ function route() {
   render();
 }
 
-// True while the user is typing in a field or answering a dialog, when a re-render would get in their way.
+// True while the user is typing in a field, answering a dialog or dragging, when a re-render would get in their way.
 function isEditing() {
-  if (document.querySelector('dialog[open]')) return true;
+  if (dragging || document.querySelector('dialog[open]')) return true;
   const el = document.activeElement;
   return Boolean(el?.closest?.('#main') && el.matches('textarea, select, input:not([type=checkbox]):not([type=radio]), [contenteditable]'));
 }
@@ -191,6 +193,14 @@ async function start() {
   // A refresh held back while the user was editing runs once they leave the field or close the dialog.
   document.addEventListener('focusout', () => refreshWaiting && scheduleRefresh(100));
   document.addEventListener('close', () => refreshWaiting && scheduleRefresh(100), true);
+  // A drag that a view refused never starts; a drop on the page ends one before the dragged row can be redrawn away.
+  document.addEventListener('dragstart', (e) => { dragging = !e.defaultPrevented; });
+  const dragDone = () => {
+    dragging = false;
+    if (refreshWaiting) scheduleRefresh(100);
+  };
+  document.addEventListener('drop', dragDone, true);
+  document.addEventListener('dragend', dragDone, true);
 
   browser.runtime.onMessage.addListener((msg) => {
     if (msg?.type !== 'focus-dashboard' || isSidebar) return undefined;

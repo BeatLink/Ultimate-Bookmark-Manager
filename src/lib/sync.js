@@ -14,7 +14,7 @@ const bytes = (s) => new TextEncoder().encode(s).length;
 export const isSyncKey = (key) => key.startsWith(CHUNK);
 
 // A fast string fingerprint used to tell whether two payloads are the same.
-function fingerprint(text) {
+export function fingerprint(text) {
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i);

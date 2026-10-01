@@ -31,8 +31,9 @@ function mark(next) {
 // Whether Alt (copy) and Ctrl (group) are held; browsers send no key events mid-drag, so they count when held before it starts.
 const held = { alt: false, ctrl: false };
 const noteKeys = (e) => {
-  held.alt = e.altKey;
-  held.ctrl = e.ctrlKey;
+  const down = e.type === 'keydown';
+  held.alt = e.key === 'Alt' ? down : (e.altKey ?? held.alt);
+  held.ctrl = e.key === 'Control' ? down : (e.ctrlKey ?? held.ctrl);
 };
 document.addEventListener('keydown', noteKeys);
 document.addEventListener('keyup', noteKeys);

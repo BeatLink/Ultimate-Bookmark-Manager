@@ -22,7 +22,7 @@ export default {
     const bar = selectionBar(sel, [
       { label: 'Check again', title: 'Re-check just the selected bookmarks', run: (ids) => ctx.linkChecker.start(ids) },
       ignoreAction(ctx, items),
-      removeAction(ctx, { label: (n) => `Removed ${n} broken bookmark(s)` }),
+      removeAction(ctx, { ask: (ids) => `Remove ${ids.length} bookmark(s)?`, label: (ids) => `Removed ${ids.length} broken bookmark(s)`, done: (ids) => `Removed ${ids.length} bookmark(s).` }),
     ], [selectAllToggle(sel, items.map((b) => b.id))]);
 
     const byCategory = groupBy(items, (r) => r.category);

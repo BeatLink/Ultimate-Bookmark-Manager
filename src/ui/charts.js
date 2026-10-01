@@ -72,7 +72,7 @@ export function barList(items, { total, unit = 'bookmarks', onSelect, selectHint
 }
 
 // A round number at or above `n` for the top of an axis (1, 2 or 5 times a power of ten), kept even so the middle gridline is a whole count.
-function niceCeil(n) {
+export function niceCeil(n) {
   if (n <= 2) return 2;
   const p = 10 ** Math.floor(Math.log10(n));
   const top = [1, 2, 5, 10].map((m) => m * p).find((v) => v >= n);

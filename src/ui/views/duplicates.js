@@ -36,7 +36,11 @@ export default {
         ctx.done(`Moved ${ids.length} bookmark(s) to “${folder}”.`);
       }) },
       ignoreAction(ctx, all),
-      removeAction(ctx, { noun: 'duplicate(s)', label: (n) => `Removed ${n} duplicate bookmark(s)`, warn: wholeGroups }),
+      removeAction(ctx, {
+        ask: (ids) => `Remove ${ids.length} bookmark(s)?${wholeGroups(ids)} You can undo this from the history.`,
+        label: (ids) => `Removed ${ids.length} duplicate bookmark(s)`,
+        done: (ids) => `Removed ${ids.length} duplicate(s).`,
+      }),
     ], [
       h('button', { class: 'small', text: 'All but oldest', title: 'Select every copy except the first one added', onclick: () => pick((i) => i.order > 1) }),
       h('button', { class: 'small', text: 'All but newest', title: 'Select every copy except the last one added', onclick: () => pick((i, g) => i.order < g.items.length) }),

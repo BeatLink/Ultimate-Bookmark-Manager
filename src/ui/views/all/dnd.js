@@ -81,7 +81,8 @@ export function wireDragDrop(lib) {
       if (hoverId !== n.id) {
         hoverId = n.id;
         clearTimeout(hoverTimer);
-        hoverTimer = setTimeout(() => lib.setOpen(n.id, true), HOVER_OPEN_MS);
+        // A redraw during the hover replaces this list, and the new one starts its own timer.
+        hoverTimer = setTimeout(() => list.isConnected && lib.setOpen(n.id, true), HOVER_OPEN_MS);
       }
     } else clearHover();
   });

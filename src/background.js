@@ -2,6 +2,7 @@
 
 import { loadSettings, loadWhitelist, addNewCookieWords } from './lib/settings.js';
 import { planMoves } from './lib/organize.js';
+import { ignoredIdSet } from './lib/folders.js';
 import { flatten, rootFoldersOf } from './lib/tree.js';
 import { Actions } from './lib/actions.js';
 import { push, pull, reconcile, isSyncEnabled, isSyncKey, guarded } from './lib/sync.js';
@@ -104,7 +105,7 @@ async function autoOrganize() {
   const [root] = await browser.bookmarks.getTree();
   const all = flatten(root);
   const fresh = all.filter((b) => batch.get(b.id) === b.parentId && !restored.has(b.id));
-  const ignored = new Set(Object.keys(await loadWhitelist()));
+  const ignored = ignoredIdSet(root, await loadWhitelist());
   const { moves } = planMoves(fresh, settings.organize.rules, rootFoldersOf(root), ignored, all);
   if (!moves.length) return;
 

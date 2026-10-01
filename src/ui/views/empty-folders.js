@@ -18,7 +18,7 @@ export default {
 
     const bar = selectionBar(sel, [
       ignoreAction(ctx, folders),
-      removeAction(ctx, { noun: 'empty folder(s)' }),
+      removeAction(ctx, { ask: (ids) => `Remove ${ids.length} empty folder(s)?`, label: (ids) => `Removed ${ids.length} empty folder(s)`, done: (ids) => `Removed ${ids.length} folder(s).` }),
     ], [selectAllToggle(sel, folders.map((f) => f.id))]);
 
     const list = h('ul', { class: 'items' });

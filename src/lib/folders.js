@@ -11,6 +11,21 @@ function countFolders(node) {
   return (node.children ?? []).reduce((n, c) => (isFolder(c) ? n + 1 + countFolders(c) : n), 0);
 }
 
+// The ids every check skips: each ignored item, plus everything inside a folder ignored with its contents.
+export function ignoredIdSet(root, whitelist) {
+  const out = new Set(Object.keys(whitelist));
+  const addAll = (node) => {
+    out.add(node.id);
+    for (const child of node.children ?? []) addAll(child);
+  };
+  const walk = (node) => {
+    if (whitelist[node.id]?.inside) return addAll(node);
+    for (const child of node.children ?? []) walk(child);
+  };
+  walk(root);
+  return out;
+}
+
 // Returns the topmost folders holding no bookmarks anywhere inside; removing one removes its empty subfolders too.
 export function findEmptyFolders(root, ignoredIds = new Set()) {
   const out = [];

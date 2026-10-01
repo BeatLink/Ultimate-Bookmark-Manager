@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ruleMatches, explainMatch, occurrences, urlPart, maxScore } from '../src/lib/matching.js';
+import { POINTS, URL_TIER } from '../src/lib/specificity.js';
 import { roots, bm, cond, group, rule, queryRule } from './helpers.js';
 
 const conditionMatches = (c, b) => ruleMatches(rule('t', [c], 'X'), b);
@@ -164,8 +165,18 @@ test('a converted rule matches the same bookmarks it did before', () => {
   assert.deepEqual(explainMatch(r, b, roots).terms, [{ value: 'rust', on: ['title'] }, { value: 'github.com', on: ['host'] }]);
 });
 
-test('the most a rule can score counts every active condition in its best field', () => {
-  assert.equal(maxScore(rule('r', [cond('contains', 'rust,go', { field: 'title' })], 'X')), 40);
-  assert.equal(maxScore(rule('r', [cond('domain', 'a.test'), cond('contains', '')], 'X')), 50 * 10000);
-  assert.equal(maxScore(rule('r', [cond('contains', 'x')], 'X', { match: 'none' })), 0, 'an inverted rule can score nothing');
+test('a domain condition never matches a bookmark whose address is not a URL', () => {
+  const r = rule('d', [cond('domain', 'example.com')], 'X');
+  assert.ok(!ruleMatches(r, bm('1', 'example.com', 'not a url')));
+  assert.ok(ruleMatches(r, bm('2', 'x', 'https://www.example.com/')));
+});
+
+test('the most a rule can score counts every condition in its best part, and nothing for folders, exclusions or negated groups', () => {
+  assert.equal(maxScore(rule('w', [cond('contains', 'rust,go', { field: 'title' })], 'X')), 2 * POINTS.keyword);
+  const site = rule('s', [cond('domain', 'blog.example.com'), cond('contains', 'rust')], 'X', { match: 'all' });
+  assert.equal(maxScore(site), POINTS.subdomain * URL_TIER + POINTS.keyword);
+  const scoped = rule('f', [cond('contains', 'rust'), cond('notContains', 'go')], 'X', { match: 'all', sources: ['Bookmarks Menu'] });
+  assert.equal(maxScore(scoped), POINTS.keyword);
+  assert.equal(maxScore(rule('n', [cond('contains', 'rust')], 'X', { match: 'none' })), 0);
+  assert.equal(maxScore(rule('b', [cond('contains', '')], 'X')), 0);
 });

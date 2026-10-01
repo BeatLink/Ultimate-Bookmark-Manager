@@ -51,8 +51,9 @@ export default {
         onkeydown: (e) => {
           if (e.key === 'ArrowDown' && lib.rows.length) {
             e.preventDefault();
-            if (!view.focus || lib.indexOf(view.focus) < 0) lib.selectOnly(lib.rows[0].node.id);
-            lib.focusRow(view.focus ?? lib.rows[0].node.id);
+            const id = lib.indexOf(view.focus) < 0 ? lib.rows[0].node.id : view.focus;
+            if (id !== view.focus) lib.selectOnly(id);
+            lib.focusRow(id);
           }
         },
       }),

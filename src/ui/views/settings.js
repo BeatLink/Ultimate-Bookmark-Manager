@@ -1,8 +1,10 @@
 // Settings: duplicate matching, custom rules, link-check tuning, skip list and whitelist.
 
 import { h, toast, confirmDialog, downloadFile, datedName } from '../dom.js';
-import { viewHeader, emptyState, helpLink } from '../components.js';
-import { saveSettings, removeFromWhitelist, DEFAULT_SETTINGS, RANGES } from '../../lib/settings.js';
+import { viewHeader, emptyState, helpLink, pickFolder } from '../components.js';
+import { saveSettings, addToWhitelist, removeFromWhitelist, DEFAULT_SETTINGS, RANGES } from '../../lib/settings.js';
+import { isFolder } from '../../lib/tree.js';
+import { folderLabel } from '../../lib/rules.js';
 import { compileRules } from '../../lib/duplicates.js';
 import { buildExport, parseImport, applyImport } from '../../lib/transfer.js';
 import { isSyncEnabled, syncStatus, hasConflictingRemote, enableSync, disableSync, guarded } from '../../lib/sync.js';
@@ -44,6 +46,26 @@ const numberField = (obj, key, label, fallback) => {
 // A text area whose lines are a list of text.
 const linesField = (obj, key, label, rows) => h('label', { class: 'field block' }, label,
   h('textarea', { rows, class: 'mono', onchange: (e) => { obj[key] = splitLines(e.target.value); } }, obj[key].join('\n')));
+
+// Every folder at a "Root/Sub/Folder" path, as several same-name folders can share one.
+function foldersAt(root, path) {
+  let level = [root];
+  for (const name of path.split('/')) {
+    level = level.flatMap((n) => (n.children ?? []).filter((c) => isFolder(c) && (c.title ?? '') === name));
+  }
+  return level;
+}
+
+// Asks for a folder and ignores it with everything inside it.
+async function ignoreFolder(ctx) {
+  const path = await pickFolder(ctx.state.root, '', { heading: 'Ignore a folder and everything inside', verb: 'Ignore', allowCreate: false });
+  if (!path) return;
+  const folders = foldersAt(ctx.state.root, path);
+  await ctx.run(async () => {
+    await addToWhitelist(folders.map((f) => ({ id: f.id, title: f.title, inside: true })));
+    toast(`Every check now skips “${folderLabel(path)}” and everything inside it.`, 'success');
+  });
+}
 
 // Sync toggle and status, plus exporting and importing settings files.
 function syncAndBackup(ctx) {
@@ -192,9 +214,12 @@ export default {
     const whitelist = h('fieldset', {}, legend(`Ignored items (${entries.length})`, 'Ignored bookmarks and folders are skipped by every check'),
       entries.length
         ? h('ul', { class: 'items' }, entries.map(([id, e]) => h('li', { class: 'item' },
-          h('div', { class: 'bm grow' }, h('div', { class: 'bm-title', text: e.title || '(no name)' }), e.url && h('div', { class: 'bm-url', text: e.url })),
+          h('div', { class: 'bm grow' }, h('div', { class: 'bm-title', text: e.title || '(no name)' }),
+            e.url && h('div', { class: 'bm-url', text: e.url }),
+            e.inside && h('div', { class: 'bm-meta muted', text: 'Folder, with everything inside' })),
           h('div', { class: 'item-actions' }, h('button', { class: 'small', text: 'Stop ignoring', onclick: () => ctx.run(() => removeFromWhitelist([id])) })))))
-        : emptyState('Nothing is ignored.'));
+        : emptyState('Nothing is ignored.'),
+      h('div', { class: 'row wrap' }, h('button', { class: 'small', text: 'Ignore a folder…', title: 'Every check skips the folder and everything inside it', onclick: () => ignoreFolder(ctx) })));
 
     return h('section', { class: 'settings' },
       viewHeader('Settings', 'Matching, sync, link checks and ignored items',
