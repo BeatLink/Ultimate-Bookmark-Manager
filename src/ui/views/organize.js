@@ -376,10 +376,12 @@ export default {
         ctx.done(`Moved “${folder.title}” into “${target.title}”.`);
       });
     };
+    // Folder drags stop here: the condition editor's drag library listens on the whole page and cancels any drag it did not start.
     const dragProps = (n) => ({
       draggable: n.depth > 0 ? 'true' : null,
       ondragstart: (e) => {
         if (n.depth === 0) return;
+        e.stopPropagation();
         dragging = n;
         e.dataTransfer.setData('application/x-bookmark-folder', n.id);
         e.dataTransfer.effectAllowed = 'move';
@@ -391,6 +393,7 @@ export default {
       ondragover: (e) => {
         if (!canDrop(n)) return;
         e.preventDefault();
+        e.stopPropagation();
         e.dataTransfer.dropEffect = 'move';
         e.currentTarget.classList.add('drop-into');
       },
@@ -398,11 +401,13 @@ export default {
         if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('drop-into');
       },
       ondrop: (e) => {
+        if (!dragging) return;
         e.preventDefault();
+        e.stopPropagation();
         e.currentTarget.classList.remove('drop-into');
-        const folder = dragging;
+        const folder = canDrop(n) ? dragging : null;
         dragging = null;
-        if (folder && canDrop(n)) moveFolder(folder, n);
+        if (folder) moveFolder(folder, n);
       },
     });
 
