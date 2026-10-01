@@ -1,0 +1,52 @@
+# Publishes to addons.mozilla.org when a version tag such as v0.1.0 is pushed; nothing else starts it.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # The AMO API key lives in this environment, which can be set to wait for your approval before each release.
+    environment: amo
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Tag matches the manifest version
+        run: |
+          version=$(node -p "require('./manifest.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match manifest version $version"
+            exit 1
+          fi
+      - name: AMO API key is set
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          if [ -z "$AMO_JWT_ISSUER" ] || [ -z "$AMO_JWT_SECRET" ]; then
+            echo "::error::Add AMO_JWT_ISSUER and AMO_JWT_SECRET to the amo environment's secrets"
+            exit 1
+          fi
+      - name: Unit tests
+        run: npm test
+      - name: Mozilla lint
+        run: npm run lint
+      - name: Package
+        run: npm run build
+      # Listed versions are signed after Mozilla's review, so the job submits and does not wait for approval.
+      - name: Submit to addons.mozilla.org
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: npx --yes web-ext@10.7.0 sign --approval-timeout 0
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" web-ext-artifacts/*.zip --title "$GITHUB_REF_NAME" --generate-notes

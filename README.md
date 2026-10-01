@@ -1,5 +1,7 @@
 # Ultimate Bookmark Manager
 
+[![CI](https://github.com/BeatLink/Ultimate-Bookmark-Manager/actions/workflows/ci.yml/badge.svg)](https://github.com/BeatLink/Ultimate-Bookmark-Manager/actions/workflows/ci.yml)
+
 A Firefox add-on for finding and cleaning up problem bookmarks. Every change it makes is recorded first, so it can be undone.
 
 ## Features
@@ -51,7 +53,7 @@ Two features contact websites, and only when you start them:
 
 ## Development
 
-The add-on is plain JavaScript with no dependencies and no build step, and needs Firefox 140 or newer. The files in the repository are the files that ship.
+The add-on is plain JavaScript with no dependencies and no build step, and needs Firefox 140 or newer. The files in the repository are the files that ship. `web-ext-config.mjs` lists the files left out of the package.
 
 ```sh
 npm test                 # unit tests (node:test)
@@ -68,3 +70,17 @@ To load it by hand, open `about:debugging#/runtime/this-firefox`, choose **Load 
 | `src/ui/` | The dashboard/sidebar page, its views and shared components |
 | `src/background.js` | Toolbar button, shortcut, Tools menu and address-bar keyword |
 | `test/` | Unit tests, with an in-memory stand-in for the bookmarks API |
+| `amo-metadata.json` | The addons.mozilla.org listing: summary, description, category, links and license |
+| `.github/workflows/` | CI on every push and pull request, and the release to addons.mozilla.org |
+
+## Releasing
+
+CI runs the tests, the Mozilla lint and a package build on every push to `main` and every pull request.
+
+Pushing a version tag publishes to [addons.mozilla.org](https://addons.mozilla.org) as a listed add-on:
+
+1. Once: create an API key at [addons.mozilla.org › Developer Hub › Manage API Keys](https://addons.mozilla.org/developers/addon/api/key/), then add it on GitHub under **Settings › Environments › amo** as the secrets `AMO_JWT_ISSUER` (the JWT issuer) and `AMO_JWT_SECRET` (the JWT secret). The environment can also require your approval before each release.
+2. Set `version` in `manifest.json` (and `package.json`) and commit it.
+3. Tag and push: `git tag v0.1.0 && git push origin v0.1.0`.
+
+The release job checks that the tag matches the manifest version, runs the tests and lint, submits the version for Mozilla's review, and creates a GitHub release with the package attached. Listed versions are signed once Mozilla has reviewed them. When uploading by hand instead, leave Firefox for Android unticked: Android has no bookmarks API.

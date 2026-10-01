@@ -1,0 +1,12 @@
+{
+  "categories": ["bookmarks"],
+  "summary": {
+    "en-US": "Find and clean up duplicate, broken, redirected, unnamed and empty bookmarks, organize them by rules, and undo any change."
+  },
+  "description": {
+    "en-US": "Ultimate Bookmark Manager finds the bookmarks that need tidying and fixes them, recording every change first so it can be undone.\n\n• Duplicates: bookmarks pointing to the same URL, with options to treat http/https, www., trailing slashes, fragments, query strings or letter case as the same, and custom rules.\n• Broken links and redirects: a link check that groups failures (not found, server error, unreachable, timeout, access denied, login required) and lets you update moved bookmarks; redirects to a different site are flagged.\n• Unnamed bookmarks: names that are blank or just a URL, renamed from each page's title.\n• Empty and same-name folders: remove or merge them.\n• Organize: rules that file bookmarks into folders by title, URL, site, path, query or folder, with a preview before anything moves, and optional automatic filing of new bookmarks.\n• All bookmarks: a Library-style tree with search, drag and drop, copy and paste, and HTML import and export.\n• Dashboard, undo and redo history, full backups, and settings sync through Firefox Sync.\n\nPrivacy: the add-on collects no data and has no server. Checking links and fetching page titles only start when you ask, and each request goes only to the bookmarked page's own site. Your cookies are not sent unless you turn that on, and addresses on your own network are skipped."
+  },
+  "homepage": { "en-US": "https://github.com/BeatLink/Ultimate-Bookmark-Manager" },
+  "support_url": { "en-US": "https://github.com/BeatLink/Ultimate-Bookmark-Manager/issues" },
+  "version": { "license": "MPL-2.0" }
+}

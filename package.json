@@ -6,9 +6,17 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.js",
-    "lint": "npx --yes web-ext lint --ignore-files 'test/**' 'package.json' 'package-lock.json' 'README.md' 'node_modules/**'",
-    "start": "npx --yes web-ext run --ignore-files 'test/**' 'package.json' 'package-lock.json' 'README.md' 'node_modules/**'",
-    "build": "npx --yes web-ext build --overwrite-dest --ignore-files 'test/**' 'package.json' 'package-lock.json' 'README.md' 'node_modules/**'"
+    "lint": "npx --yes web-ext@10.7.0 lint",
+    "start": "npx --yes web-ext@10.7.0 run",
+    "build": "npx --yes web-ext@10.7.0 build"
   },
-  "license": "MPL-2.0"
+  "license": "MPL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BeatLink/Ultimate-Bookmark-Manager.git"
+  },
+  "homepage": "https://github.com/BeatLink/Ultimate-Bookmark-Manager",
+  "bugs": {
+    "url": "https://github.com/BeatLink/Ultimate-Bookmark-Manager/issues"
+  }
 }
