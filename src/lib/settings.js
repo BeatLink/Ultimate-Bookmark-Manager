@@ -86,12 +86,14 @@ export async function loadSettings(storage = browser.storage.local) {
   return loaded;
 }
 
-// Ignored items as id → { title, url }, leaving out entries that are not.
+// Ignored items as id → { title, url, inside }, leaving out entries that are not; `inside` marks a folder ignored with everything in it.
 export function readWhitelist(whitelist) {
   const out = {};
   if (!isObject(whitelist)) return out;
   for (const [id, e] of Object.entries(whitelist)) {
-    if (isObject(e) && id !== '__proto__') out[id] = { title: String(e.title ?? ''), url: String(e.url ?? '') };
+    if (!isObject(e) || id === '__proto__') continue;
+    out[id] = { title: String(e.title ?? ''), url: String(e.url ?? '') };
+    if (e.inside === true) out[id].inside = true;
   }
   return out;
 }
@@ -122,7 +124,7 @@ export async function loadWhitelist(storage = browser.storage.local) {
 
 export async function addToWhitelist(entries, storage = browser.storage.local) {
   const whitelist = await loadWhitelist(storage);
-  for (const e of entries) whitelist[e.id] = { title: e.title ?? '', url: e.url ?? '' };
+  for (const e of entries) whitelist[e.id] = { title: e.title ?? '', url: e.url ?? '', ...(e.inside ? { inside: true } : {}) };
   await storage.set({ whitelist });
   return whitelist;
 }

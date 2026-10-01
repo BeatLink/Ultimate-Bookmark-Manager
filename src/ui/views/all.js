@@ -6,6 +6,7 @@ import { ROOT_IDS, nodeType, formatPath, pathTo } from '../../lib/tree.js';
 import { snapshot, exportTree } from '../../lib/actions.js';
 import { toBookmarkHtml, parseBookmarkHtml, countBookmarks } from '../../lib/bookmark-html.js';
 import { parseBackup } from '../../lib/backup.js';
+import { addToWhitelist, removeFromWhitelist } from '../../lib/settings.js';
 import * as scans from '../scans.js';
 
 const PAGE = 200;
@@ -491,6 +492,17 @@ export default {
       });
     };
 
+    // Ignores a folder with everything inside it in every check, or stops ignoring it.
+    const toggleIgnoredFolder = (folder) => ctx.run(async () => {
+      if (ctx.state.whitelist[folder.id]?.inside) {
+        await removeFromWhitelist([folder.id]);
+        toast(`Checks include “${folder.title || '(no name)'}” again.`, 'success');
+      } else {
+        await addToWhitelist([{ id: folder.id, title: folder.title, inside: true }]);
+        toast(`Every check now skips “${folder.title || '(no name)'}” and everything inside it.`, 'success');
+      }
+    });
+
     const sortByName = async (folderId) => {
       const f = get(folderId);
       if (!f || !isFolder(f) || !f.children?.length) return;
@@ -585,6 +597,7 @@ export default {
         '-',
         { label: 'Delete', key: 'Del', disabled: !nodes.length || onlyRoots, run: () => remove(ids) },
         '-',
+        folder && folder.id !== ROOT && { label: ctx.state.whitelist[folder.id]?.inside ? 'Stop ignoring this folder' : 'Ignore folder and everything inside', run: () => toggleIgnoredFolder(folder) },
         sortTarget && sortTarget.id !== ROOT && { label: `Sort “${sortTarget.title || '(no name)'}” by name`, disabled: !sortTarget.children?.length, run: () => sortByName(sortTarget.id) },
         { label: 'Properties…', key: 'F2', disabled: !editable, run: () => properties(single.id) },
       ], () => view.focus && rowEl(view.focus)?.focus({ preventScroll: true }));

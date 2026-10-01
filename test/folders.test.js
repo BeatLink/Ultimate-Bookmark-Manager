@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findEmptyFolders, findSameNameFolders, findUntitled } from '../src/lib/folders.js';
+import { findEmptyFolders, findSameNameFolders, findUntitled, ignoredIdSet } from '../src/lib/folders.js';
 import { flatten } from '../src/lib/tree.js';
 
 const tree = {
@@ -30,4 +30,11 @@ test('sibling folders with the same trimmed name are grouped by position', () =>
 
 test('bookmarks with blank titles are found', () => {
   assert.deepEqual(findUntitled(flatten(tree)).map((b) => b.id), ['b1']);
+});
+
+test('a folder ignored with its contents hides everything inside it, while a plain ignored folder hides only itself', () => {
+  const ignored = ignoredIdSet(tree, { e1: { title: 'Empty', inside: true }, f1: { title: 'News' } });
+  assert.deepEqual([...ignored].sort(), ['e1', 'e2', 'f1', 's']);
+  assert.deepEqual(findEmptyFolders(tree, ignored), []);
+  assert.deepEqual(findUntitled(flatten(tree), ignoredIdSet(tree, { f1: { title: 'News', inside: true } })), []);
 });

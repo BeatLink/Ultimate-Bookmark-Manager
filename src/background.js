@@ -2,6 +2,7 @@
 
 import { loadSettings, loadWhitelist, addNewCookieWords } from './lib/settings.js';
 import { planMoves } from './lib/organize.js';
+import { ignoredIdSet } from './lib/folders.js';
 import { flatten } from './lib/tree.js';
 import { Actions } from './lib/actions.js';
 import { push, pull, reconcile, isSyncEnabled, guarded } from './lib/sync.js';
@@ -102,7 +103,7 @@ async function autoOrganize() {
   const all = flatten(root);
   const fresh = all.filter((b) => batch.get(b.id) === b.parentId && !restored.has(b.id));
   const rootFolders = root.children.map((c) => ({ id: c.id, title: c.title }));
-  const ignored = new Set(Object.keys(await loadWhitelist()));
+  const ignored = ignoredIdSet(root, await loadWhitelist());
   const { moves } = planMoves(fresh, settings.organize.rules, rootFolders, ignored, all);
   if (!moves.length) return;
 

@@ -72,6 +72,7 @@ test('damaged settings fall back to defaults instead of breaking the page', asyn
   assert.deepEqual(readSettings('nonsense'), readSettings(undefined));
   assert.deepEqual(readWhitelist({ a: { title: 'A', url: 'u' }, b: null, c: 'x', d: { title: 5 } }), { a: { title: 'A', url: 'u' }, d: { title: '5', url: '' } });
   assert.deepEqual(readWhitelist([1, 2]), {});
+  assert.deepEqual(readWhitelist({ f: { title: 'F', inside: true }, g: { title: 'G', inside: 'yes' } }), { f: { title: 'F', url: '', inside: true }, g: { title: 'G', url: '' } });
 });
 
 test('an imported file with damaged parts imports what it can', async () => {

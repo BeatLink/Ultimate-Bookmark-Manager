@@ -4,6 +4,7 @@ import { h, toast, Selection } from './dom.js';
 import { flatten } from '../lib/tree.js';
 import { Actions } from '../lib/actions.js';
 import { loadSettings, loadWhitelist, loadLinkResults } from '../lib/settings.js';
+import { ignoredIdSet } from '../lib/folders.js';
 import { LinkChecker } from './link-checker.js';
 import stats from './views/stats.js';
 import duplicates from './views/duplicates.js';
@@ -34,7 +35,7 @@ const ctx = {
   state,
   actions: new Actions(),
   isSidebar,
-  ignoredIds: () => new Set(Object.keys(state.whitelist)),
+  ignoredIds: () => ctx.memo('ignored', () => ignoredIdSet(state.root, state.whitelist)),
 
   // A view's selection, kept across re-renders so a refresh does not untick anything still on screen.
   selection(key, ids) {
