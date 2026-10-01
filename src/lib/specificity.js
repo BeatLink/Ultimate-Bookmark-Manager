@@ -1,5 +1,6 @@
-// How specific a rule's match is, so that when several rules match a bookmark the most specific one wins.
-// Only the conditions that actually matched count: "any of rust, cargo" matched by "rust" scores one keyword.
+// How specific a rule's match is, so the most specific of several matching rules wins; only the conditions that matched count.
+
+import { bareDomain, siteOfHost } from './domains.js';
 
 export const POINTS = {
   exactUrl: 1000,
@@ -15,39 +16,31 @@ export const POINTS = {
   regex: 15,
 };
 
-// Points from conditions on the URL are worth this many keyword points, so any URL match outranks any
-// number of title or keyword matches, while matches in the same tier still compare by points.
+// Points from URL conditions are worth this many keyword points, so any URL match outranks any number of keyword matches.
 export const URL_TIER = 10000;
-
-// A score split into its URL and keyword parts.
-export function splitScore(score) {
-  return { url: Math.floor(score / URL_TIER), keywords: score % URL_TIER };
-}
 
 // A score as people read it: "URL 110 + keywords 40", never the combined number.
 export function formatScore(score) {
-  const { url, keywords } = splitScore(score);
+  const url = Math.floor(score / URL_TIER);
+  const keywords = score % URL_TIER;
   const parts = [url && `URL ${url}`, keywords && `keywords ${keywords}`].filter(Boolean);
   return parts.length ? parts.join(' + ') : '0';
 }
 
-// Second-level labels that belong to the country ending, so "bbc.co.uk" is a domain and "news.bbc.co.uk" a subdomain.
-const SECOND_LEVEL = new Set(['co', 'com', 'org', 'net', 'ac', 'gov', 'edu', 'ne', 'or']);
-
-export function domainPoints(value) {
-  const labels = String(value).toLowerCase().replace(/^\*?\./, '').replace(/^www\./, '').split('.').filter(Boolean);
-  const site = labels.length >= 3 && labels.at(-1).length === 2 && SECOND_LEVEL.has(labels.at(-2)) ? 3 : 2;
-  return labels.length > site ? POINTS.subdomain : POINTS.domain;
+// A site scores as a domain, and a name inside one as a subdomain.
+function domainPoints(value) {
+  const host = bareDomain(value).replace(/^www\./, '').split('.').filter(Boolean).join('.');
+  return siteOfHost(host) === host ? POINTS.domain : POINTS.subdomain;
 }
 
 // A path scores by how many segments it names; "/" alone names none and counts as a keyword.
-export function pathPoints(value) {
+function pathPoints(value) {
   const segments = String(value).split('/').filter(Boolean).length;
   return segments ? POINTS.path + segments * POINTS.pathSegment : POINTS.keyword;
 }
 
 // "URL starts with" scores by how deep its path goes; a bare site scores as a domain.
-export function prefixPoints(value) {
+function prefixPoints(value) {
   let u;
   try {
     u = new URL(/^[a-z][a-z0-9+.-]*:/i.test(value) ? value : `https://${value}`);
@@ -59,7 +52,7 @@ export function prefixPoints(value) {
 }
 
 // "youtube.com/@channel" found in a URL scores as a site plus a path; a plain word as a keyword.
-export function urlTextPoints(value) {
+function urlTextPoints(value) {
   const text = String(value);
   if (!/^[\w.-]+\.[a-z]{2,}(\/|$)/i.test(text.replace(/^[a-z][a-z0-9+.-]*:\/\//i, ''))) {
     return text.startsWith('/') ? pathPoints(text) : POINTS.keyword;

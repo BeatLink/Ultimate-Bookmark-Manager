@@ -3,14 +3,18 @@ import assert from 'node:assert/strict';
 import { siteOf, protocolOf, addedByMonth, treeStats } from '../src/lib/stats.js';
 
 test('sites group subdomains but keep country second levels and odd URLs apart', () => {
-  assert.equal(siteOf('https://docs.python.org/3/'), 'python.org');
-  assert.equal(siteOf('https://www.bbc.co.uk/news'), 'bbc.co.uk');
-  assert.equal(siteOf('http://192.168.1.1/admin'), '192.168.1.1');
-  assert.equal(siteOf('http://localhost:8080/'), 'localhost');
-  assert.equal(siteOf('javascript:alert(1)'), '(javascript)');
-  assert.equal(siteOf('place:sort=8'), '(place)');
-  assert.equal(siteOf('not a url'), '(invalid URL)');
+  const cases = [
+    ['https://docs.python.org/3/', 'python.org'],
+    ['https://www.bbc.co.uk/news', 'bbc.co.uk'],
+    ['http://192.168.1.1/admin', '192.168.1.1'],
+    ['http://localhost:8080/', 'localhost'],
+    ['javascript:alert(1)', '(javascript)'],
+    ['place:sort=8', '(place)'],
+    ['not a url', '(invalid URL)'],
+  ];
+  for (const [url, site] of cases) assert.equal(siteOf(url), site, url);
   assert.equal(protocolOf('https://a.test'), 'https');
+  assert.equal(protocolOf('nope'), 'invalid');
 });
 
 test('months run continuously from the first bookmark to now, capped', () => {
@@ -39,7 +43,7 @@ test('tree stats count, rank and find extremes', () => {
   assert.equal(s.folders, 3);
   assert.equal(s.separators, 1);
   assert.deepEqual(s.sites, [{ name: 'python.org', count: 2 }, { name: 'rust-lang.org', count: 1 }]);
-  assert.deepEqual(s.protocols, [{ name: 'http', count: 1 }, { name: 'https', count: 2 }].sort((a, b) => b.count - a.count));
+  assert.deepEqual(s.protocols, [{ name: 'https', count: 2 }, { name: 'http', count: 1 }]);
   assert.deepEqual(s.largestFolders, [{ name: 'Menu › Dev', count: 2 }, { name: 'Menu', count: 1 }], 'empty folders are left out');
   assert.equal(s.deepest, 2);
   assert.equal(s.oldest.id, 'b2');

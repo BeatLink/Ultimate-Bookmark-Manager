@@ -1,12 +1,18 @@
-// Reads a JSON bookmarks backup, either this add-on's own or the one Firefox's Library saves with Backup….
+// Writes this add-on's JSON backup and reads it back, or the one Firefox's Library saves with Backup….
 
-import { nodeType } from './tree.js';
+import { nodeType, countBookmarks, TOP_FOLDERS, MENU, TOOLBAR, OTHER, MOBILE } from './tree.js';
 
-export const TOP_FOLDERS = ['menu________', 'toolbar_____', 'unfiled_____', 'mobile______'];
+export const BACKUP_FORMAT = 'bookmark-manager-backup';
 
 // Firefox's backup names its top-level folders by role as well as by id.
-const ROLE_IDS = { bookmarksMenuFolder: 'menu________', toolbarFolder: 'toolbar_____', unfiledBookmarksFolder: 'unfiled_____', mobileFolder: 'mobile______' };
+const ROLE_IDS = { bookmarksMenuFolder: MENU, toolbarFolder: TOOLBAR, unfiledBookmarksFolder: OTHER, mobileFolder: MOBILE };
 const FIREFOX_TYPES = { 1: 'bookmark', 2: 'folder', 3: 'separator' };
+
+// The whole bookmark tree as a downloadable backup.
+export async function exportTree(bookmarks = browser.bookmarks) {
+  const [root] = await bookmarks.getTree();
+  return { format: BACKUP_FORMAT, version: 1, exported: new Date().toISOString(), tree: root };
+}
 
 // Firefox's saved searches ("place:" links) cannot be created by add-ons, so they are left out and counted.
 function toSnap(node, skipped) {
@@ -30,7 +36,7 @@ export function parseBackup(text) {
   } catch {
     throw new Error('This is not a JSON file.');
   }
-  const root = data?.format === 'bookmark-manager-backup' ? data.tree : data;
+  const root = data?.format === BACKUP_FORMAT ? data.tree : data;
   if (!root || !Array.isArray(root.children)) throw new Error('This file is not a bookmarks backup.');
   const skipped = { count: 0 };
   const folders = {};
@@ -39,6 +45,5 @@ export function parseBackup(text) {
     if (TOP_FOLDERS.includes(id)) folders[id] = (top.children ?? []).map((c) => toSnap(c, skipped)).filter(Boolean);
   }
   if (!Object.keys(folders).length) throw new Error('This file has none of Firefox’s bookmark folders in it.');
-  const count = (snaps) => snaps.reduce((n, s) => n + (s.type === 'bookmark' ? 1 : count(s.children ?? [])), 0);
-  return { folders, bookmarks: Object.values(folders).reduce((n, snaps) => n + count(snaps), 0), skipped: skipped.count };
+  return { folders, bookmarks: Object.values(folders).reduce((n, snaps) => n + countBookmarks(snaps), 0), skipped: skipped.count };
 }

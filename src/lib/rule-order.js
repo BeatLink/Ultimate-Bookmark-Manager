@@ -1,5 +1,6 @@
-// The order users set between rules: each rule lists the rules it ranks above. When two matching rules are related
-// by these lists (directly or through others), the list decides; only unrelated rules fall back to the built-in ranking.
+// The order users set between rules: each rule lists the rules it ranks above, and the lists decide between related rules.
+
+import { ruleName } from './rules.js';
 
 // Groups of rules that rank above each other in a circle, found with Tarjan's algorithm; links inside such a group are ignored.
 function loopGroups(rules, byId) {
@@ -40,12 +41,11 @@ function loopGroups(rules, byId) {
 }
 
 // A rule set to rank above all other rules sits in the top tier, one set below them in the bottom tier, and the rest between.
-export function tierOf(rule) {
+function tierOf(rule) {
   return rule.rankAll === 'above' ? 2 : rule.rankAll === 'below' ? 0 : 1;
 }
 
-// Everything each rule ranks above, following the lists through other rules. Links inside a loop are left out,
-// and so are links that go against the tiers, such as a rule listing one that ranks above all other rules.
+// Everything each rule ranks above, following the lists through other rules and leaving out links inside a loop or against the tiers.
 export function buildOrder(rules) {
   const byId = new Map(rules.map((r) => [r.id, r]));
   const loops = loopGroups(rules, byId);
@@ -93,17 +93,16 @@ export function eligibleToRankBelow(rule, rules) {
 }
 
 // The built-in ranking, used only between rules that no list relates: the more specific match, then the newer rule.
-export function builtInBeats(a, b) {
+function builtInBeats(a, b) {
   if (a.score !== b.score) return a.score > b.score;
   const ca = a.rule.createdAt ?? 0;
   const cb = b.rule.createdAt ?? 0;
   if (ca !== cb) return ca > cb;
-  // Rules saved before creation times were recorded: later in the list counts as newer.
+  // Rules without a creation time rank by position: later in the list counts as newer.
   return a.index > b.index;
 }
 
-// Candidates strongest first: at each step, of those in the highest tier left that no remaining candidate ranks above,
-// the built-in ranking picks one.
+// Candidates strongest first: at each step the built-in ranking picks from the highest tier left, among those no remaining candidate ranks above.
 export function rankCandidates(candidates, order) {
   const left = [...candidates];
   const out = [];
@@ -120,20 +119,11 @@ export function rankCandidates(candidates, order) {
 // Why a matching rule lost to the winner, naming the rule order when a list decided it.
 export function lostBecause(loser, winner, candidates, order, formatScore) {
   if (tierOf(winner.rule) > tierOf(loser.rule)) {
-    return winner.rule.rankAll === 'above' ? `“${winner.rule.name || 'Unnamed rule'}” ranks above all other rules` : 'this rule ranks below all other rules';
+    return winner.rule.rankAll === 'above' ? `“${ruleName(winner.rule)}” ranks above all other rules` : 'this rule ranks below all other rules';
   }
   const above = [winner, ...candidates].find((c) => c !== loser && order.ranksAbove(c.rule.id, loser.rule.id));
-  if (above) return `ranked below “${above.rule.name || 'Unnamed rule'}” by your rule order`;
+  if (above) return `ranked below “${ruleName(above.rule)}” by your rule order`;
   if (loser.score !== winner.score) return `less specific (${formatScore(loser.score)} vs ${formatScore(winner.score)})`;
   if ((loser.rule.createdAt ?? 0) !== (winner.rule.createdAt ?? 0)) return 'older rule, equally specific';
   return 'earlier in the list, equally specific';
-}
-
-// Drops the retired priority numbers and fallback flags from saved rules; ranking lists replace both.
-export function dropRetiredRanking(rules) {
-  return rules.map((rule) => {
-    if (!('priority' in rule) && !('fallback' in rule)) return rule;
-    const { priority, fallback, ...rest } = rule;
-    return rest;
-  });
 }

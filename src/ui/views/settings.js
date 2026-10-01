@@ -1,19 +1,49 @@
 // Settings: duplicate matching, custom rules, link-check tuning, skip list and whitelist.
 
-import { h, toast, confirmDialog, downloadFile } from '../dom.js';
+import { h, toast, confirmDialog, downloadFile, datedName } from '../dom.js';
 import { viewHeader, emptyState, helpLink } from '../components.js';
-
-// A section heading with its help link.
-const legend = (text, tip) => h('legend', {}, text, ' ', helpLink(tip, 'settings'));
-const lines = (text) => text.split('\n').map((l) => l.trim()).filter(Boolean);
-import { saveSettings, removeFromWhitelist } from '../../lib/settings.js';
+import { saveSettings, removeFromWhitelist, DEFAULT_SETTINGS, RANGES } from '../../lib/settings.js';
 import { compileRules } from '../../lib/duplicates.js';
 import { buildExport, parseImport, applyImport } from '../../lib/transfer.js';
 import { isSyncEnabled, syncStatus, hasConflictingRemote, enableSync, disableSync, guarded } from '../../lib/sync.js';
 
-function download(data, name) {
-  downloadFile(JSON.stringify(data, null, 2), name);
-}
+// Unsaved edits survive a refresh; an untouched draft follows the saved settings when they change.
+let draft = null;
+let draftBase = null;
+
+const MATCHING = [
+  ['ignoreProtocol', 'Treat http and https as the same'],
+  ['ignoreWww', 'Treat “www.” and no “www.” as the same'],
+  ['ignoreTrailingSlash', 'Ignore a trailing slash'],
+  ['ignoreFragment', 'Ignore the part after “#”'],
+  ['ignoreQuery', 'Ignore the query string (after “?”)'],
+  ['ignoreCase', 'Ignore letter case in the whole URL'],
+];
+
+const PRESETS = [
+  { name: 'Strip tracking parameters', rule: { kind: 'replace', pattern: '([?&])(utm_[^=&#]*|fbclid|gclid|mc_eid)=[^&#]*', flags: 'i', replacement: '$1' } },
+  { name: 'Skip bookmarklets', rule: { kind: 'filter', field: 'url', pattern: '^javascript:', flags: 'i' } },
+  { name: 'Skip a folder by name', rule: { kind: 'filter', field: 'name', pattern: '^Bookmarks Toolbar/Keep/', flags: '' } },
+];
+
+// A section heading with its help link.
+const legend = (text, tip) => h('legend', {}, text, ' ', helpLink(tip, 'settings'));
+const splitLines = (text) => text.split('\n').map((l) => l.trim()).filter(Boolean);
+
+// A checkbox that writes straight into `obj[key]`.
+const checkLine = (obj, key, label) => h('label', { class: 'check-line' },
+  h('input', { type: 'checkbox', checked: obj[key], onchange: (e) => { obj[key] = e.target.checked; } }), label);
+
+// A number field held to the range the settings allow, falling back to the default when left blank.
+const numberField = (obj, key, label, fallback) => {
+  const [min, max] = RANGES[key];
+  return h('label', { class: 'field' }, label,
+    h('input', { type: 'number', min, max, value: String(obj[key]), onchange: (e) => { obj[key] = Math.min(max, Math.max(min, Number(e.target.value) || fallback)); } }));
+};
+
+// A text area whose lines are a list of text.
+const linesField = (obj, key, label, rows) => h('label', { class: 'field block' }, label,
+  h('textarea', { rows, class: 'mono', onchange: (e) => { obj[key] = splitLines(e.target.value); } }, obj[key].join('\n')));
 
 // Sync toggle and status, plus exporting and importing settings files.
 function syncAndBackup(ctx) {
@@ -26,13 +56,13 @@ function syncAndBackup(ctx) {
     const [enabled, state] = await Promise.all([isSyncEnabled(local), syncStatus(local)]);
     toggle.checked = enabled;
     toggle.disabled = false;
-    const lines = [];
-    if (!enabled) lines.push(h('span', { text: 'Sync is off; settings stay on this device.' }));
-    else if (state.time) lines.push(h('span', { text: `Last synced ${new Date(state.time).toLocaleString()}.` }));
-    else lines.push(h('span', { text: 'Waiting for the first sync.' }));
-    if (enabled && state.partial) lines.push(h('span', { class: 'warn', text: ' The ignore list is too large to sync, so only settings and rules are synced.' }));
-    if (enabled && state.error) lines.push(h('span', { class: 'error', text: ` Last sync failed: ${state.error}` }));
-    status.replaceChildren(...lines);
+    const parts = [];
+    if (!enabled) parts.push(h('span', { text: 'Sync is off; settings stay on this device.' }));
+    else if (state.time) parts.push(h('span', { text: `Last synced ${new Date(state.time).toLocaleString()}.` }));
+    else parts.push(h('span', { text: 'Waiting for the first sync.' }));
+    if (enabled && state.partial) parts.push(h('span', { class: 'warn', text: ' The ignore list is too large to sync, so only settings and rules are synced.' }));
+    if (enabled && state.error) parts.push(h('span', { class: 'error', text: ` Last sync failed: ${state.error}` }));
+    status.replaceChildren(...parts);
   };
 
   toggle.addEventListener('change', () => ctx.run(async () => {
@@ -81,27 +111,12 @@ function syncAndBackup(ctx) {
     status,
     h('div', { class: 'row wrap' },
       h('button', { text: 'Export settings…', title: 'Saves settings, organize rules and ignored items to a file; undo history stays on this device', onclick: async () => {
-        download(await buildExport(), `ultimate-bookmark-manager-settings-${new Date().toISOString().slice(0, 10)}.json`);
+        downloadFile(JSON.stringify(await buildExport(), null, 2), datedName('ultimate-bookmark-manager-settings', 'json'));
         toast('Settings exported.', 'success');
       } }),
       h('button', { text: 'Import settings…', onclick: () => file.click() }),
       file));
 }
-
-const MATCHING = [
-  ['ignoreProtocol', 'Treat http and https as the same'],
-  ['ignoreWww', 'Treat “www.” and no “www.” as the same'],
-  ['ignoreTrailingSlash', 'Ignore a trailing slash'],
-  ['ignoreFragment', 'Ignore the part after “#”'],
-  ['ignoreQuery', 'Ignore the query string (after “?”)'],
-  ['ignoreCase', 'Ignore letter case in the whole URL'],
-];
-
-const PRESETS = [
-  { name: 'Strip tracking parameters', rule: { kind: 'replace', pattern: '([?&])(utm_[^=&#]*|fbclid|gclid|mc_eid)=[^&#]*', flags: 'i', replacement: '$1' } },
-  { name: 'Skip bookmarklets', rule: { kind: 'filter', field: 'url', pattern: '^javascript:', flags: 'i' } },
-  { name: 'Skip a folder by name', rule: { kind: 'filter', field: 'name', pattern: '^Bookmarks Toolbar/Keep/', flags: '' } },
-];
 
 function ruleRow(rule, onRemove, error) {
   const field = h('select', { 'aria-label': 'Match against', hidden: rule.kind !== 'filter', onchange: (e) => { rule.field = e.target.value; } },
@@ -121,10 +136,6 @@ function ruleRow(rule, onRemove, error) {
     h('button', { class: 'small', text: 'Remove', onclick: onRemove }),
     error && h('p', { class: 'error full', text: error }));
 }
-
-// Unsaved edits survive a refresh; an untouched draft follows the saved settings when they change.
-let draft = null;
-let draftBase = null;
 
 export default {
   id: 'settings',
@@ -146,14 +157,13 @@ export default {
     });
 
     const matching = h('fieldset', {}, legend('Duplicate matching', 'Two bookmarks are duplicates when their URLs match after these adjustments'),
-      MATCHING.map(([key, label]) => h('label', { class: 'check-line' },
-        h('input', { type: 'checkbox', checked: s.matching[key], onchange: (e) => { s.matching[key] = e.target.checked; } }), label)));
+      MATCHING.map(([key, label]) => checkLine(s.matching, key, label)));
 
-    const errors = new Map(compileRules(s.rules).errors.map((e) => [e.index, e.message]));
+    const errors = new Map(compileRules(s.duplicateRules).errors.map((e) => [e.index, e.message]));
     const rules = h('ul', { class: 'rules' });
-    const drawRules = () => rules.replaceChildren(...s.rules.map((r, i) => ruleRow(r, () => { s.rules.splice(i, 1); drawRules(); }, errors.get(i))));
+    const drawRules = () => rules.replaceChildren(...s.duplicateRules.map((r, i) => ruleRow(r, () => { s.duplicateRules.splice(i, 1); drawRules(); }, errors.get(i))));
     drawRules();
-    const addRule = (rule) => { s.rules.push({ enabled: true, ...rule }); drawRules(); };
+    const addRule = (rule) => { s.duplicateRules.push({ enabled: true, ...rule }); drawRules(); };
     const rulesBox = h('fieldset', {}, legend('Custom duplicate rules (expert)', 'Exclude rules leave bookmarks out of the duplicate check; Replace rules rewrite a URL before comparing'),
       rules,
       h('div', { class: 'row wrap' },
@@ -161,34 +171,22 @@ export default {
         PRESETS.map((p) => h('button', { class: 'small', text: `+ ${p.name}`, onclick: () => addRule(structuredClone(p.rule)) }))));
 
     const lc = s.linkCheck;
+    const defaults = DEFAULT_SETTINGS.linkCheck;
     const linkBox = h('fieldset', {}, legend('Link checking', 'How the broken-link check runs, and domains it never checks'),
-      h('label', { class: 'field' }, 'Parallel requests',
-        h('input', { type: 'number', min: 1, max: 32, value: String(lc.concurrency), onchange: (e) => { lc.concurrency = Math.min(32, Math.max(1, Number(e.target.value) || 6)); } })),
-      h('label', { class: 'field' }, 'Timeout (seconds)',
-        h('input', { type: 'number', min: 3, max: 120, value: String(lc.timeoutSeconds), onchange: (e) => { lc.timeoutSeconds = Math.min(120, Math.max(3, Number(e.target.value) || 15)); } })),
-      h('label', { class: 'check-line' },
-        h('input', { type: 'checkbox', checked: lc.skipPrivate, onchange: (e) => { lc.skipPrivate = e.target.checked; } }),
-        'Skip addresses on your own network, such as your router, NAS or printer'),
-      h('label', { class: 'field block' }, 'Skip these domains (one per line; subdomains included)',
-        h('textarea', { rows: 5, class: 'mono', onchange: (e) => { lc.skipDomains = lines(e.target.value); } }, lc.skipDomains.join('\n'))),
-      h('label', { class: 'check-line' },
-        h('input', { type: 'checkbox', checked: lc.useCookies, onchange: (e) => { lc.useCookies = e.target.checked; } }),
-        'Send your cookies, so pages you are logged into are checked as you see them (a check then acts as you on each site)'),
-      h('label', { class: 'field block' }, 'Never send cookies to URLs containing (one per line)',
-        h('textarea', { rows: 4, class: 'mono', onchange: (e) => { lc.noCookieWords = lines(e.target.value); } }, lc.noCookieWords.join('\n'))),
-      h('label', { class: 'check-line' },
-        h('input', { type: 'checkbox', checked: lc.detectLogin, onchange: (e) => { lc.detectLogin = e.target.checked; } }),
-        'List redirects to a login page under Broken links as “may still work”, not as redirects'),
-      h('label', { class: 'field block' }, 'Login services (one per line; subdomains included)',
-        h('textarea', { rows: 4, class: 'mono', onchange: (e) => { lc.loginHosts = lines(e.target.value); } }, lc.loginHosts.join('\n'))));
+      numberField(lc, 'concurrency', 'Parallel requests', defaults.concurrency),
+      numberField(lc, 'timeoutSeconds', 'Timeout (seconds)', defaults.timeoutSeconds),
+      checkLine(lc, 'skipPrivate', 'Skip addresses on your own network, such as your router, NAS or printer'),
+      linesField(lc, 'skipDomains', 'Skip these domains (one per line; subdomains included)', 5),
+      checkLine(lc, 'useCookies', 'Send your cookies, so pages you are logged into are checked as you see them (a check then acts as you on each site)'),
+      linesField(lc, 'noCookieWords', 'Never send cookies to URLs containing (one per line)', 4),
+      checkLine(lc, 'detectLogin', 'List redirects to a login page under Broken links as “may still work”, not as redirects'),
+      linesField(lc, 'loginHosts', 'Login services (one per line; subdomains included)', 4));
 
     const general = h('fieldset', {}, h('legend', { text: 'General' }),
       h('label', { class: 'field' }, 'Folder for moved duplicates (in Other Bookmarks)',
-        h('input', { type: 'text', value: s.dupesFolderName, onchange: (e) => { s.dupesFolderName = e.target.value.trim() || 'Dupes'; } })),
-      h('label', { class: 'field' }, 'Undo history length',
-        h('input', { type: 'number', min: 1, max: 500, value: String(s.historyLimit), onchange: (e) => { s.historyLimit = Math.min(500, Math.max(1, Number(e.target.value) || 50)); } })),
-      h('label', { class: 'field' }, 'Forget undo history after (days)',
-        h('input', { type: 'number', min: 1, max: 3650, value: String(s.historyDays), onchange: (e) => { s.historyDays = Math.min(3650, Math.max(1, Number(e.target.value) || 30)); } })));
+        h('input', { type: 'text', value: s.dupesFolderName, onchange: (e) => { s.dupesFolderName = e.target.value.trim() || DEFAULT_SETTINGS.dupesFolderName; } })),
+      numberField(s, 'historyLimit', 'Undo history length', DEFAULT_SETTINGS.historyLimit),
+      numberField(s, 'historyDays', 'Forget undo history after (days)', DEFAULT_SETTINGS.historyDays));
 
     const entries = Object.entries(ctx.state.whitelist);
     const whitelist = h('fieldset', {}, legend(`Ignored items (${entries.length})`, 'Ignored bookmarks and folders are skipped by every check'),

@@ -2,9 +2,9 @@
 
 import { loadSettings, loadWhitelist, addNewCookieWords } from './lib/settings.js';
 import { planMoves } from './lib/organize.js';
-import { flatten } from './lib/tree.js';
+import { flatten, rootFoldersOf } from './lib/tree.js';
 import { Actions } from './lib/actions.js';
-import { push, pull, reconcile, isSyncEnabled, guarded } from './lib/sync.js';
+import { push, pull, reconcile, isSyncEnabled, isSyncKey, guarded } from './lib/sync.js';
 
 const VIEWS = {
   stats: 'Dashboard',
@@ -21,6 +21,13 @@ const VIEWS = {
   help: 'Help',
 };
 
+// New bookmarks wait this long before being organized, so a folder picked in the star panel wins.
+const AUTO_DELAY_MS = 4000;
+// More new bookmarks than this at once means an import, sync or "bookmark all tabs", which is left alone.
+const BURST_LIMIT = 20;
+// Settings changes settle for this long before they are synced.
+const SYNC_DELAY_MS = 1000;
+
 // Focuses an open dashboard tab if there is one, otherwise opens a new one.
 async function openDashboard(view = 'stats') {
   const focused = await browser.runtime.sendMessage({ type: 'focus-dashboard', view }).catch(() => false);
@@ -29,8 +36,8 @@ async function openDashboard(view = 'stats') {
 
 browser.action.onClicked.addListener(() => openDashboard());
 
-// Clears what the removed AI organizer left in storage: its settings, saved page summaries and restart marker.
-async function removeAiLeftovers() {
+// Removes storage entries this version no longer uses.
+async function removeLeftovers() {
   await browser.storage.local.remove(['aiSummaries', 'aiResume']);
   const { settings } = await browser.storage.local.get('settings');
   if (settings && 'ai' in settings) {
@@ -38,7 +45,7 @@ async function removeAiLeftovers() {
     await browser.storage.local.set({ settings });
   }
 }
-browser.runtime.onInstalled.addListener(() => removeAiLeftovers().catch((err) => console.error('Cleanup failed', err)));
+browser.runtime.onInstalled.addListener(() => removeLeftovers().catch((err) => console.error('Cleanup failed', err)));
 browser.runtime.onInstalled.addListener(() => addNewCookieWords().catch((err) => console.error('Updating the never-send-cookies words failed', err)));
 
 browser.commands.onCommand.addListener((command) => {
@@ -74,10 +81,6 @@ browser.omnibox.onInputEntered.addListener((text) => {
   openDashboard(match ?? 'stats');
 });
 
-// New bookmarks wait this long before being organized, so a folder picked in the star panel wins.
-const AUTO_DELAY_MS = 4000;
-// More new bookmarks than this at once means an import, sync or "bookmark all tabs", which is left alone.
-const BURST_LIMIT = 20;
 const pending = new Map();
 let autoTimer;
 
@@ -101,9 +104,8 @@ async function autoOrganize() {
   const [root] = await browser.bookmarks.getTree();
   const all = flatten(root);
   const fresh = all.filter((b) => batch.get(b.id) === b.parentId && !restored.has(b.id));
-  const rootFolders = root.children.map((c) => ({ id: c.id, title: c.title }));
   const ignored = new Set(Object.keys(await loadWhitelist()));
-  const { moves } = planMoves(fresh, settings.organize.rules, rootFolders, ignored, all);
+  const { moves } = planMoves(fresh, settings.organize.rules, rootFoldersOf(root), ignored, all);
   if (!moves.length) return;
 
   const label = moves.length === 1 ? `Auto-organized “${moves[0].bookmark.title || moves[0].bookmark.url}”` : `Auto-organized ${moves.length} new bookmarks`;
@@ -119,18 +121,18 @@ function soon(name, step) {
   clearTimeout(syncTimers[name]);
   syncTimers[name] = setTimeout(async () => {
     if (await isSyncEnabled(local)) await guarded(local, step);
-  }, 1000);
+  }, SYNC_DELAY_MS);
 }
 
 browser.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && ('settings' in changes || 'whitelist' in changes)) soon('push', () => push(local, sync));
-  if (area === 'sync' && Object.keys(changes).some((k) => k.startsWith('cfg_'))) soon('pull', () => pull(local, sync));
+  if (area === 'sync' && Object.keys(changes).some(isSyncKey)) soon('pull', () => pull(local, sync));
 });
 
 browser.runtime.onStartup.addListener(() => soon('reconcile', () => reconcile(local, sync)));
+browser.runtime.onInstalled.addListener(() => soon('reconcile', () => reconcile(local, sync)));
 
 // Undo history past its age limit is forgotten at startup, even if the dashboard is never opened.
 browser.runtime.onStartup.addListener(() => loadSettings()
   .then((settings) => new Actions({ limit: settings.historyLimit, days: settings.historyDays }).load())
   .catch((err) => console.error('Clearing old undo history failed', err)));
-browser.runtime.onInstalled.addListener(() => soon('reconcile', () => reconcile(local, sync)));

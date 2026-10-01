@@ -1,37 +1,61 @@
 // Organize rules: edit rules that file bookmarks into folders, preview the moves, then apply them.
 
 import { h, Selection, toast, confirmDialog, promptDialog } from '../dom.js';
-import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, pickFolder, pickRule, marked, helpLink, actionMenu } from '../components.js';
+import { viewHeader, emptyState, bindCheckboxes, selectionBar, selectAllToggle, bookmarkInfo, row, pagedList, pickFolder, pickRule, marked, helpLink, actionMenu } from '../components.js';
 import { mountQueryEditor } from '../query-editor.js';
 import { saveSettings } from '../../lib/settings.js';
-import { newRule, duplicateRule, moveToNewRule, mergeRules, mergeCandidates, moveRulePaths, planMoves, resolveTarget, maxScore, rankingWarnings } from '../../lib/organize.js';
+import { newRule, duplicateRule, moveToNewRule, mergeRules, moveRulePaths, resolveTarget, ruleName, folderLabel } from '../../lib/rules.js';
+import { maxScore } from '../../lib/matching.js';
+import { rankingWarnings } from '../../lib/organize.js';
 import { eligibleToOutrank, eligibleToRankBelow } from '../../lib/rule-order.js';
 import { formatScore } from '../../lib/specificity.js';
-import { nodeType } from '../../lib/tree.js';
+import { rootFoldersOf, isFolder } from '../../lib/tree.js';
+import { groupBy, countBy } from '../../lib/group.js';
+import * as scans from '../scans.js';
 
-// Unsaved edits live here so they survive the re-render that follows any other action.
-let draft = null;
-// The saved rules the draft started from; an untouched draft follows the saved rules when they change.
-let draftBase = null;
-// Moves the user unticked in the preview, so a refresh or an edited rule does not tick them again.
-const unticked = new Set();
-
-const rootFolders = (ctx) => ctx.state.root.children.map((c) => ({ id: c.id, title: c.title }));
-
-// The last plan worked out, reused until the bookmarks, the ignore list or the rules change.
-let lastPlan = { flat: null, whitelist: null, key: '', result: null };
-
-export function plan(ctx, rules) {
-  const key = JSON.stringify(rules);
-  const { flat, whitelist } = ctx.state;
-  if (lastPlan.flat === flat && lastPlan.whitelist === whitelist && lastPlan.key === key) return lastPlan.result;
-  const result = planMoves(flat, rules, rootFolders(ctx), ctx.ignoredIds());
-  lastPlan = { flat, whitelist, key, result };
-  return result;
-}
+// What the page remembers between renders, so a refresh after any other action does not lose the user's place.
+const state = {
+  // Unsaved edits, and the saved rules they started from; an untouched draft follows the saved rules when they change.
+  draft: null,
+  draftBase: null,
+  // Moves the user unticked in the preview.
+  unticked: new Set(),
+  // Rules shown open; saved rules start closed, while new and duplicated ones open for editing.
+  expanded: new Set(),
+  // Folders the user opened or closed by hand; the rest are open when they or a folder inside them hold rules.
+  folderOpen: new Map(),
+  query: '',
+  onlyWithRules: false,
+  unmatchedOpen: false,
+};
 
 // Each open rule's query editor, taken down when the tree is redrawn.
 const editors = new Map();
+
+// The preview is redrawn this long after the last edit.
+const PREVIEW_DELAY_MS = 300;
+
+const PART_NAMES = { title: 'title', url: 'URL', host: 'site name', path: 'path', query: 'query string', fragment: 'part after #' };
+
+const SPECIFICITY_HELP = 'Most this rule can score when every condition matches; only conditions that match a bookmark count. Conditions on the URL always outrank keywords: exact URL 1000, URL path 100 + 10 per segment, exact query string 80, subdomain or query parameter with value 60, domain 50, query parameter 30, other URL text 20. Keyword conditions (title, or title or URL): exact title 40, keyword 20, regex 15.';
+
+const ruleLabel = (r) => `${ruleName(r)} → ${r.target ? folderLabel(r.target) : 'no folder yet'}`;
+const quoted = (r) => `“${ruleName(r)}”`;
+
+const ALL = '*';
+const RELATIONS = { above: 'ranks above', below: 'ranks below' };
+
+// "“ccna” in title, “youtube.com” in URL" for a rule's match explanation.
+function matchedText(why) {
+  return why.terms.map((t) => `“${t.value}” in ${t.on.map((o) => PART_NAMES[o] ?? o).join(' and ')}`).join(', ');
+}
+
+// Sets a toggle button's state and the labels that go with it.
+function setToggle(button, open, { collapse, expand }) {
+  button.setAttribute('aria-expanded', String(open));
+  button.setAttribute('aria-label', open ? collapse : expand);
+  button.title = open ? collapse : expand;
+}
 
 // The rule's conditions in a react-querybuilder editor.
 function queryEditor(ctx, rule, changed, moveToNewRule) {
@@ -41,24 +65,7 @@ function queryEditor(ctx, rule, changed, moveToNewRule) {
   return box;
 }
 
-// Rules shown open; saved rules start closed, while new and duplicated ones open for editing.
-const expanded = new Set();
-// Folders the user opened or closed by hand; the rest are open when they or a folder inside them hold rules.
-const folderOpen = new Map();
-// The folder search and the "only folders with rules" switch survive refreshes.
-const treeView = { query: '', onlyWithRules: false };
-// Whether the list of bookmarks no rule matches is open.
-const unmatchedView = { open: false };
-
-const PART_NAMES = { title: 'title', url: 'URL', host: 'site name', path: 'path', query: 'query string', fragment: 'part after #' };
-
-// "“ccna” in title, “youtube.com” in URL" for a rule's match explanation.
-function matchedText(why) {
-  return why.terms.map((t) => `“${t.value}” in ${t.on.map((o) => PART_NAMES[o] ?? o).join(' and ')}`).join(', ');
-}
-
-// Every rule that matched a bookmark, strongest first, each with its standing and, below the winner, why it lost.
-// Selecting a rule re-highlights the bookmark's title and URL with what that rule matched.
+// Every rule that matched a bookmark, strongest first with why each lost; selecting one re-highlights what it matched.
 function rankingList(move) {
   const show = (r, button) => {
     const box = button.closest('.bm');
@@ -67,8 +74,10 @@ function rankingList(move) {
     if (link && title) link.replaceChildren(...marked(title, r.why?.title));
     box.querySelector('.bm-url')?.replaceChildren(...marked(url, r.why?.url));
     const note = box.querySelector('.matched');
-    if (note) note.hidden = false;
-    if (note) note.textContent = r.why?.terms.length ? `${r.lost ? `${r.ruleName || 'Unnamed rule'} matched` : 'Matched'} ${matchedText(r.why)}` : `${r.ruleName || 'Unnamed rule'} matched nothing to highlight`;
+    if (note) {
+      note.hidden = false;
+      note.textContent = r.why?.terms.length ? `${r.lost ? `${ruleName(r)} matched` : 'Matched'} ${matchedText(r.why)}` : `${ruleName(r)} matched nothing to highlight`;
+    }
     for (const b of box.querySelectorAll('.ranking-pick')) b.setAttribute('aria-pressed', String(b === button));
   };
   // The list is only built the first time it is opened.
@@ -76,43 +85,30 @@ function rankingList(move) {
     if (!details.open || details.childElementCount > 1) return;
     details.append(
       h('ol', {}, move.ranking.map((r) => h('li', { class: r.lost ? 'lost' : 'won' },
-      h('button', { class: 'ranking-pick', type: 'button', 'aria-pressed': String(!r.lost), title: 'Highlight what this rule matched', onclick: (e) => show(r, e.currentTarget) },
-        h('strong', { text: r.ruleName || 'Unnamed rule' }),
-        h('span', { class: 'muted', text: ` → ${r.target.path.join(' › ')}` })),
-      h('div', { class: 'small muted' },
-        [formatScore(r.score),
-          r.why?.terms.length ? `matched ${matchedText(r.why)}` : ''].filter(Boolean).join(' · ')),
-      h('div', { class: 'small' }, r.lost ? h('span', { class: 'lost-reason', text: `Lost: ${r.lost}` }) : h('strong', { class: 'won-label', text: 'Wins' }))))));
+        h('button', { class: 'ranking-pick', type: 'button', 'aria-pressed': String(!r.lost), title: 'Highlight what this rule matched', onclick: (e) => show(r, e.currentTarget) },
+          h('strong', { text: ruleName(r) }),
+          h('span', { class: 'muted', text: ` → ${r.target.path.join(' › ')}` })),
+        h('div', { class: 'small muted' },
+          [formatScore(r.score), r.why?.terms.length ? `matched ${matchedText(r.why)}` : ''].filter(Boolean).join(' · ')),
+        h('div', { class: 'small' }, r.lost ? h('span', { class: 'lost-reason', text: `Lost: ${r.lost}` }) : h('strong', { class: 'won-label', text: 'Wins' }))))));
   } }, h('summary', { text: `All ${move.others + 1} matching rules`, title: 'Strongest first; select a rule to highlight what it matched' }));
   return details;
 }
 
-// How many rows each preview group shows before a "Show more" button.
-const PREVIEW_ROWS = 100;
-
-const SPECIFICITY_HELP = 'Most this rule can score when every condition matches; only conditions that match a bookmark count. Conditions on the URL always outrank keywords: exact URL 1000, URL path 100 + 10 per segment, exact query string 80, subdomain or query parameter with value 60, domain 50, query parameter 30, other URL text 20. Keyword conditions (title, or title or URL): exact title 40, keyword 20, regex 15.';
-
-const ruleLabel = (r) => `${r.name || 'Unnamed rule'} → ${r.target ? r.target.split('/').join(' › ') : 'no folder yet'}`;
-
-const ALL = '*';
-const RELATIONS = { above: 'ranks above', below: 'ranks below' };
-
-// Every other rule as an entry for the rule picker, filed under its destination folder; rules not in `allowed` are
-// shown greyed out with `reason` as their tooltip.
+// Every other rule as a picker entry under its destination folder, greyed out with `reason` when not in `allowed`.
 function ruleEntries(ctx, rule, rules, allowed, reason) {
-  const roots = rootFolders(ctx);
+  const roots = rootFoldersOf(ctx.state.root);
   const ok = new Set(allowed.map((r) => r.id));
   return rules.filter((r) => r !== rule).map((r) => ({
     id: r.id,
-    label: r.name || 'Unnamed rule',
+    label: ruleName(r),
     folder: resolveTarget(r.target, roots)?.path.join('/') ?? '',
     disabled: !ok.has(r.id),
     reason: ok.has(r.id) ? ruleLabel(r) : reason,
   }));
 }
 
-// The rule's ranking as rows of "ranks above / below" a rule or all other rules. "Ranks below X" is stored in X's list,
-// so both rules always agree; the menus offer only rules that would not make a loop or go against the tiers.
+// The rule's ranking as rows of "ranks above / below" a rule or all other rules; "ranks below X" is stored in X's list.
 function rankingEditor(ctx, rule, rules, redraw) {
   const byId = new Map(rules.map((r) => [r.id, r]));
   const links = [
@@ -142,7 +138,7 @@ function rankingEditor(ctx, rule, rules, redraw) {
     }
     redraw();
   };
-  const row = (link) => {
+  const rankRow = (link) => {
     let rel = link?.rel ?? 'above';
     // The rule it ranks against is chosen from the folder tree; the current one stays choosable.
     const pick = async () => {
@@ -165,24 +161,23 @@ function rankingEditor(ctx, rule, rules, redraw) {
       h('button', { class: 'small', text: '×', title: 'Remove', 'aria-label': 'Remove ranking', onclick: () => (link ? (remove(link), redraw()) : el.remove()) }));
     return el;
   };
-  const list = h('div', { class: 'rank-rows' }, links.map(row));
+  const list = h('div', { class: 'rank-rows' }, links.map(rankRow));
   return field([h('span', { text: 'Ranking ' }), helpLink('A rule ranked above another wins when both match; ranking above or below all other rules sets its tier; unranked rules are ordered by specificity', 'organize')],
     list,
-    h('button', { class: 'small', text: '+ Ranking', onclick: () => list.append(row(null)) }));
+    h('button', { class: 'small', text: '+ Ranking', onclick: () => list.append(rankRow(null)) }));
 }
 
 // A menu item that picks a rule to merge into this one; the chosen rule's conditions join this rule's and it is removed.
 function mergeAction(ctx, rule, rules, redraw) {
-  const others = mergeCandidates(rule, rules);
+  const others = rules.filter((r) => r !== rule);
   return { label: 'Merge…', title: 'Merge another rule into this one', disabled: !others.length, run: async () => {
-    const id = await pickRule(ctx.state.root, ruleEntries(ctx, rule, rules, others, ''), { heading: `Merge into “${rule.name || 'Unnamed rule'}”`, confirm: 'Merge this rule' });
+    const id = await pickRule(ctx.state.root, ruleEntries(ctx, rule, rules, others, ''), { heading: `Merge into ${quoted(rule)}`, confirm: 'Merge this rule' });
     const other = others.find((r) => r.id === id);
     if (!other) return;
-    const name = (r) => `“${r.name || 'Unnamed rule'}”`;
-    const elsewhere = other.target !== rule.target ? ` Bookmarks it matches will go to ${rule.target ? rule.target.split('/').join(' › ') : 'this rule’s folder'} instead.` : '';
-    if (!(await confirmDialog(`Merge ${name(other)} into ${name(rule)}? This rule will match whatever either of them matched, and ${name(other)} is removed.${elsewhere}`, 'Merge', false))) return;
+    const elsewhere = other.target !== rule.target ? ` Bookmarks it matches will go to ${rule.target ? folderLabel(rule.target) : 'this rule’s folder'} instead.` : '';
+    if (!(await confirmDialog(`Merge ${quoted(other)} into ${quoted(rule)}? This rule will match whatever either of them matched, and ${quoted(other)} is removed.${elsewhere}`, 'Merge', false))) return;
     rules.splice(0, rules.length, ...mergeRules(rules, rule.id, other.id));
-    expanded.add(rule.id);
+    state.expanded.add(rule.id);
     redraw();
   } };
 }
@@ -193,44 +188,41 @@ function field(label, ...controls) {
 }
 
 // A rule as a one-line summary row that expands into its editor; `parts` receives the bits refreshed while editing.
-function ruleCard(ctx, rule, rules, redraw, changed, parts) {
+function ruleCard(ctx, rule, rules, { redraw, changed, revealRule }, parts) {
   const bodyId = `rule-body-${rule.id}`;
-  const isOpen = expanded.has(rule.id);
+  const isOpen = state.expanded.has(rule.id);
   const body = h('div', { class: 'rule-body', id: bodyId, hidden: !isOpen });
   // The editor is only built the first time the rule is opened.
-  // Built with h() rather than append(), which would print a skipped part as the text "undefined".
-  const fillBody = () => body.append(...h('div', {},
+  const fillBody = () => body.append(
     h('label', { class: 'field-row' }, h('span', { class: 'field-label', text: 'Enabled' }), h('span', { class: 'field-value' },
       h('input', { type: 'checkbox', checked: rule.enabled !== false, 'aria-label': 'Rule enabled', onchange: (e) => { rule.enabled = e.target.checked; redraw(); } }))),
     field('Rule', queryEditor(ctx, rule, changed, (itemId) => {
       const moved = moveToNewRule(rules, rule.id, itemId);
       if (!moved) return;
       rules.splice(0, rules.length, ...moved.rules);
-      expanded.add(moved.part.id);
+      state.expanded.add(moved.part.id);
       // Redrawn after the click is handled, as the redraw takes down the editor the click came from.
       setTimeout(redraw);
     })),
     rankingEditor(ctx, rule, rules, redraw),
-    field('', parts.info)).childNodes);
+    field('', parts.info));
   if (isOpen) fillBody();
 
   // The chevron and the name both open and close the rule.
+  const toggleLabels = { collapse: 'Collapse rule', expand: 'Edit rule' };
   const toggle = h('button', {
-    class: 'rule-toggle', type: 'button', 'aria-expanded': String(isOpen), 'aria-controls': bodyId,
-    title: isOpen ? 'Collapse' : 'Edit this rule', 'aria-label': isOpen ? 'Collapse rule' : 'Edit rule',
+    class: 'rule-toggle', type: 'button', 'aria-controls': bodyId,
     onclick: () => {
       const open = body.hidden;
       if (open && !body.childElementCount) fillBody();
       body.hidden = !open;
-      open ? expanded.add(rule.id) : expanded.delete(rule.id);
-      toggle.setAttribute('aria-expanded', String(open));
-      toggle.title = open ? 'Collapse' : 'Edit this rule';
-      toggle.setAttribute('aria-label', open ? 'Collapse rule' : 'Edit rule');
+      open ? state.expanded.add(rule.id) : state.expanded.delete(rule.id);
+      setToggle(toggle, open, toggleLabels);
       card.classList.toggle('open', open);
     },
   }, h('span', { class: 'chevron', 'aria-hidden': 'true' }));
-  const name = h('span', { class: `rule-name${rule.name ? '' : ' unnamed'}`, text: rule.name || 'Unnamed rule', onclick: () => toggle.click() });
-  const scrollTo = (id) => document.querySelector(`.organize [data-rule="${id}"]`)?.scrollIntoView?.({ block: 'nearest' });
+  setToggle(toggle, isOpen, toggleLabels);
+  const name = h('span', { class: `rule-name${rule.name ? '' : ' unnamed'}`, text: ruleName(rule), onclick: () => toggle.click() });
   const menu = actionMenu([
     { label: 'Rename…', run: async () => {
       const value = await promptDialog('Rule name', 'Rename', rule.name ?? '');
@@ -240,23 +232,23 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
     } },
     { label: 'Duplicate', title: 'Add an editable copy of this rule', run: () => {
       const copy = duplicateRule(rule);
-      expanded.add(copy.id);
+      state.expanded.add(copy.id);
       rules.splice(rules.indexOf(rule) + 1, 0, copy);
       redraw();
-      scrollTo(copy.id);
+      revealRule(copy.id);
     } },
-    { label: 'Move…', title: `Choose the folder this rule files into${rule.target ? ` (now ${rule.target.split('/').join(' › ')})` : ''}`, run: async () => {
-      const picked = await pickFolder(ctx.state.root, rule.target, { heading: `Move “${rule.name || 'Unnamed rule'}”`, verb: 'Move rule here' });
+    { label: 'Move…', title: `Choose the folder this rule files into${rule.target ? ` (now ${folderLabel(rule.target)})` : ''}`, run: async () => {
+      const picked = await pickFolder(ctx.state.root, rule.target, { heading: `Move ${quoted(rule)}`, verb: 'Move rule here' });
       if (!picked || picked === rule.target) return;
       rule.target = picked;
-      folderOpen.set(picked, true);
+      state.folderOpen.set(picked, true);
       redraw();
-      scrollTo(rule.id);
+      revealRule(rule.id);
     } },
     mergeAction(ctx, rule, rules, redraw),
     null,
     { label: 'Delete', danger: true, run: () => {
-      expanded.delete(rule.id);
+      state.expanded.delete(rule.id);
       rules.splice(rules.indexOf(rule), 1);
       // Other rules stop listing it.
       for (const r of rules) if (r.outranks?.includes(rule.id)) r.outranks = r.outranks.filter((id) => id !== rule.id);
@@ -282,26 +274,36 @@ function folderTree(root) {
     const own = [...path, node.title ?? ''];
     return {
       id: node.id, title: node.title || '(no name)', key: own.join('/'), path: own, depth,
-      children: (node.children ?? []).filter((c) => nodeType(c) === 'folder').map((c) => walk(c, own, depth + 1)),
+      children: (node.children ?? []).filter(isFolder).map((c) => walk(c, own, depth + 1)),
     };
   };
   return (root.children ?? []).map((c) => walk(c, [], 0));
 }
 
+// A group of preview rows under a sticky heading, shown a page at a time.
+function previewGroup(key, heading, items, make) {
+  const list = h('ul', { class: 'items' });
+  const more = pagedList(key, list, items, make);
+  return h('section', { class: 'group' }, h('h2', { class: 'group-title sticky' }, heading), list, more);
+}
+
 export default {
   id: 'organize',
   label: 'Organize',
-  badge: (ctx) => ctx.memo('organize', () => plan(ctx, ctx.state.settings.organize.rules)).moves.length,
+  badge: (ctx) => scans.organizePlan(ctx).moves.length,
 
   render(ctx) {
     const saved = JSON.stringify(ctx.state.settings.organize);
-    if (draft && JSON.stringify(draft) === draftBase && draftBase !== saved) draft = null;
-    if (!draft) {
-      draft = structuredClone(ctx.state.settings.organize);
-      draftBase = saved;
+    const untouched = state.draft && JSON.stringify(state.draft) === state.draftBase;
+    // An untouched draft is dropped when the saved rules changed underneath it, say through sync or an undo.
+    if (untouched && state.draftBase !== saved) state.draft = null;
+    if (!state.draft) {
+      state.draft = structuredClone(ctx.state.settings.organize);
+      state.draftBase = saved;
     }
+    const draft = state.draft;
     const rules = draft.rules;
-    const roots = rootFolders(ctx);
+    const roots = rootFoldersOf(ctx.state.root);
     const section = h('section', { class: 'organize' });
     const treeBox = h('div', { class: 'rule-tree' });
     const previewBox = h('div');
@@ -309,42 +311,45 @@ export default {
     const dirtyNote = h('span', { class: 'muted small' });
 
     const isDirty = () => JSON.stringify(draft) !== JSON.stringify(ctx.state.settings.organize);
-    const save = (message = 'Rules saved.') => ctx.run(async () => {
+    const persistDraft = async () => {
       await saveSettings({ ...ctx.state.settings, organize: draft });
-      draft = null;
-      if (message) toast(message, 'success');
+      state.draft = null;
+    };
+    const save = () => ctx.run(async () => {
+      await persistDraft();
+      toast('Rules saved.', 'success');
     });
 
     let previewTimer;
     const changed = () => {
       dirtyNote.textContent = isDirty() ? 'Unsaved changes' : '';
       clearTimeout(previewTimer);
-      previewTimer = setTimeout(drawPreview, 300);
+      previewTimer = setTimeout(drawPreview, PREVIEW_DELAY_MS);
     };
 
     const cardParts = new Map();
     // Each folder's "would move here" count, refreshed with the cards as rules are edited.
     const folderCounts = new Map();
-    const newParts = () => ({
-      info: h('div', { class: 'rule-info' }),
-      badge: h('span', { class: 'rule-badge' }),
-      score: h('span', { class: 'score-chip' }),
-    });
+    const revealRule = (id) => treeBox.querySelector(`[data-rule="${id}"]`)?.scrollIntoView?.({ block: 'nearest' });
     const card = (r) => {
-      const parts = newParts();
-      parts.handle = ruleHandle(r);
+      const parts = {
+        handle: ruleHandle(r),
+        info: h('div', { class: 'rule-info' }),
+        badge: h('span', { class: 'rule-badge' }),
+        score: h('span', { class: 'score-chip' }),
+      };
       cardParts.set(r.id, parts);
-      return ruleCard(ctx, r, rules, redraw, changed, parts);
+      return ruleCard(ctx, r, rules, { redraw, changed, revealRule }, parts);
     };
     const folderKeyOf = (r) => resolveTarget(r.target, roots)?.path.join('/') ?? '';
-    const addRule = (rule, key) => {
+    // A rule's folder is set, the rule opened for editing and the tree redrawn with the rule in view.
+    const placeRule = (rule, key) => {
       rule.target = key;
-      expanded.add(rule.id);
-      if (key) folderOpen.set(key, true);
-      rules.push(rule);
+      state.expanded.add(rule.id);
+      if (key) state.folderOpen.set(key, true);
+      if (!rules.includes(rule)) rules.push(rule);
       redraw();
-      const el = treeBox.querySelector(`[data-rule="${rule.id}"]`);
-      el?.scrollIntoView?.({ block: 'nearest' });
+      revealRule(rule.id);
     };
 
     // Creates a subfolder straight away, as one undoable change, and opens its parent so it shows.
@@ -352,14 +357,14 @@ export default {
       const title = await promptDialog(`Name of the new folder in ${n.title}`, 'Create folder');
       if (!title) return;
       if (n.children.some((c) => c.title === title)) return toast(`${n.title} already has a folder called “${title}”.`, 'error');
-      folderOpen.set(n.key, true);
+      state.folderOpen.set(n.key, true);
       await ctx.run(async () => {
         await ctx.actions.createFolder(n.id, title);
         ctx.done(`Created “${title}”.`);
       });
     };
 
-    // The folder or rule being dragged. Any folder but the root folders can be moved into another, and a rule onto any folder but its own.
+    // The folder or rule being dragged: any folder but the root folders can move into another, and a rule onto any folder but its own.
     let dragging = null;
     let draggingRule = null;
     const contains = (folder, id) => folder.id === id || folder.children.some((c) => contains(c, id));
@@ -370,13 +375,6 @@ export default {
       dragging = null;
       draggingRule = null;
       for (const el of treeBox.querySelectorAll('.drop-into')) el.classList.remove('drop-into');
-    };
-    // A rule dropped on a folder files into it from then on; like any rule edit, it is saved with the other changes.
-    const moveRule = (rule, target) => {
-      rule.target = target.key;
-      folderOpen.set(target.key, true);
-      redraw();
-      treeBox.querySelector(`[data-rule="${rule.id}"]`)?.scrollIntoView?.({ block: 'nearest' });
     };
     const ruleHandle = (r) => h('span', { class: 'rule-drag', draggable: 'true', role: 'img', 'aria-label': 'Drag handle', title: 'Drag onto a folder to file this rule there', text: '⠿',
       ondragstart: (e) => {
@@ -392,7 +390,7 @@ export default {
       if (target.children.some((c) => c.path.at(-1) === folder.path.at(-1))) return toast(`${target.title} already has a folder called “${folder.title}”.`, 'error');
       const from = folder.path;
       const to = [...target.path, folder.path.at(-1)];
-      folderOpen.set(target.key, true);
+      state.folderOpen.set(target.key, true);
       return ctx.run(async () => {
         // The saved rules are rewritten with the move, as one undoable step; unsaved rule edits follow the folder too.
         await ctx.actions.moveFolder(folder.id, target.id, { from, to });
@@ -429,7 +427,8 @@ export default {
         const rule = draggingRule;
         clearDrag();
         if (!ok) return;
-        if (rule) moveRule(rule, n);
+        // A rule dropped on a folder files into it from then on; like any rule edit, it is saved with the other changes.
+        if (rule) placeRule(rule, n.key);
         else moveFolder(folder, n);
       },
     });
@@ -444,26 +443,21 @@ export default {
       const keys = new Set();
       const collect = (n) => { keys.add(n.key); n.children.forEach(collect); };
       tree.forEach(collect);
-      const byKey = new Map();
-      const orphans = [];
-      for (const r of rules) {
-        const key = folderKeyOf(r);
-        if (!keys.has(key)) orphans.push(r);
-        else byKey.set(key, [...(byKey.get(key) ?? []), r]);
-      }
+      const byKey = groupBy(rules.filter((r) => keys.has(folderKeyOf(r))), folderKeyOf);
+      const orphans = rules.filter((r) => !keys.has(folderKeyOf(r)));
       const withRules = new Map();
       const holds = (n) => {
         if (!withRules.has(n.key)) withRules.set(n.key, byKey.has(n.key) || n.children.some(holds));
         return withRules.get(n.key);
       };
-      const q = treeView.query.trim().toLowerCase();
+      const q = state.query.trim().toLowerCase();
       const matchesQuery = (n) => !q || n.title.toLowerCase().includes(q) || n.children.some(matchesQuery);
-      const shown = (n) => matchesQuery(n) && (!treeView.onlyWithRules || holds(n));
+      const shown = (n) => matchesQuery(n) && (!state.onlyWithRules || holds(n));
 
       const node = (n) => {
         const own = byKey.get(n.key) ?? [];
         const kids = n.children.filter(shown);
-        const open = q ? true : folderOpen.get(n.key) ?? (n.depth === 0 || holds(n));
+        const open = q ? true : state.folderOpen.get(n.key) ?? (n.depth === 0 || holds(n));
         // A closed folder's contents are only built the first time it is opened.
         const children = h('ul', { class: 'folder-children', hidden: !open });
         let filled = false;
@@ -474,26 +468,28 @@ export default {
         if (open) fill();
         const countEl = h('span', { class: 'rule-badge active' });
         folderCounts.set(n.key, countEl);
+        const toggleLabels = { collapse: `Collapse ${n.title}`, expand: `Expand ${n.title}` };
+        const toggle = h('button', { class: 'folder-toggle', type: 'button', hidden: !own.length && !kids.length,
+          onclick: () => {
+            const opening = children.hidden;
+            state.folderOpen.set(n.key, opening);
+            if (opening && !filled) {
+              fill();
+              paintStatus();
+            }
+            children.hidden = !opening;
+            setToggle(toggle, opening, toggleLabels);
+          } }, h('span', { class: 'chevron', 'aria-hidden': 'true' }));
+        setToggle(toggle, open, toggleLabels);
         return h('li', { class: 'folder-node', 'data-folder': n.key },
           h('div', { class: 'folder-head', style: `--depth: ${n.depth}`, title: n.depth > 0 ? 'Drag onto another folder to move it there' : null, ...dragProps(n) },
-            h('button', { class: 'folder-toggle', type: 'button', 'aria-expanded': String(open), 'aria-label': `${open ? 'Collapse' : 'Expand'} ${n.title}`, hidden: !own.length && !kids.length,
-              onclick: (e) => {
-                const opening = children.hidden;
-                folderOpen.set(n.key, opening);
-                if (opening && !filled) {
-                  fill();
-                  refresh();
-                }
-                children.hidden = !opening;
-                e.currentTarget.setAttribute('aria-expanded', String(opening));
-                e.currentTarget.setAttribute('aria-label', `${opening ? 'Collapse' : 'Expand'} ${n.title}`);
-              } }, h('span', { class: 'chevron', 'aria-hidden': 'true' })),
+            toggle,
             h('span', { class: 'folder-icon', 'aria-hidden': 'true' }),
             h('span', { class: 'folder-title', text: n.title }),
             own.length > 0 && h('span', { class: 'muted small', text: `${own.length} rule(s)` }),
             countEl,
             h('div', { class: 'rule-actions' },
-              h('button', { class: 'small', text: '+ Rule', title: `Add a rule that files bookmarks into ${n.title}`, onclick: () => addRule(newRule(), n.key) }),
+              h('button', { class: 'small', text: '+ Rule', title: `Add a rule that files bookmarks into ${n.title}`, onclick: () => placeRule(newRule(), n.key) }),
               h('button', { class: 'small', text: '+ Folder', title: `Create a folder inside ${n.title}`, onclick: () => addFolder(n) }))),
           children);
       };
@@ -506,79 +502,64 @@ export default {
         visible.length ? h('ul', { class: 'folder-tree-list' }, visible.map(node)) : emptyState('No folders match.'));
     };
 
-    const refresh = () => {
-      const { moves, problems, wins, matches } = plan(ctx, rules);
-      refreshInfo(moves, problems, wins, matches);
-    };
-    const refreshInfo = (moves, problems, wins, matches) => {
-      const warnings = rankingWarnings(rules);
-      const incoming = new Map();
-      const moving = new Map();
-      for (const m of moves) {
-        const key = m.target.path.join('/');
-        incoming.set(key, (incoming.get(key) ?? 0) + 1);
-        moving.set(m.ruleId, (moving.get(m.ruleId) ?? 0) + 1);
-      }
+    // Each folder's count of bookmarks that would move into it.
+    const paintFolderCounts = (incoming) => {
       for (const [key, el] of folderCounts) {
         const count = incoming.get(key) ?? 0;
         el.textContent = count ? `${count} would move here` : '';
         el.hidden = !count;
       }
+    };
+
+    // A rule card's score chip, badge and info line from the plan.
+    const paintCard = (r, parts, { problems, warnings, matched, won, moving }) => {
+      const above = (r.outranks ?? []).filter((id) => rules.some((x) => x.id === id)).length;
+      const tier = r.rankAll === 'above' ? ' · above all' : r.rankAll === 'below' ? ' · below all' : '';
+      parts.score.textContent = `≤ ${formatScore(maxScore(r))}${tier}${above ? ` · above ${above}` : ''}`;
+      parts.score.title = `${r.rankAll ? `Ranks ${r.rankAll} all other rules. ` : ''}${above ? `Ranks above ${above} rule(s) by your ranking lists. ` : ''}${SPECIFICITY_HELP}`;
+      parts.score.classList.toggle('prioritised', above > 0 || !!r.rankAll);
+      const issues = problems.get(r.id);
+      if (issues) {
+        parts.info.replaceChildren(...issues.map((x) => h('p', { class: 'error small', text: x })));
+        parts.badge.textContent = 'Needs attention';
+        parts.badge.className = 'rule-badge error';
+        parts.badge.title = issues.join(' ');
+        return;
+      }
+      const lost = matched > won ? ` ${matched - won} go to a rule ranked above it, or to a more specific match.` : '';
+      parts.info.replaceChildren(
+        h('p', { class: 'muted small', text: `Matches ${matched} bookmark(s) and wins ${won}: ${moving} would move, the rest are already in place.${lost}` }),
+        ...(warnings.get(r.id) ?? []).map((x) => h('p', { class: 'warn small', text: x })));
+      parts.badge.textContent = r.enabled === false ? 'Off' : `${moving} to move`;
+      parts.badge.className = `rule-badge${moving && r.enabled !== false ? ' active' : ''}`;
+      parts.badge.title = `Matches ${matched}, wins ${won}, ${moving} would move`;
+    };
+
+    // Refreshes the counts and notes on every folder and rule card from the current plan.
+    const paintStatus = (plan = scans.planFor(ctx, rules)) => {
+      const { moves, problems, wins, matches } = plan;
+      const warnings = rankingWarnings(rules);
+      const incoming = countBy(moves, (m) => m.target.path.join('/'));
+      const moving = countBy(moves, (m) => m.ruleId);
+      paintFolderCounts(incoming);
       for (const r of rules) {
         const parts = cardParts.get(r.id);
-        if (!parts) continue;
-        const above = (r.outranks ?? []).filter((id) => rules.some((x) => x.id === id)).length;
-        const tier = r.rankAll === 'above' ? ' · above all' : r.rankAll === 'below' ? ' · below all' : '';
-        const spec = maxScore(r);
-        parts.score.textContent = `≤ ${formatScore(spec)}${tier}${above ? ` · above ${above}` : ''}`;
-        parts.score.title = `${r.rankAll ? `Ranks ${r.rankAll} all other rules. ` : ''}${above ? `Ranks above ${above} rule(s) by your ranking lists. ` : ''}${SPECIFICITY_HELP}`;
-        parts.score.classList.toggle('prioritised', above > 0 || !!r.rankAll);
-        const issues = problems.get(r.id);
-        if (issues) {
-          parts.info.replaceChildren(...issues.map((x) => h('p', { class: 'error small', text: x })));
-          parts.badge.textContent = 'Needs attention';
-          parts.badge.className = 'rule-badge error';
-          parts.badge.title = issues.join(' ');
-          continue;
-        }
-        const matched = matches.get(r.id) ?? 0;
-        const won = wins.get(r.id) ?? 0;
-        const moves = moving.get(r.id) ?? 0;
-        parts.info.replaceChildren(h('p', { class: 'muted small', text: `Matches ${matched} bookmark(s) and wins ${won}: ${moves} would move, the rest are already in place.${matched > won ? ` ${matched - won} go to a rule ranked above it, or to a more specific match.` : ''}` }),
-          ...(warnings.get(r.id) ?? []).map((x) => h('p', { class: 'warn small', text: x })));
-        parts.badge.textContent = r.enabled === false ? 'Off' : `${moves} to move`;
-        parts.badge.className = `rule-badge${moves && r.enabled !== false ? ' active' : ''}`;
-        parts.badge.title = `Matches ${matched}, wins ${won}, ${moves} would move`;
+        if (parts) paintCard(r, parts, { problems, warnings, matched: matches.get(r.id) ?? 0, won: wins.get(r.id) ?? 0, moving: moving.get(r.id) ?? 0 });
       }
     };
 
     // Bookmarks no rule matches, grouped by the folder they are in; rows are built only once the list is opened.
     const drawUnmatched = (unmatched) => {
       if (!rules.length || !unmatched.length) return unmatchedBox.replaceChildren();
-      const byFolder = new Map();
-      for (const b of unmatched) {
-        const key = (b.path ?? []).join(' › ');
-        if (!byFolder.has(key)) byFolder.set(key, []);
-        byFolder.get(key).push(b);
-      }
+      const byFolder = [...groupBy(unmatched, (b) => (b.path ?? []).join(' › '))].sort(([a], [b]) => a.localeCompare(b));
       const item = (b) => h('li', { class: 'item' }, bookmarkInfo(b, ctx, { editable: false }));
-      const groupItems = (group) => {
-        const items = h('ul', { class: 'items' }, group.slice(0, PREVIEW_ROWS).map(item));
-        if (group.length <= PREVIEW_ROWS) return items;
-        const more = h('button', { class: 'small', text: `Show ${group.length - PREVIEW_ROWS} more`, onclick: () => {
-          items.append(...group.slice(PREVIEW_ROWS).map(item));
-          more.remove();
-        } });
-        return [items, more];
-      };
       const list = h('div', { class: 'groups' });
-      const fill = () => list.replaceChildren(...[...byFolder].sort(([a], [b]) => a.localeCompare(b)).map(([path, group]) => h('section', { class: 'group' },
-        h('h2', { class: 'group-title sticky' }, h('span', { text: `${path || '(top level)'} — ${group.length}` })),
-        groupItems(group))));
-      if (unmatchedView.open) fill();
-      unmatchedBox.replaceChildren(h('details', { class: 'unmatched', open: unmatchedView.open, ontoggle: (e) => {
-        unmatchedView.open = e.currentTarget.open;
-        if (unmatchedView.open && !list.childElementCount) fill();
+      const fill = () => list.replaceChildren(...byFolder.map(([path, group]) => previewGroup(`organize:unmatched:${path}`,
+        h('span', { text: `${path || '(top level)'} — ${group.length}` }), group, item)));
+      if (state.unmatchedOpen) fill();
+      unmatchedBox.replaceChildren(h('details', { class: 'unmatched', open: state.unmatchedOpen, ontoggle: (e) => {
+        state.unmatchedOpen = e.currentTarget.open;
+        if (state.unmatchedOpen && !list.childElementCount) fill();
       } },
       h('summary', {}, h('h2', { text: `Not matched by any rule: ${unmatched.length} bookmark(s)` }), ' ',
         helpLink('Bookmarks that no enabled rule matches, so organizing leaves them where they are; ignored bookmarks are left out', 'organize')),
@@ -586,42 +567,27 @@ export default {
     };
 
     const drawPreview = () => {
-      const { moves, unmatched, problems, wins, matches } = plan(ctx, rules);
-      refreshInfo(moves, problems, wins, matches);
+      const plan = scans.planFor(ctx, rules);
+      const { moves, unmatched } = plan;
+      paintStatus(plan);
       drawUnmatched(unmatched);
       if (!rules.length) return previewBox.replaceChildren(emptyState('No rules yet. Use “+ Rule” on a folder to start organizing.'));
       if (!moves.length) return previewBox.replaceChildren(h('h2', { text: 'Preview' }), emptyState('Nothing to move: every matching bookmark is already in its folder.'));
 
       const sel = new Selection();
-      sel.set(moves.map((m) => m.bookmark.id).filter((id) => !unticked.has(id)), true);
+      sel.set(moves.map((m) => m.bookmark.id).filter((id) => !state.unticked.has(id)), true);
       sel.onChange(() => {
-        for (const m of moves) sel.has(m.bookmark.id) ? unticked.delete(m.bookmark.id) : unticked.add(m.bookmark.id);
+        for (const m of moves) sel.has(m.bookmark.id) ? state.unticked.delete(m.bookmark.id) : state.unticked.add(m.bookmark.id);
       });
-      const byTarget = new Map();
-      for (const m of moves) {
-        const key = m.target.path.join('/');
-        if (!byTarget.has(key)) byTarget.set(key, []);
-        byTarget.get(key).push(m);
-      }
-      const apply = h('button', { class: 'primary', onclick: async () => {
+      const applyMoves = async () => {
         const chosen = moves.filter((m) => sel.has(m.bookmark.id));
         if (!(await confirmDialog(`Move ${chosen.length} bookmark(s) into their rule folders? Missing folders are created. You can undo this from the history.${isDirty() ? ' Your rule changes will be saved too.' : ''}`, 'Move', false))) return;
         await ctx.run(async () => {
-          if (isDirty()) {
-            await saveSettings({ ...ctx.state.settings, organize: draft });
-            draft = null;
-          }
+          if (isDirty()) await persistDraft();
           await ctx.actions.organize(chosen.map((m) => ({ id: m.bookmark.id, target: m.target })));
           ctx.done(`Moved ${chosen.length} bookmark(s).`);
         });
-      } });
-      const updateApply = () => {
-        apply.textContent = `Move ${sel.size} selected`;
-        apply.disabled = sel.size === 0;
       };
-      sel.onChange(updateApply);
-      updateApply();
-
       const moveRow = (m) => row(sel, m.bookmark.id, bookmarkInfo(m.bookmark, ctx, {
         editable: false,
         highlight: m.why,
@@ -629,60 +595,50 @@ export default {
           h('span', { text: `Rule: ${m.ruleName || 'unnamed'} · ${formatScore(m.score)}${m.others ? ` · beat ${m.others} other matching rule(s)` : ''}` }),
           m.others > 0 && rankingList(m)],
       }));
-      // Long groups show their first rows until asked, since thousands of rows make every refresh slow; selection still covers them all.
-      const groupItems = (group) => {
-        const items = h('ul', { class: 'items' }, group.slice(0, PREVIEW_ROWS).map(moveRow));
-        if (group.length <= PREVIEW_ROWS) return items;
-        const more = h('button', { class: 'small', text: `Show ${group.length - PREVIEW_ROWS} more`, onclick: () => {
-          items.append(...group.slice(PREVIEW_ROWS).map(moveRow));
-          more.remove();
-        } });
-        return [items, more];
-      };
-      const list = h('div', { class: 'groups' }, [...byTarget].map(([path, group]) => h('section', { class: 'group' },
-        h('h2', { class: 'group-title sticky' }, h('span', { text: `→ ${path.replaceAll('/', ' › ')} — ${group.length}` }), selectAllToggle(sel, group.map((m) => m.bookmark.id), 'Select group')),
-        groupItems(group))));
+      const list = h('div', { class: 'groups' }, [...groupBy(moves, (m) => m.target.path.join('/'))].map(([path, group]) => previewGroup(`organize:preview:${path}`,
+        [h('span', { text: `→ ${folderLabel(path)} — ${group.length}` }), selectAllToggle(sel, group.map((m) => m.bookmark.id), 'Select group')], group, moveRow)));
       bindCheckboxes(list, sel);
-      previewBox.replaceChildren(
-        h('div', { class: 'selection-bar' },
-          h('div', { class: 'row wrap' }, h('h2', { text: `Preview: ${moves.length} bookmark(s) to move` })),
-          h('div', { class: 'row wrap end' }, selectAllToggle(sel, moves.map((m) => m.bookmark.id)), apply)),
-        list);
+      const bar = selectionBar(sel, [{ label: 'Move selected', primary: true, run: applyMoves }],
+        [h('h2', { text: `Preview: ${moves.length} bookmark(s) to move` }), selectAllToggle(sel, moves.map((m) => m.bookmark.id))]);
+      previewBox.replaceChildren(bar, list);
     };
 
     const redraw = () => {
       drawTree();
-      refresh();
+      paintStatus();
       changed();
     };
-
-    const search = h('input', { type: 'search', value: treeView.query, placeholder: 'Find a folder', 'aria-label': 'Find a folder',
-      oninput: (e) => { treeView.query = e.target.value; drawTree(); refresh(); } });
-    const setAll = (open) => {
-      const all = (n) => { folderOpen.set(n.key, open); n.children.forEach(all); };
-      folderTree(ctx.state.root).forEach(all);
+    const redrawTree = () => {
       drawTree();
-      refresh();
+      paintStatus();
+    };
+
+    const search = h('input', { type: 'search', value: state.query, placeholder: 'Find a folder', 'aria-label': 'Find a folder',
+      oninput: (e) => { state.query = e.target.value; redrawTree(); } });
+    const setAll = (open) => {
+      const all = (n) => { state.folderOpen.set(n.key, open); n.children.forEach(all); };
+      folderTree(ctx.state.root).forEach(all);
+      redrawTree();
     };
 
     section.append(
       viewHeader('Organize', 'Rules that file bookmarks into folders',
         dirtyNote,
-        h('button', { class: 'small', text: 'Discard changes', onclick: () => { draft = null; ctx.render(); } }),
-        h('button', { class: 'primary', text: 'Save rules', onclick: () => save() })),
+        h('button', { class: 'small', text: 'Discard changes', onclick: () => { state.draft = null; ctx.render(); } }),
+        h('button', { class: 'primary', text: 'Save rules', onclick: save })),
       h('label', { class: 'check-line', title: 'A few seconds after each is added; skipped if you pick a folder yourself, or when many arrive at once as during an import or sync' },
         h('input', { type: 'checkbox', checked: draft.autoApply, onchange: (e) => { draft.autoApply = e.target.checked; changed(); } }),
         'Organize new bookmarks automatically'),
       h('div', { class: 'row wrap filters' },
         search,
         h('label', { class: 'check-line small' },
-          h('input', { type: 'checkbox', checked: treeView.onlyWithRules, onchange: (e) => { treeView.onlyWithRules = e.target.checked; drawTree(); refresh(); } }),
+          h('input', { type: 'checkbox', checked: state.onlyWithRules, onchange: (e) => { state.onlyWithRules = e.target.checked; redrawTree(); } }),
           'Only folders with rules'),
         h('button', { class: 'small', text: 'Expand all', onclick: () => setAll(true) }),
         h('button', { class: 'small', text: 'Collapse all', onclick: () => setAll(false) }),
         h('button', { class: 'small', text: '+ Rule for a new folder', title: 'Add a rule whose folder you pick or create', onclick: async () => {
           const key = await pickFolder(ctx.state.root, '', { heading: 'Folder for the new rule', verb: 'Add rule here' });
-          if (key) addRule(newRule(), key);
+          if (key) placeRule(newRule(), key);
         } })),
       treeBox,
       previewBox,

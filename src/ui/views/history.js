@@ -1,8 +1,8 @@
 // Undo history of every change this add-on made, plus a full backup download.
 
-import { h, formatDate, confirmDialog } from '../dom.js';
-import { viewHeader, emptyState } from '../components.js';
-import { backupJson, restoreBackup } from './all.js';
+import { h, formatDateTime, confirmDialog } from '../dom.js';
+import { viewHeader, emptyState, PAGE } from '../components.js';
+import { backupJson, restoreInput } from '../backup.js';
 
 function describe(op) {
   if (op.kind === 'remove') return `Removed ${op.snapshot.type} “${op.snapshot.title || op.snapshot.url || ''}”`;
@@ -17,15 +17,11 @@ export default {
   label: 'History & backup',
 
   render(ctx) {
-    const restoreInput = h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: () => {
-      const file = restoreInput.files[0];
-      restoreInput.value = '';
-      if (file) restoreBackup(ctx, file);
-    } });
+    const restore = restoreInput(ctx);
     const section = h('section', {}, viewHeader('History & backup', 'Undo changes made here, newest first',
       h('button', { text: 'Download full backup (JSON)', onclick: backupJson }),
-      h('button', { text: 'Restore from backup…', title: 'Replace all your bookmarks with those in a JSON backup; you can undo it', onclick: () => restoreInput.click() }),
-      restoreInput));
+      h('button', { text: 'Restore from backup…', title: 'Replace all your bookmarks with those in a JSON backup; you can undo it', onclick: () => restore.click() }),
+      restore));
     const redoBox = h('div');
     const list = h('div', {}, h('p', { class: 'muted', text: 'Loading…' }));
     section.append(redoBox, list);
@@ -39,8 +35,8 @@ export default {
         h('ol', { class: 'items history' }, entries.map((e, i) => h('li', { class: 'item' },
           h('div', { class: 'bm grow' },
             h('div', { class: 'bm-title', text: e.label }),
-            h('div', { class: 'bm-meta muted' }, h('span', { text: `${formatDate(e.time)} ${new Date(e.time).toLocaleTimeString()}` }), h('span', { text: `${e.ops.length} change(s)` })),
-            h('details', {}, h('summary', { text: 'Details' }), h('ul', { class: 'ops' }, e.ops.slice(0, 200).map((op) => h('li', { text: describe(op) }))))),
+            h('div', { class: 'bm-meta muted' }, h('span', { text: formatDateTime(e.time) }), h('span', { text: `${e.ops.length} change(s)` })),
+            h('details', {}, h('summary', { text: 'Details' }), h('ul', { class: 'ops' }, e.ops.slice(0, PAGE).map((op) => h('li', { text: describe(op) }))))),
           h('div', { class: 'item-actions' }, i === 0
             ? h('button', { class: 'primary small', text: 'Undo', onclick: () => ctx.undo() })
             : null)))),

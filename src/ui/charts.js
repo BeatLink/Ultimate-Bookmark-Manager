@@ -1,5 +1,4 @@
-// Small chart pieces for the dashboard, built from plain elements: stat tiles, bar lists, a column chart and a card
-// that switches between a chart and a table of the same numbers.
+// Small chart pieces for the dashboard, built from plain elements: stat tiles, bar lists, a column chart and a chart-or-table card.
 
 import { h } from './dom.js';
 import { helpLink } from './components.js';
@@ -72,9 +71,8 @@ export function barList(items, { total, unit = 'bookmarks', onSelect, selectHint
   }));
 }
 
-// A round number at or above `n` for the top of an axis (1, 2 or 5 times a power of ten), kept even so the
-// middle gridline is a whole count.
-export function niceCeil(n) {
+// A round number at or above `n` for the top of an axis (1, 2 or 5 times a power of ten), kept even so the middle gridline is a whole count.
+function niceCeil(n) {
   if (n <= 2) return 2;
   const p = 10 ** Math.floor(Math.log10(n));
   const top = [1, 2, 5, 10].map((m) => m * p).find((v) => v >= n);

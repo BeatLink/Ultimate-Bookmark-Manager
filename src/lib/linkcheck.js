@@ -2,6 +2,8 @@
 
 import { readTitle } from './html-title.js';
 import { unhelpfulName } from './folders.js';
+import { bareDomain, onDomain } from './domains.js';
+import { eachLimited } from './pool.js';
 
 export const CATEGORIES = {
   notFound: { label: 'Not found (404 / 410)', severity: 'broken' },
@@ -43,10 +45,7 @@ export function isCheckable(url) {
 }
 
 function hostMatches(host, domains) {
-  return domains.some((entry) => {
-    const d = entry.trim().toLowerCase().replace(/^\*\./, '');
-    return d && (host === d || host.endsWith('.' + d));
-  });
+  return domains.some((entry) => onDomain(host, bareDomain(entry)));
 }
 
 // True when the URL's host equals a skip-list entry or is a subdomain of one.
@@ -86,7 +85,7 @@ export function isPrivateAddress(url) {
 }
 
 // True when the URL's path or query contains one of the words, ignoring case.
-export function hasRiskyWord(url, words) {
+function hasRiskyWord(url, words) {
   let rest;
   try {
     const u = new URL(url);
@@ -124,7 +123,7 @@ export function isLoginRedirect(from, to, loginHosts = DEFAULT_LOGIN_HOSTS) {
   return false;
 }
 
-export function categorize(httpStatus) {
+function categorize(httpStatus) {
   if (httpStatus === 404 || httpStatus === 410) return 'notFound';
   if (httpStatus === 401 || httpStatus === 403) return 'denied';
   if (httpStatus === 429) return 'rateLimited';
@@ -175,9 +174,7 @@ async function request(fetchImpl, url, timeout, outer, credentials, wantTitle) {
   }
 }
 
-// Checks one URL with a single GET, as many servers answer HEAD wrongly.
-// With `cookies` on, the request carries your cookies so pages you are logged into load as they do for you.
-// With `wantTitle` on, a usable page title comes back as `pageTitle`, except from a login page.
+// Checks one URL with a single GET (many servers answer HEAD wrongly), with your cookies when `cookies` is on and, with `wantTitle`, the page title as `pageTitle`.
 export async function checkUrl(url, {
   timeout = 15000,
   signal,
@@ -213,23 +210,58 @@ export async function checkUrl(url, {
 // Checks many bookmarks with limited parallelism, reporting progress after each one; `titleFor(bookmark)` says whose page title to read too.
 export async function checkAll(bookmarks, { concurrency = 6, signal, onProgress, titleFor, ...options } = {}) {
   const results = [];
-  let next = 0;
-  let done = 0;
-  const worker = async () => {
-    while (next < bookmarks.length) {
-      if (signal?.aborted) return;
-      const b = bookmarks[next++];
-      let result;
-      try {
-        result = await checkUrl(b.url, { ...options, signal, wantTitle: !!titleFor?.(b) });
-      } catch (err) {
-        if (err.name === 'AbortError') return;
-        result = { url: b.url, status: 'broken', category: 'unreachable', detail: String(err) };
-      }
-      results.push({ ...result, id: b.id, title: b.title, path: b.path });
-      onProgress?.(++done, bookmarks.length);
+  await eachLimited(bookmarks, concurrency, async (b) => {
+    let result;
+    try {
+      result = await checkUrl(b.url, { ...options, signal, wantTitle: !!titleFor?.(b) });
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      result = { url: b.url, status: 'broken', category: 'unreachable', detail: String(err) };
     }
-  };
-  await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker));
+    results.push({ ...result, id: b.id, title: b.title, path: b.path });
+    onProgress?.(results.length, bookmarks.length);
+  }, () => signal?.aborted);
   return results;
+}
+
+// The options `checkAll` and `loadTitles` take, from the link-check settings.
+export function fetchOptions(linkCheck) {
+  return {
+    concurrency: linkCheck.concurrency,
+    timeout: linkCheck.timeoutSeconds * 1000,
+    cookies: linkCheck.useCookies,
+    noCookieWords: linkCheck.noCookieWords,
+    detectLogin: linkCheck.detectLogin,
+    loginHosts: linkCheck.loginHosts,
+  };
+}
+
+// The bookmarks a check covers (`wanted` limits a re-check to those ids) and how many it skips for the skip list or your own network.
+export function checkTargets(flat, linkCheck, ignoredIds, wanted = null) {
+  let skipped = 0;
+  const targets = flat.filter((b) => {
+    if (b.type !== 'bookmark' || ignoredIds.has(b.id) || (wanted && !wanted.has(b.id))) return false;
+    if (!isCheckable(b.url) || isSkipped(b.url, linkCheck.skipDomains) || (linkCheck.skipPrivate && isPrivateAddress(b.url))) {
+      skipped++;
+      return false;
+    }
+    return true;
+  });
+  return { targets, skipped };
+}
+
+// The results to save after a check: a full check replaces everything, a re-check of `wanted` ids only its own entries.
+export function mergeLinkResults(previous, { results, skipped, cancelled, wanted = null }) {
+  const kept = wanted && previous ? previous.results.filter((r) => !wanted.has(r.id)) : [];
+  // Found titles stay with the URL they came from, so an edited bookmark does not get a stale one.
+  const titles = Object.fromEntries(Object.entries(wanted ? previous?.titles ?? {} : {}).filter(([id]) => !wanted.has(id)));
+  for (const r of results) if (r.pageTitle) titles[r.id] = { url: r.url, title: r.pageTitle };
+  return {
+    time: Date.now(),
+    checked: wanted ? previous?.checked ?? results.length : results.length,
+    skipped: wanted ? previous?.skipped ?? skipped : skipped,
+    cancelled,
+    results: [...kept, ...results.filter((r) => r.status !== 'ok')],
+    titles,
+  };
 }

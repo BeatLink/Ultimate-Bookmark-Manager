@@ -1,22 +1,20 @@
 // Bookmarks whose URL now redirects elsewhere, with one-click correction to the final URL.
 
 import { h } from '../dom.js';
-import { emptyState, bindCheckboxes, selectionBar, selectAllToggle, bookmarkInfo, row, pagedList, pickIds } from '../components.js';
-import { addToWhitelist } from '../../lib/settings.js';
-import { checkControls } from './broken.js';
+import { emptyState, bindCheckboxes, selectionBar, selectAllToggle, bookmarkInfo, row, pagedList, pickIds, ignoreAction } from '../components.js';
+import { checkControls } from '../link-checker.js';
 import { siteOf } from '../../lib/stats.js';
 import * as scans from '../scans.js';
 
 export default {
   id: 'redirects',
   label: 'Redirects',
-  badge: (ctx) => scans.linkResults(ctx)?.results.filter((r) => r.status === 'redirect').length,
+  badge: (ctx) => scans.redirects(ctx)?.length,
 
   render(ctx) {
     const header = checkControls(ctx, 'Redirects', 'Bookmarks whose URL now leads somewhere else');
-    const saved = scans.linkResults(ctx);
-    if (!saved) return h('section', {}, header);
-    const items = saved.results.filter((r) => r.status === 'redirect');
+    const items = scans.redirects(ctx);
+    if (!items) return h('section', {}, header);
     if (!items.length) return h('section', {}, header, emptyState('No redirects found.'));
 
     // A redirect to another site may be an expired domain sold on, not the page that moved, so it is flagged.
@@ -28,7 +26,7 @@ export default {
     });
     const sel = ctx.selection('redirects', items.map((b) => b.id));
     const bar = selectionBar(sel, [
-      { label: 'Ignore', run: (ids) => ctx.run(() => addToWhitelist(pickIds(items, ids))) },
+      ignoreAction(ctx, items),
       { label: 'Fix selected', primary: true, run: fix },
       { label: `Fix all (${items.length})`, always: true, run: () => fix(items.map((b) => b.id)) },
     ], [selectAllToggle(sel, items.map((b) => b.id))]);

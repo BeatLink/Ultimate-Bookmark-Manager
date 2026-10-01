@@ -2,7 +2,7 @@
 
 import { readSettings, readWhitelist } from './settings.js';
 
-export const FORMAT = 'bookmark-manager-settings';
+const FORMAT = 'bookmark-manager-settings';
 
 export async function buildExport(storage = browser.storage.local) {
   const { settings, whitelist } = await storage.get(['settings', 'whitelist']);
@@ -27,7 +27,7 @@ export function parseImport(text) {
   if (data.version > 1) throw new Error('This file comes from a newer version of the add-on.');
   if (typeof data.settings !== 'object' || data.settings === null) throw new Error('The file has no settings in it.');
   const whitelist = readWhitelist(data.whitelist);
-  // Files exported before rules used react-querybuilder's shape are converted as they are read.
+  // The file is read like stored settings, so rules in an older shape are converted and damaged values replaced.
   const settings = readSettings(data.settings);
   return { settings, whitelist, rules: settings.organize.rules.length };
 }

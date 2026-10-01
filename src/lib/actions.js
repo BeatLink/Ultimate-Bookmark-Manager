@@ -1,14 +1,14 @@
 // Every change to bookmarks goes through here, so each one is snapshotted first and can be undone.
 
-import { nodeType, sortedByName } from './tree.js';
+import { nodeType, isFolder, sortedByName, rootFoldersOf, OTHER } from './tree.js';
 import { loadSettings, saveSettings } from './settings.js';
-import { moveRulePaths } from './organize.js';
+import { moveRulePaths } from './rules.js';
 
-const OTHER_BOOKMARKS = 'unfiled_____';
 const DAY = 24 * 60 * 60 * 1000;
 
-// The history without entries (to undo or redo) older than `days` or past the newest `limit`, and without id links
-// no remaining entry uses.
+const emptyHistory = () => ({ entries: [], idMap: {}, redo: [] });
+
+// The history without entries older than `days` or past the newest `limit`, and without the id links no remaining entry uses.
 export function pruneHistory(history, { days, limit, now = Date.now() }) {
   const keep = (list) => (list ?? []).filter((e) => !(e.time < now - days * DAY)).slice(0, limit);
   const entries = keep(history.entries);
@@ -44,11 +44,11 @@ export class Actions {
   // The stored history, with expired entries forgotten and the forgetting saved.
   async load() {
     const { history } = await this.storage.get('history');
-    if (!history) return { entries: [], idMap: {}, redo: [] };
+    if (!history) return emptyHistory();
     const pruned = pruneHistory(history, { days: this.days, limit: this.limit });
     if (pruned.entries.length !== history.entries.length || pruned.redo.length !== (history.redo?.length ?? 0)
       || Object.keys(pruned.idMap).length !== Object.keys(history.idMap).length) {
-      await this.storage.set({ history: pruned });
+      await this.#save(pruned);
     }
     return pruned;
   }
@@ -106,8 +106,7 @@ export class Actions {
     });
   }
 
-  // Moves items in order to `index` of a folder, counted before any of them leave it (null for the end).
-  // Each item may carry the folder path it moves `from` and `to`, so organize rules naming it follow.
+  // Moves items in order to `index` of a folder (null for the end), counted before any leave it; an item's `from` and `to` paths carry organize rules along.
   moveItems(items, parentId, index, label = `Moved ${items.length} item(s)`) {
     return this.run(label, async (rec) => {
       let at = index;
@@ -117,7 +116,7 @@ export class Actions {
         if (target !== null && node.parentId === parentId && node.index < target) target--;
         await rec.move(id, target === null ? { parentId } : { parentId, index: target });
         if (at !== null) at = target + 1;
-        if (from && to && from.join('/') !== to.join('/')) await rec.moveRulePaths(from, to);
+        if (from && to) await rec.moveRulePaths(from, to);
       }
     });
   }
@@ -126,7 +125,7 @@ export class Actions {
   edit(id, changes, paths, label = `Edited “${changes.title ?? changes.url}”`) {
     return this.run(label, async (rec) => {
       await rec.update(id, changes);
-      if (paths && paths.from.join('/') !== paths.to.join('/')) await rec.moveRulePaths(paths.from, paths.to);
+      if (paths) await rec.moveRulePaths(paths.from, paths.to);
     });
   }
 
@@ -148,9 +147,9 @@ export class Actions {
   // Moves bookmarks into a folder in Other Bookmarks, creating it if needed.
   moveToFolder(ids, folderTitle, label = `Moved ${ids.length} bookmark(s) to “${folderTitle}”`) {
     return this.run(label, async (rec) => {
-      const siblings = await this.bookmarks.getChildren(OTHER_BOOKMARKS);
-      const existing = siblings.find((n) => nodeType(n) === 'folder' && n.title === folderTitle);
-      const folderId = existing ? existing.id : await rec.createFolder(OTHER_BOOKMARKS, folderTitle);
+      const siblings = await this.bookmarks.getChildren(OTHER);
+      const existing = siblings.find((n) => isFolder(n) && n.title === folderTitle);
+      const folderId = existing ? existing.id : await rec.createFolder(OTHER, folderTitle);
       for (const id of ids) await rec.move(id, { parentId: folderId });
     });
   }
@@ -164,7 +163,7 @@ export class Actions {
         for (const [i, name] of segments.entries()) {
           const key = `${rootId}/${segments.slice(0, i + 1).join('/')}`;
           if (!folders.has(key)) {
-            const found = (await this.bookmarks.getChildren(parentId)).find((n) => nodeType(n) === 'folder' && n.title === name);
+            const found = (await this.bookmarks.getChildren(parentId)).find((n) => isFolder(n) && n.title === name);
             folders.set(key, found ? found.id : await rec.createFolder(parentId, name));
           }
           parentId = folders.get(key);
@@ -191,42 +190,21 @@ export class Actions {
   }
 
   // Reverts the most recent entry; older entries must be undone in order. The reverted entry can then be redone.
-  async undoLatest() {
-    const history = await this.load();
-    const entry = history.entries.shift();
-    if (!entry) return null;
-    const ops = [];
-    try {
-      await this.#revert(entry, history, ops);
-    } finally {
-      history.redo = [{ ...entry, ops }, ...(history.redo ?? [])];
-      await this.storage.set({ history: pruneHistory(history, { days: this.days, limit: this.limit }) });
-    }
-    return entry;
+  undoLatest() {
+    return this.#replay('entries', 'redo');
   }
 
   // Applies the most recently undone entry again, which puts it back on the undo list.
-  async redoLatest() {
-    const history = await this.load();
-    const entry = history.redo?.shift();
-    if (!entry) return null;
-    const ops = [];
-    try {
-      await this.#revert(entry, history, ops);
-    } finally {
-      history.entries.unshift({ ...entry, ops });
-      await this.storage.set({ history: pruneHistory(history, { days: this.days, limit: this.limit }) });
-    }
-    return entry;
+  redoLatest() {
+    return this.#replay('redo', 'entries');
   }
 
   // The label of the change Redo would apply, or null.
   async nextRedo() {
-    return (await this.load()).redo?.[0]?.label ?? null;
+    return (await this.load()).redo[0]?.label ?? null;
   }
 
-  // Replaces the contents of Firefox's top-level folders with those in a backup, as one step that can be undone.
-  // `folders` maps a top-level folder id to the snapshots it should hold; folders not named are left alone.
+  // Replaces the contents of each top-level folder named in `folders` (id → snapshots) with those snapshots, as one step that can be undone.
   restore(folders, label = 'Restored bookmarks from a backup') {
     return this.run(label, async (rec) => {
       for (const [rootId, snaps] of Object.entries(folders)) {
@@ -238,7 +216,11 @@ export class Actions {
   }
 
   async clearHistory() {
-    await this.storage.set({ history: { entries: [], idMap: {}, redo: [] } });
+    await this.storage.set({ history: emptyHistory() });
+  }
+
+  async #save(history) {
+    await this.storage.set({ history: pruneHistory(history, { days: this.days, limit: this.limit }) });
   }
 
   async #push(label, ops) {
@@ -246,11 +228,25 @@ export class Actions {
     history.entries.unshift({ id: crypto.randomUUID(), time: Date.now(), label, ops });
     // A new change makes the undone ones impossible to redo in order.
     history.redo = [];
-    await this.storage.set({ history: pruneHistory(history, { days: this.days, limit: this.limit }) });
+    await this.#save(history);
   }
 
-  // Undoes an entry's ops, newest first, recording in `ops` what it did so that it can be reverted in turn.
-  // Ids of items removed and recreated since are followed through `history.idMap`.
+  // Reverts the newest entry of one list and puts it, with the ops that undo the reverting, at the front of the other.
+  async #replay(from, to) {
+    const history = await this.load();
+    const entry = history[from].shift();
+    if (!entry) return null;
+    const ops = [];
+    try {
+      await this.#revert(entry, history, ops);
+    } finally {
+      history[to].unshift({ ...entry, ops });
+      await this.#save(history);
+    }
+    return entry;
+  }
+
+  // Undoes an entry's ops newest first, recording what that did in `ops` and following removed-and-recreated ids through `history.idMap`.
   async #revert(entry, history, ops) {
     const resolve = (id) => {
       const seen = new Set();
@@ -260,16 +256,9 @@ export class Actions {
       }
       return id;
     };
-    const recreate = async (snap, parentId, index) => {
-      const created = await this.bookmarks.create({
-        parentId, ...(index === undefined || index === null ? {} : { index }), title: snap.title, type: snap.type, ...(snap.url ? { url: snap.url } : {}),
-      });
-      history.idMap[snap.id] = created.id;
-      for (const [i, child] of (snap.children ?? []).entries()) await recreate(child, created.id, i);
-      return created.id;
-    };
+    const remember = (snap, id) => { history.idMap[snap.id] = id; };
     for (const op of [...entry.ops].reverse()) {
-      if (op.kind === 'remove') ops.push({ kind: 'create', id: await recreate(op.snapshot, resolve(op.parentId), op.index) });
+      if (op.kind === 'remove') ops.push({ kind: 'create', id: await this.#build(op.snapshot, resolve(op.parentId), op.index, remember) });
       else if (op.kind === 'update') await this.#update(resolve(op.id), op.before, ops);
       else if (op.kind === 'move') await this.#move(resolve(op.id), { parentId: resolve(op.from.parentId), index: op.from.index }, ops);
       else if (op.kind === 'create') await this.#remove([resolve(op.id)], ops);
@@ -286,7 +275,7 @@ export class Actions {
         continue; // Already gone, e.g. removed together with an ancestor earlier in this batch.
       }
       ops.push({ kind: 'remove', parentId: node.parentId, index: node.index, snapshot: snapshot(node) });
-      if (nodeType(node) === 'folder') await this.bookmarks.removeTree(id);
+      if (isFolder(node)) await this.bookmarks.removeTree(id);
       else await this.bookmarks.remove(id);
     }
   }
@@ -305,31 +294,30 @@ export class Actions {
     ops.push({ kind: 'move', id, from: { parentId: node.parentId, index: node.index } });
   }
 
-  // Rewrites the saved organize rules; true when any rule changed.
-  async #rewriteRules(from, to) {
+  // Points the saved organize rules that name the folder at `from` to `to`; nothing is recorded when no rule changes.
+  async #moveRulePaths(from, to, ops) {
+    if (from.join('/') === to.join('/')) return;
     const settings = await loadSettings(this.storage);
     const [root] = await this.bookmarks.getTree();
-    const roots = root.children.map((c) => ({ id: c.id, title: c.title }));
-    const rules = moveRulePaths(settings.organize.rules, from, to, roots);
-    if (rules === settings.organize.rules) return false;
+    const rules = moveRulePaths(settings.organize.rules, from, to, rootFoldersOf(root));
+    if (rules === settings.organize.rules) return;
     await saveSettings({ ...settings, organize: { ...settings.organize, rules } }, this.storage);
-    return true;
+    ops.push({ kind: 'rulePaths', from, to });
   }
 
-  async #moveRulePaths(from, to, ops) {
-    if (await this.#rewriteRules(from, to)) ops.push({ kind: 'rulePaths', from, to });
+  // Creates a snapshot's whole tree under `parentId`, telling `onCreated` each new id against the snapshot's old one.
+  async #build(snap, parentId, index, onCreated) {
+    const node = await this.bookmarks.create({
+      parentId, ...(index === undefined || index === null ? {} : { index }), title: snap.title ?? '', type: snap.type, ...(snap.url ? { url: snap.url } : {}),
+    });
+    onCreated?.(snap, node.id);
+    for (const child of snap.children ?? []) await this.#build(child, node.id, null, onCreated);
+    return node.id;
   }
 
   // Builds a snapshot's whole tree but records only its top item, which undo removes with everything inside.
   async #create(parentId, index, snap, ops) {
-    const build = async (s, parent, i) => {
-      const node = await this.bookmarks.create({
-        parentId: parent, ...(i === null ? {} : { index: i }), title: s.title ?? '', type: s.type, ...(s.url ? { url: s.url } : {}),
-      });
-      for (const child of s.children ?? []) await build(child, node.id, null);
-      return node.id;
-    };
-    const id = await build(snap, parentId, index);
+    const id = await this.#build(snap, parentId, index);
     ops.push({ kind: 'create', id });
     return id;
   }
@@ -339,10 +327,4 @@ export class Actions {
     ops.push({ kind: 'create', id: folder.id });
     return folder.id;
   }
-}
-
-// Serialises the whole bookmark tree for a downloadable backup.
-export async function exportTree(bookmarks = browser.bookmarks) {
-  const [root] = await bookmarks.getTree();
-  return { format: 'bookmark-manager-backup', version: 1, exported: new Date().toISOString(), tree: root };
 }

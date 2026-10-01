@@ -1,8 +1,7 @@
 // Folders with no bookmarks anywhere inside them.
 
-import { h, confirmDialog } from '../dom.js';
-import { viewHeader, emptyState, bindCheckboxes, selectionBar, selectAllToggle, row, pagedList, pickIds } from '../components.js';
-import { addToWhitelist } from '../../lib/settings.js';
+import { h } from '../dom.js';
+import { viewHeader, emptyState, bindCheckboxes, selectionBar, selectAllToggle, row, pagedList, ignoreAction, removeAction } from '../components.js';
 import { formatPath } from '../../lib/tree.js';
 import * as scans from '../scans.js';
 
@@ -18,14 +17,8 @@ export default {
     if (!folders.length) return h('section', {}, header, emptyState('No empty folders.'));
 
     const bar = selectionBar(sel, [
-      { label: 'Ignore', run: (ids) => ctx.run(() => addToWhitelist(pickIds(folders, ids))) },
-      { label: 'Remove selected', danger: true, run: async (ids) => {
-        if (!(await confirmDialog(`Remove ${ids.length} empty folder(s)?`, 'Remove'))) return;
-        await ctx.run(async () => {
-          await ctx.actions.remove(ids, `Removed ${ids.length} empty folder(s)`);
-          ctx.done(`Removed ${ids.length} folder(s).`);
-        });
-      } },
+      ignoreAction(ctx, folders),
+      removeAction(ctx, { noun: 'empty folder(s)' }),
     ], [selectAllToggle(sel, folders.map((f) => f.id))]);
 
     const list = h('ul', { class: 'items' });

@@ -2,20 +2,23 @@
 
 import { byText } from './text.js';
 
-// Built-in folders Firefox does not let extensions remove or rename.
-export const ROOT_IDS = new Set([
-  'root________',
-  'menu________',
-  'toolbar_____',
-  'unfiled_____',
-  'mobile______',
-]);
+// The ids Firefox gives its built-in folders, which add-ons can neither remove nor rename.
+export const ROOT = 'root________';
+export const MENU = 'menu________';
+export const TOOLBAR = 'toolbar_____';
+export const OTHER = 'unfiled_____';
+export const MOBILE = 'mobile______';
+export const TOP_FOLDERS = [MENU, TOOLBAR, OTHER, MOBILE];
+export const ROOT_IDS = new Set([ROOT, ...TOP_FOLDERS]);
 
 export function nodeType(node) {
   if (node.type) return node.type;
   if (node.url) return 'bookmark';
   return node.children ? 'folder' : 'separator';
 }
+
+export const isFolder = (node) => nodeType(node) === 'folder';
+export const isBookmark = (node) => nodeType(node) === 'bookmark';
 
 // Returns every node below the root as a flat record carrying its folder path.
 export function flatten(root) {
@@ -48,14 +51,14 @@ export function formatPath(path) {
   return path.length ? path.join(' › ') : '(root)';
 }
 
-// Finds a node by id anywhere below the given root.
-export function findNode(root, id) {
-  if (root.id === id) return root;
-  for (const child of root.children ?? []) {
-    const hit = findNode(child, id);
-    if (hit) return hit;
-  }
-  return null;
+// The top-level folders as organize rules see them: id and title.
+export function rootFoldersOf(root) {
+  return root.children.map((c) => ({ id: c.id, title: c.title }));
+}
+
+// Counts the bookmarks in a list of snapshots, folders included.
+export function countBookmarks(snaps) {
+  return snaps.reduce((n, s) => n + (s.type === 'bookmark' ? 1 : countBookmarks(s.children ?? [])), 0);
 }
 
 // A folder's children in Firefox's "Sort by name" order: separators stay where they are, and between them folders come first, then the rest by name.
@@ -63,8 +66,8 @@ export function sortedByName(children) {
   const out = [];
   let run = [];
   const flush = () => {
-    const isFolder = (n) => (nodeType(n) === 'folder' ? 0 : 1);
-    run.sort((a, b) => isFolder(a) - isFolder(b) || byText(a.title ?? '', b.title ?? ''));
+    const folderFirst = (n) => (isFolder(n) ? 0 : 1);
+    run.sort((a, b) => folderFirst(a) - folderFirst(b) || byText(a.title ?? '', b.title ?? ''));
     out.push(...run);
     run = [];
   };

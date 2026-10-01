@@ -1,13 +1,13 @@
 // Changes to a rule's tree of groups and conditions, addressed by path: the indexes leading down from the top group.
 
-import { isGroup, renumber, newCondition } from './organize.js';
+import { isGroup, renumber, newGroup } from './rules.js';
 
 export const parentOf = (path) => path.slice(0, -1);
 
-export const samePath = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+const samePath = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 // True when `path` lies inside the item at `ancestor`.
-export const isAncestor = (ancestor, path) => ancestor.length < path.length && ancestor.every((x, i) => x === path[i]);
+const isAncestor = (ancestor, path) => ancestor.length < path.length && ancestor.every((x, i) => x === path[i]);
 
 // The group or condition at `path`, or null when there is none.
 export function itemAt(query, path) {
@@ -24,11 +24,6 @@ export function withIds(item) {
   if (!item.id) item.id = crypto.randomUUID();
   if (isGroup(item)) item.rules.forEach(withIds);
   return item;
-}
-
-// A new group as the "+ Group" button adds it: "all" of one empty keyword condition.
-export function newEditorGroup() {
-  return { id: crypto.randomUUID(), rules: [newCondition()], combinator: 'and', not: false };
 }
 
 // Where `to` points once the item at `from` has been taken out of the tree.
@@ -64,7 +59,7 @@ export function groupItems(query, from, to, copy = false) {
   if (!source || !target || !to.length || !canMove(query, from, to, copy)) return false;
   if (!copy) itemAt(query, parentOf(from)).rules.splice(from.at(-1), 1);
   const at = copy ? to : afterRemoving(from, to);
-  itemAt(query, parentOf(at)).rules.splice(at.at(-1), 1, { combinator: 'and', rules: [target, copy ? renumber(source) : source], id: crypto.randomUUID() });
+  itemAt(query, parentOf(at)).rules.splice(at.at(-1), 1, newGroup([target, copy ? renumber(source) : source], 'and'));
   return true;
 }
 

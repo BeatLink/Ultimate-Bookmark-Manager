@@ -1,7 +1,7 @@
 // Dashboard shell shared by the full-page tab and the sidebar: loads data, routes between views and runs actions.
 
 import { h, toast, Selection } from './dom.js';
-import { flatten } from '../lib/tree.js';
+import { flatten, bookmarksOnly } from '../lib/tree.js';
 import { Actions } from '../lib/actions.js';
 import { loadSettings, loadWhitelist, loadLinkResults } from '../lib/settings.js';
 import { LinkChecker } from './link-checker.js';
@@ -13,12 +13,14 @@ import untitled from './views/untitled.js';
 import broken from './views/broken.js';
 import redirects from './views/redirects.js';
 import organize from './views/organize.js';
-import all from './views/all.js';
+import all from './views/all/index.js';
 import history from './views/history.js';
 import settings from './views/settings.js';
 import help from './views/help.js';
 
 const VIEWS = [stats, duplicates, emptyFolders, sameName, untitled, broken, redirects, organize, all, history, settings, help];
+// Changes made elsewhere are picked up once a burst of them has settled.
+const REFRESH_DELAY_MS = 500;
 const isSidebar = new URLSearchParams(location.search).has('sidebar');
 document.body.classList.toggle('sidebar', isSidebar);
 
@@ -53,12 +55,11 @@ const ctx = {
   linkChecker: null,
 
   // Runs a change with the page marked busy, reports failures, then reloads and re-renders.
-  async run(fn, { rerender = true } = {}) {
+  async run(fn) {
     busy++;
     document.body.classList.add('busy');
     try {
-      const result = await fn();
-      return result;
+      return await fn();
     } catch (err) {
       console.error(err);
       toast(`Something went wrong: ${err.message ?? err}`, 'error');
@@ -66,8 +67,13 @@ const ctx = {
       busy--;
       document.body.classList.toggle('busy', busy > 0);
       await load();
-      if (rerender) render();
+      render();
     }
+  },
+
+  // Reads the bookmarks and settings again and redraws the page.
+  reload() {
+    return ctx.run(async () => {});
   },
 
   // Tells the user an action happened and offers to undo it straight away.
@@ -145,8 +151,7 @@ function isEditing() {
   return Boolean(el?.closest?.('#main') && el.matches('textarea, select, input:not([type=checkbox]):not([type=radio]), [contenteditable]'));
 }
 
-// Changes made elsewhere are picked up automatically, once a burst of them has settled.
-function scheduleRefresh(delay = 500) {
+function scheduleRefresh(delay = REFRESH_DELAY_MS) {
   clearTimeout(refreshTimer);
   refreshTimer = setTimeout(refresh, delay);
 }
@@ -167,12 +172,13 @@ async function start() {
   ctx.linkChecker = new LinkChecker(ctx);
   document.getElementById('nav-select').addEventListener('change', (e) => ctx.go(e.target.value));
   for (const button of document.querySelectorAll('[data-action=reload]')) {
-    button.addEventListener('click', () => ctx.run(async () => {
+    button.addEventListener('click', () => {
       clearTimeout(refreshTimer);
       refreshWaiting = false;
-    })
-      .then(() => toast(`Reloaded ${state.flat.filter((b) => b.type === 'bookmark').length} bookmarks.`, 'success'))
-      .catch((err) => toast(`Could not reload: ${err.message ?? err}`, 'error')));
+      ctx.reload()
+        .then(() => toast(`Reloaded ${bookmarksOnly(state.flat).length} bookmarks.`, 'success'))
+        .catch((err) => toast(`Could not reload: ${err.message ?? err}`, 'error'));
+    });
   }
   document.getElementById('open-tab').addEventListener('click', () => {
     browser.tabs.create({ url: browser.runtime.getURL(`src/ui/app.html#${current.id}`) });

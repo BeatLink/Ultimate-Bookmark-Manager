@@ -66,10 +66,10 @@ To load it by hand, open `about:debugging#/runtime/this-firefox`, choose **Load 
 
 | Path | Contents |
 | --- | --- |
-| `src/lib/` | Pure logic: tree helpers, duplicate matching, folder checks, link checking, settings, undoable actions |
-| `src/ui/` | The dashboard/sidebar page, its views and shared components |
-| `src/background.js` | Toolbar button, shortcut, Tools menu and address-bar keyword |
-| `test/` | Unit tests, with an in-memory stand-in for the bookmarks API |
+| `src/lib/` | Pure logic: tree helpers, duplicate matching, folder checks, link checking and page titles, organize rules (their model, matching and planning, and the rule order), settings and sync, backups and HTML import/export, undoable actions |
+| `src/ui/` | The dashboard/sidebar page, its views (the All bookmarks page is split under `views/all/`) and shared components |
+| `src/background.js` | Toolbar button, shortcut, Tools menu, address-bar keyword, automatic organizing and settings sync |
+| `test/` | Unit tests, one file per `src/lib` module, with in-memory stand-ins for the bookmarks API, storage and fetch |
 | `amo-metadata.json` | The addons.mozilla.org listing: summary, description, category, links and license |
 | `.github/workflows/` | CI on every push and pull request, and the release to addons.mozilla.org |
 

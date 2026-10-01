@@ -1,6 +1,7 @@
 // Duplicate detection: built-in URL normalisation plus user-defined filter and replace rules.
 
 import { formatPath } from './tree.js';
+import { groupBy } from './group.js';
 
 export const DEFAULT_MATCHING = {
   ignoreProtocol: false,
@@ -88,7 +89,7 @@ function test(re, text) {
 }
 
 // Returns the key two bookmarks must share to count as duplicates, or null when a filter excludes it.
-export function comparisonKey(bookmark, matching, compiled) {
+function comparisonKey(bookmark, matching, compiled) {
   const title = bookmark.title ?? '';
   const name = [...bookmark.path, title].join('/');
   for (const { re, field } of compiled.filters) {
@@ -106,23 +107,22 @@ export function comparisonKey(bookmark, matching, compiled) {
   return normalizeUrl(url, matching);
 }
 
-// Groups bookmarks sharing a comparison key; each group is sorted oldest first and numbered.
+// Groups bookmarks sharing a comparison key, each group oldest first and numbered; `extra` counts the copies beyond the first of each.
 export function findDuplicates(bookmarks, { matching = DEFAULT_MATCHING, rules = [], ignoredIds = new Set() } = {}) {
   const compiled = compileRules(rules);
-  const byKey = new Map();
+  const keyed = [];
   for (const b of bookmarks) {
     if (b.type !== 'bookmark' || ignoredIds.has(b.id)) continue;
     const key = comparisonKey(b, matching, compiled);
-    if (key === null) continue;
-    if (!byKey.has(key)) byKey.set(key, []);
-    byKey.get(key).push(b);
+    if (key !== null) keyed.push({ key, b });
   }
   const groups = [];
-  for (const [key, items] of byKey) {
+  for (const [key, items] of groupBy(keyed, (x) => x.key)) {
     if (items.length < 2) continue;
-    items.sort((a, b) => a.dateAdded - b.dateAdded || formatPath(a.path).localeCompare(formatPath(b.path)));
-    groups.push({ key, items: items.map((b, i) => ({ ...b, order: i + 1 })) });
+    const sorted = items.map((x) => x.b).sort((a, b) => a.dateAdded - b.dateAdded || formatPath(a.path).localeCompare(formatPath(b.path)));
+    groups.push({ key, items: sorted.map((b, i) => ({ ...b, order: i + 1 })) });
   }
   groups.sort((a, b) => a.key.localeCompare(b.key));
-  return { groups, errors: compiled.errors };
+  const extra = groups.reduce((n, g) => n + g.items.length - 1, 0);
+  return { groups, errors: compiled.errors, extra };
 }

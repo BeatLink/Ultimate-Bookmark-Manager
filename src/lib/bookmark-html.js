@@ -1,15 +1,9 @@
 // Reads and writes the HTML bookmarks file that Firefox and other browsers import and export.
 
-import { nodeType } from './tree.js';
+import { nodeType, TOOLBAR } from './tree.js';
+import { decodeEntities } from './html-title.js';
 
 const escape = (text) => String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-
-const NAMED = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
-const unescape = (text) => text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, code) => {
-  if (code[0] !== '#') return NAMED[code.toLowerCase()] ?? whole;
-  const n = code[1].toLowerCase() === 'x' ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
-  return Number.isFinite(n) && n <= 0x10ffff ? String.fromCodePoint(n) : whole;
-});
 
 // The given folders and everything in them as a bookmarks HTML file.
 export function toBookmarkHtml(folders) {
@@ -27,7 +21,7 @@ export function toBookmarkHtml(folders) {
     if (type === 'separator') lines.push(`${pad}<HR>`);
     else if (type === 'bookmark') lines.push(`${pad}<DT><A HREF="${escape(node.url)}"${date(node.dateAdded)}>${escape(node.title ?? '')}</A>`);
     else {
-      const toolbar = node.id === 'toolbar_____' ? ' PERSONAL_TOOLBAR_FOLDER="true"' : '';
+      const toolbar = node.id === TOOLBAR ? ' PERSONAL_TOOLBAR_FOLDER="true"' : '';
       lines.push(`${pad}<DT><H3${date(node.dateAdded)}${toolbar}>${escape(node.title ?? '')}</H3>`, `${pad}<DL><p>`);
       for (const child of node.children ?? []) walk(child, depth + 1);
       lines.push(`${pad}</DL><p>`);
@@ -49,13 +43,13 @@ export function parseBookmarkHtml(html) {
   const lower = html.replace(/[A-Z]/g, (c) => c.toLowerCase());
   const attr = (attrs, name) => {
     const m = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i').exec(attrs);
-    return m ? unescape(m[1] ?? m[2] ?? m[3]) : undefined;
+    return m ? decodeEntities(m[1] ?? m[2] ?? m[3]) : undefined;
   };
   const textUntil = (close, from) => {
     const end = lower.indexOf(close, from);
     const stop = end < 0 ? html.length : end;
     tags.lastIndex = stop;
-    return unescape(html.slice(from, stop).replace(/<[^>]*>/g, '')).trim();
+    return decodeEntities(html.slice(from, stop).replace(/<[^>]*>/g, '')).trim();
   };
   let m;
   while ((m = tags.exec(html))) {
@@ -86,9 +80,4 @@ export function parseBookmarkHtml(html) {
     }
   }
   return top.children;
-}
-
-// Counts the bookmarks among parsed snapshots, for a summary after importing.
-export function countBookmarks(snaps) {
-  return snaps.reduce((n, s) => n + (s.type === 'bookmark' ? 1 : countBookmarks(s.children ?? [])), 0);
 }

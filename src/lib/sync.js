@@ -5,11 +5,16 @@ const CHUNK = 'cfg_';
 // Firefox allows 8 KiB per item and 100 KiB in all; stay under both with room to spare.
 const ITEM_BUDGET = 8000;
 const TOTAL_BUDGET = 96000;
+// Room left in each item for its key name.
+const KEY_BYTES = 16;
 
 const bytes = (s) => new TextEncoder().encode(s).length;
 
+// True for the sync items this add-on writes.
+export const isSyncKey = (key) => key.startsWith(CHUNK);
+
 // A fast string fingerprint used to tell whether two payloads are the same.
-export function fingerprint(text) {
+function fingerprint(text) {
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i);
@@ -24,7 +29,8 @@ export function splitChunks(text, budget = ITEM_BUDGET) {
   let i = 0;
   while (i < text.length) {
     let size = Math.min(budget, text.length - i);
-    while (bytes(JSON.stringify(text.slice(i, i + size))) + 16 > budget) size = Math.floor(size * 0.8);
+    // A piece measured in characters may be too big in bytes, so it shrinks by a fifth until it fits.
+    while (bytes(JSON.stringify(text.slice(i, i + size))) + KEY_BYTES > budget) size = Math.floor(size * 0.8);
     chunks.push(text.slice(i, i + size));
     i += size;
   }

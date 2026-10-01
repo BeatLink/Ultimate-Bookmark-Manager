@@ -1,13 +1,13 @@
 // Persistent settings, whitelist and saved link-check results in storage.local.
 
 import { DEFAULT_MATCHING } from './duplicates.js';
-import { dropRetiredRanking } from './rule-order.js';
-import { migrateRule, isWellFormedRule } from './organize.js';
+import { migrateRule, isWellFormedRule } from './rules.js';
 import { DEFAULT_LOGIN_HOSTS, DEFAULT_NO_COOKIE_WORDS } from './linkcheck.js';
 
 export const DEFAULT_SETTINGS = {
   matching: { ...DEFAULT_MATCHING },
-  rules: [],
+  // The filter and replace rules of the duplicate check; organize rules live under `organize`.
+  duplicateRules: [],
   dupesFolderName: 'Dupes',
   linkCheck: {
     concurrency: 6,
@@ -29,8 +29,10 @@ export const DEFAULT_SETTINGS = {
 
 // Lists of text; every other list in the settings holds objects.
 const TEXT_LISTS = new Set(['skipDomains', 'noCookieWords', 'loginHosts']);
-// The numbers the settings page allows, so a damaged value cannot ask for a billion parallel requests.
-const RANGES = { concurrency: [1, 32], timeoutSeconds: [3, 120], historyLimit: [1, 500], historyDays: [1, 3650] };
+// The least and most each number setting allows, so a damaged value cannot ask for a billion parallel requests.
+export const RANGES = { concurrency: [1, 32], timeoutSeconds: [3, 120], historyLimit: [1, 500], historyDays: [1, 3650] };
+// Settings keys older versions used, with the key this version keeps them under.
+const RENAMED_KEYS = { rules: 'duplicateRules' };
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 // Stored settings laid over the defaults; a value of the wrong type, as a damaged file or sync could bring, falls back to the default.
@@ -52,11 +54,22 @@ export function merge(defaults, stored, key = '') {
   return stored;
 }
 
+// Stored settings with each renamed key moved to its current name.
+function withCurrentKeys(stored) {
+  if (!isObject(stored)) return stored;
+  const out = { ...stored };
+  for (const [old, current] of Object.entries(RENAMED_KEYS)) {
+    if (!(old in out)) continue;
+    if (!(current in out)) out[current] = out[old];
+    delete out[old];
+  }
+  return out;
+}
+
 // Organize rules in their current shape, leaving out any too damaged to read.
 export function readRules(rules) {
   const out = [];
-  // Priority numbers and fallback flags are retired; ranking lists replace them.
-  for (const rule of dropRetiredRanking(rules)) {
+  for (const rule of rules) {
     try {
       const current = migrateRule(rule);
       if (isWellFormedRule(current)) out.push(current);
@@ -69,7 +82,7 @@ export function readRules(rules) {
 
 // Settings from storage, sync or a file, with anything damaged replaced by its default or left out.
 export function readSettings(stored) {
-  const settings = merge(DEFAULT_SETTINGS, stored);
+  const settings = merge(DEFAULT_SETTINGS, withCurrentKeys(stored));
   settings.organize.rules = readRules(settings.organize.rules);
   return settings;
 }
@@ -79,9 +92,10 @@ export async function loadSettings(storage = browser.storage.local) {
   const loaded = readSettings(settings);
   const stored = isObject(settings?.organize) && Array.isArray(settings.organize.rules) ? settings.organize.rules : [];
   const rules = loaded.organize.rules;
-  if (rules.length !== stored.length || rules.some((r, i) => r !== stored[i])) {
-    // Converted rules are saved straight back, so they are converted once and synced in the new shape.
-    await storage.set({ settings: { ...settings, organize: { ...settings.organize, rules } } });
+  const renamed = isObject(settings) && Object.keys(RENAMED_KEYS).some((old) => old in settings);
+  if (renamed || rules.length !== stored.length || rules.some((r, i) => r !== stored[i])) {
+    // Converted rules and renamed keys are saved straight back, so the conversion happens once and syncs in the new shape.
+    await storage.set({ settings: { ...withCurrentKeys(settings), organize: { ...settings.organize, rules } } });
   }
   return loaded;
 }

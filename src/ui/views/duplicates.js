@@ -1,8 +1,7 @@
 // Duplicate bookmarks grouped by URL, with bulk selection helpers and remove or move-to-folder actions.
 
-import { h, confirmDialog } from '../dom.js';
-import { viewHeader, emptyState, bindCheckboxes, selectionBar, bookmarkInfo, row, pagedList, pickIds } from '../components.js';
-import { addToWhitelist } from '../../lib/settings.js';
+import { h } from '../dom.js';
+import { viewHeader, emptyState, bindCheckboxes, selectionBar, bookmarkInfo, row, pagedList, ignoreAction, removeAction } from '../components.js';
 import * as scans from '../scans.js';
 
 export default {
@@ -11,7 +10,7 @@ export default {
   badge: (ctx) => scans.duplicates(ctx).groups.length,
 
   render(ctx) {
-    const { groups, errors } = scans.duplicates(ctx);
+    const { groups, errors, extra } = scans.duplicates(ctx);
     const all = groups.flatMap((g) => g.items);
     const sel = ctx.selection('duplicates', all.map((b) => b.id));
     const pick = (fn) => { sel.clear(); sel.set(groups.flatMap((g) => g.items.filter((i) => fn(i, g)).map((i) => i.id)), true); };
@@ -19,30 +18,25 @@ export default {
 
     const header = viewHeader('Duplicates', 'Bookmarks that point to the same URL',
       h('button', { class: 'small', text: 'Matching options…', onclick: () => ctx.go('settings') }));
-    header.append(h('p', { class: 'muted', text: `${groups.length} URL(s) bookmarked more than once, ${all.length - groups.length} extra cop${all.length - groups.length === 1 ? 'y' : 'ies'}.` }));
+    header.append(h('p', { class: 'muted', text: `${groups.length} URL(s) bookmarked more than once, ${extra} extra cop${extra === 1 ? 'y' : 'ies'}.` }));
     if (errors.length) {
       header.append(h('p', { class: 'error', text: `${errors.length} custom rule(s) are invalid and were skipped — see Settings.` }));
     }
     if (!groups.length) return h('section', {}, header, emptyState('No duplicates found.'));
 
+    // Removing every copy of a URL loses it altogether, which the confirmation points out.
+    const wholeGroups = (ids) => {
+      const chosen = new Set(ids);
+      const gone = groups.filter((g) => g.items.every((i) => chosen.has(i.id))).length;
+      return gone ? ` ${gone} group(s) would lose every copy.` : '';
+    };
     const bar = selectionBar(sel, [
       { label: `Move to “${folder}”`, title: `Move to a “${folder}” folder in Other Bookmarks`, run: (ids) => ctx.run(async () => {
         await ctx.actions.moveToFolder(ids, folder);
         ctx.done(`Moved ${ids.length} bookmark(s) to “${folder}”.`);
       }) },
-      { label: 'Ignore', title: 'Add to the whitelist so they are skipped by every check', run: (ids) => ctx.run(async () => {
-        await addToWhitelist(pickIds(all, ids));
-      }) },
-      { label: 'Remove selected', danger: true, run: async (ids) => {
-        const chosen = new Set(ids);
-        const wholeGroups = groups.filter((g) => g.items.every((i) => chosen.has(i.id))).length;
-        const warn = wholeGroups ? ` ${wholeGroups} group(s) would lose every copy.` : '';
-        if (!(await confirmDialog(`Remove ${ids.length} bookmark(s)?${warn} You can undo this from the history.`, 'Remove'))) return;
-        await ctx.run(async () => {
-          await ctx.actions.remove(ids, `Removed ${ids.length} duplicate bookmark(s)`);
-          ctx.done(`Removed ${ids.length} duplicate(s).`);
-        });
-      } },
+      ignoreAction(ctx, all),
+      removeAction(ctx, { noun: 'duplicate(s)', label: (n) => `Removed ${n} duplicate bookmark(s)`, warn: wholeGroups }),
     ], [
       h('button', { class: 'small', text: 'All but oldest', title: 'Select every copy except the first one added', onclick: () => pick((i) => i.order > 1) }),
       h('button', { class: 'small', text: 'All but newest', title: 'Select every copy except the last one added', onclick: () => pick((i, g) => i.order < g.items.length) }),

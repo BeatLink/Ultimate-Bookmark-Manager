@@ -1,8 +1,8 @@
 // The editor for a rule's conditions, drawn in the markup and layout of react-querybuilder, whose query format rules use.
 
 import { h } from './dom.js';
-import { OPERATORS, FIELDS, FIELD_OPERATORS, WORD_OPS, FOLDER_OPS, newCondition, isGroup } from '../lib/organize.js';
-import { parentOf, itemAt, withIds, newEditorGroup, moveItem, groupItems, insertItem, addItem, removeItem, canDropOnCondition, canDropOnGroup, dropPath } from '../lib/query-tree.js';
+import { OPERATORS, FIELDS, FIELD_OPERATORS, WORD_OPS, FOLDER_OPS, newCondition, newGroup, isGroup, folderLabel } from '../lib/rules.js';
+import { parentOf, itemAt, withIds, moveItem, groupItems, insertItem, addItem, removeItem, canDropOnCondition, canDropOnGroup, dropPath } from '../lib/query-tree.js';
 import { pickFolder } from './components.js';
 
 const PLACEHOLDERS = { matchesRegex: 'Pattern', onDomain: 'example.com', hasParam: 'v or list=PL123' };
@@ -28,26 +28,17 @@ function mark(next) {
   for (const [el, cls] of marks) el.classList.add(cls);
 }
 
-// Keys held down; browsers send no key presses mid-drag, so Alt (copy) and Ctrl (group) count when held before it starts.
-const held = new Set();
-const MODIFIERS = new Set(['shift', 'alt', 'meta', 'mod', 'ctrl']);
-const CODES = { ShiftLeft: 'shift', ShiftRight: 'shift', AltLeft: 'alt', AltRight: 'alt', MetaLeft: 'meta', MetaRight: 'meta', OSLeft: 'meta', OSRight: 'meta', ControlLeft: 'ctrl', ControlRight: 'ctrl' };
-const keyName = (key) => (CODES[key] ?? key ?? '').trim().toLowerCase().replace(/key|digit|numpad|arrow/, '');
-document.addEventListener('keydown', (e) => {
-  if (e.key === undefined) return;
-  // With Meta down, browsers send no key-up for other keys, so those are forgotten at the next press.
-  if (held.has('meta')) for (const k of held) if (!MODIFIERS.has(k)) held.delete(k);
-  held.add(keyName(e.key));
-  held.add(keyName(e.code));
-});
-document.addEventListener('keyup', (e) => {
-  if (e.key === undefined) return;
-  held.delete(keyName(e.key));
-  held.delete(keyName(e.code));
-});
-window.addEventListener('blur', () => held.clear());
-const copying = () => held.has('alt');
-const grouping = () => held.has('ctrl');
+// Whether Alt (copy) and Ctrl (group) are held; browsers send no key events mid-drag, so they count when held before it starts.
+const held = { alt: false, ctrl: false };
+const noteKeys = (e) => {
+  held.alt = e.altKey;
+  held.ctrl = e.ctrlKey;
+};
+document.addEventListener('keydown', noteKeys);
+document.addEventListener('keyup', noteKeys);
+window.addEventListener('blur', () => { held.alt = false; held.ctrl = false; });
+const copying = () => held.alt;
+const grouping = () => held.ctrl;
 
 // While a condition is dragged, anywhere that does not take it shows the "no drop" pointer.
 document.addEventListener('dragover', (e) => {
@@ -63,11 +54,12 @@ const own = (fn) => (e) => {
   fn();
 };
 
-// The focused control, as the id of its condition or group and its place among that item's own controls.
+// The controls that belong to a condition or group itself, not to anything nested in it.
 function controlsOf(item) {
   return [...item.querySelectorAll('button, select, input')].filter((c) => c.closest(ITEM) === item);
 }
 
+// The focused control, as the id of its condition or group and its place among that item's own controls.
 function focusSpot(box) {
   const el = document.activeElement;
   const item = box.contains(el) && el.closest(ITEM);
@@ -213,38 +205,30 @@ export function mountQueryEditor(element, query, onChange, { root, moveToNewRule
 
   // A folder condition's folder, chosen with the page's folder picker; any other condition's keyword.
   const valueEditor = (c, path) => {
-    if (FOLDER_OPS.has(c.operator)) {
-      return h('span', { class: 'rule-value' },
-        h('span', { class: 'keyword-with-remove' },
-          h('button', {
-            type: 'button', class: `folder-button${c.value ? '' : ' unset'}`, 'aria-label': 'Folder',
-            onclick: async () => {
-              const picked = await pickFolder(root, c.value ?? '', { heading: 'Choose a folder', verb: 'Folder', allowCreate: false });
-              if (!picked || picked === c.value) return;
-              c.value = picked;
-              commit();
-            },
-          }, h('span', { class: 'folder-icon', 'aria-hidden': 'true' }), c.value ? c.value.split('/').join(' › ') : 'Choose folder…'),
-          removeButton(path)),
-        switches(c));
-    }
-    return h('span', { class: 'rule-value' },
-      h('span', { class: 'keyword-with-remove' },
-        h('input', {
-          type: 'text', class: `keyword${c.operator === 'matchesRegex' ? ' mono' : ''}`, 'aria-label': 'Keyword', value: c.value ?? '',
-          placeholder: PLACEHOLDERS[c.operator] ?? 'Keyword',
-          oninput: (e) => {
-            if (e.target.value === c.value) return;
-            c.value = e.target.value;
-            onChange(editor.query);
-          },
-        }),
-        removeButton(path)),
-      switches(c));
+    const control = FOLDER_OPS.has(c.operator)
+      ? h('button', {
+        type: 'button', class: `folder-button${c.value ? '' : ' unset'}`, 'aria-label': 'Folder',
+        onclick: async () => {
+          const picked = await pickFolder(root, c.value ?? '', { heading: 'Choose a folder', verb: 'Folder', allowCreate: false });
+          if (!picked || picked === c.value) return;
+          c.value = picked;
+          commit();
+        },
+      }, h('span', { class: 'folder-icon', 'aria-hidden': 'true' }), c.value ? folderLabel(c.value) : 'Choose folder…')
+      : h('input', {
+        type: 'text', class: `keyword${c.operator === 'matchesRegex' ? ' mono' : ''}`, 'aria-label': 'Keyword', value: c.value ?? '',
+        placeholder: PLACEHOLDERS[c.operator] ?? 'Keyword',
+        oninput: (e) => {
+          if (e.target.value === c.value) return;
+          c.value = e.target.value;
+          onChange(editor.query);
+        },
+      });
+    return h('span', { class: 'rule-value' }, h('span', { class: 'keyword-with-remove' }, control, removeButton(path)), switches(c));
   };
 
   const condition = (c, path) => {
-    const el = h('div', { class: 'rule', 'data-rule-id': c.id, 'data-level': path.length, 'data-path': JSON.stringify(path) },
+    const el = h('div', { class: 'rule', 'data-rule-id': c.id },
       dragHandle(path),
       fieldSelect(c),
       operatorSelect(c),
@@ -268,22 +252,18 @@ export function mountQueryEditor(element, query, onChange, { root, moveToNewRule
         },
       }, Object.keys(RULE_SETTINGS).map((k) => h('option', { value: k, text: k, selected: k === current }))),
       h('button', { type: 'button', class: 'ruleGroup-addRule small', title: 'Add a condition', text: '+ Condition', onclick: own(() => { g.rules.push(newCondition()); commit(); }) }),
-      h('button', { type: 'button', class: 'ruleGroup-addGroup small', title: 'Add a group with its own rule setting', text: '+ Group', onclick: own(() => { g.rules.push(newEditorGroup()); commit(); }) }),
+      h('button', { type: 'button', class: 'ruleGroup-addGroup small', title: 'Add a group with its own rule setting', text: '+ Group', onclick: own(() => { g.rules.push(newGroup(undefined, 'and')); commit(); }) }),
       nested && [
         copyButton('ruleGroup-cloneGroup', 'Add a copy of this group', path),
         moveButton(g),
         h('button', { type: 'button', class: 'ruleGroup-remove small', title: 'Remove group', text: 'Remove group', onclick: own(() => editor.remove(path)) }),
       ]);
     dropTarget(header, path, 'group');
-    return h('div', {
-      title: nested ? `Rule group at path ${path.join('-')}` : 'Query builder', class: 'ruleGroup', 'data-not': g.not ? 'true' : null,
-      'data-rule-group-id': g.id, 'data-level': path.length, 'data-path': JSON.stringify(path),
-    }, header, h('div', { class: 'ruleGroup-body' }, g.rules.map((item, i) => (isGroup(item) ? group(item, [...path, i]) : condition(item, [...path, i])))));
+    return h('div', { class: 'ruleGroup', 'data-rule-group-id': g.id },
+      header, h('div', { class: 'ruleGroup-body' }, g.rules.map((item, i) => (isGroup(item) ? group(item, [...path, i]) : condition(item, [...path, i])))));
   };
 
-  const draw = () => element.replaceChildren(h('div', {
-    role: 'form', class: 'queryBuilder query-editor queryBuilder-branches', 'data-dnd': 'enabled', 'data-inlinecombinators': 'disabled',
-  }, group(editor.query, [])));
+  const draw = () => element.replaceChildren(h('div', { role: 'form', class: 'queryBuilder query-editor queryBuilder-branches' }, group(editor.query, [])));
 
   draw();
   return () => {

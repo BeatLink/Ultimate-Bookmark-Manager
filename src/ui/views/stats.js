@@ -2,10 +2,10 @@
 
 import { h, formatDate } from '../dom.js';
 import { viewHeader, emptyState } from '../components.js';
-import { treeStats } from '../../lib/stats.js';
+import { treeStats, MAX_MONTHS } from '../../lib/stats.js';
+import { bookmarksOnly } from '../../lib/tree.js';
 import { statTile, barList, columnChart, chartCard, fmt } from '../charts.js';
-import { plan } from './organize.js';
-import { showInAll } from './all.js';
+import { showInAll } from './all/state.js';
 import * as scans from '../scans.js';
 
 const TOP_SITES = 15;
@@ -29,21 +29,24 @@ export default {
     const header = viewHeader('Dashboard', 'Select a number to open the page that deals with it');
     if (!s.bookmarks) return h('section', {}, header, emptyState('No bookmarks yet.'));
 
-    const dupes = scans.duplicates(ctx).groups.reduce((n, g) => n + g.items.length - 1, 0);
+    const dupes = scans.duplicates(ctx).extra;
     const links = scans.linkResults(ctx);
-    const broken = links ? links.results.filter((r) => r.status !== 'redirect').length : null;
-    const redirects = links ? links.results.filter((r) => r.status === 'redirect').length : null;
-    const organize = ctx.memo('organize', () => plan(ctx, ctx.state.settings.organize.rules)).moves.length;
+    const broken = scans.broken(ctx)?.length;
+    const redirects = scans.redirects(ctx)?.length;
+    const organize = scans.organizePlan(ctx).moves.length;
     const ignored = Object.keys(ctx.state.whitelist).length;
-    const notChecked = 'Not checked yet';
+    const untitled = scans.untitled(ctx).length;
+    const empty = scans.emptyFolders(ctx).length;
+    const sameName = scans.sameNameFolders(ctx).length;
+    const checkNote = links ? `checked ${formatDate(links.time)}` : 'Not checked yet';
 
     const tidy = h('div', { class: 'stat-row' },
       statTile({ label: 'Duplicate copies', value: dupes, href: '#duplicates', tip: 'Extra copies of the same URL', muted: !dupes }),
-      statTile({ label: 'No useful name', value: scans.untitled(ctx).length, href: '#untitled', muted: !scans.untitled(ctx).length }),
-      statTile({ label: 'Empty folders', value: scans.emptyFolders(ctx).length, href: '#empty-folders', muted: !scans.emptyFolders(ctx).length }),
-      statTile({ label: 'Same-name folders', value: scans.sameNameFolders(ctx).length, href: '#same-name', tip: 'Sets of sibling folders that could be merged', muted: !scans.sameNameFolders(ctx).length }),
-      statTile({ label: 'Broken links', value: broken ?? '–', href: '#broken', note: links ? `checked ${formatDate(links.time)}` : notChecked, muted: !broken }),
-      statTile({ label: 'Redirects', value: redirects ?? '–', href: '#redirects', note: links ? `checked ${formatDate(links.time)}` : notChecked, muted: !redirects }),
+      statTile({ label: 'No useful name', value: untitled, href: '#untitled', muted: !untitled }),
+      statTile({ label: 'Empty folders', value: empty, href: '#empty-folders', muted: !empty }),
+      statTile({ label: 'Same-name folders', value: sameName, href: '#same-name', tip: 'Sets of sibling folders that could be merged', muted: !sameName }),
+      statTile({ label: 'Broken links', value: broken ?? '–', href: '#broken', note: checkNote, muted: !broken }),
+      statTile({ label: 'Redirects', value: redirects ?? '–', href: '#redirects', note: checkNote, muted: !redirects }),
       statTile({ label: 'Waiting to be organized', value: organize, href: '#organize', tip: 'Bookmarks your rules would move', muted: !organize }),
       statTile({ label: 'Ignored', value: ignored, href: '#settings', tip: 'Skipped by every check', muted: !ignored }));
 
@@ -61,7 +64,7 @@ export default {
     const months = s.months;
     const monthsCard = months.length > 1 && chartCard({
       title: 'Added per month',
-      subtitle: `${monthLabel(months[0].month)} to ${monthLabel(months.at(-1).month)}${months.length === 36 ? ' (the last three years)' : ''}.`,
+      subtitle: `${monthLabel(months[0].month)} to ${monthLabel(months.at(-1).month)}${months.length === MAX_MONTHS ? ' (the last three years)' : ''}.`,
       chart: columnChart(months, { labelOf: (m) => monthLabel(m.month), shortLabelOf: monthTick }),
       columns: ['Month', 'Added'],
       rows: months.map((m) => [monthLabel(m.month), m.count]),
@@ -94,7 +97,7 @@ export default {
       rows: s.protocols.map((x) => [x.name, x.count]),
     });
 
-    const recent = ctx.state.flat.filter((b) => b.type === 'bookmark').sort((a, b) => b.dateAdded - a.dateAdded).slice(0, RECENT);
+    const recent = bookmarksOnly(ctx.state.flat).sort((a, b) => b.dateAdded - a.dateAdded).slice(0, RECENT);
     const recentCard = h('div', { class: 'viz-card' },
       h('div', { class: 'viz-head' },
         h('div', {}, h('h2', { text: 'Recently bookmarked' }), h('p', { class: 'muted small', text: `The newest ${recent.length}, newest first.` })),

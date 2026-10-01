@@ -1,34 +1,32 @@
 // Runs the network check for the Broken links and Redirects views and keeps it going while the user switches views.
 
-import { h, toast } from './dom.js';
-import { checkAll, isCheckable, isSkipped, isPrivateAddress } from '../lib/linkcheck.js';
+import { h, toast, formatDateTime } from './dom.js';
+import { viewHeader } from './components.js';
+import { ProgressJob } from './progress.js';
+import { askAllSites } from './permissions.js';
+import { checkAll, checkTargets, mergeLinkResults, fetchOptions } from '../lib/linkcheck.js';
 import { saveLinkResults } from '../lib/settings.js';
 import { findUntitled } from '../lib/folders.js';
-
-const ALL_SITES = { origins: ['<all_urls>'] };
+import * as scans from './scans.js';
 
 export class LinkChecker {
-  running = false;
-  done = 0;
-  total = 0;
-  #controller = null;
-  #bars = [];
+  job = new ProgressJob((done, total) => `Checked ${done} of ${total}`);
 
   constructor(ctx) {
     this.ctx = ctx;
   }
 
+  get running() {
+    return this.job.running;
+  }
+
   // Must be called straight from a click handler: Firefox only shows the permission prompt for a user action.
   start(ids = null) {
     if (this.running) return;
-    browser.permissions.request(ALL_SITES).then((granted) => {
+    askAllSites().then((granted) => {
       if (!granted) toast('Checking links needs permission to access websites.', 'error');
       else this.#run(ids);
     });
-  }
-
-  cancel() {
-    this.#controller?.abort();
   }
 
   async #run(ids) {
@@ -36,82 +34,41 @@ export class LinkChecker {
     const { linkCheck } = state.settings;
     const ignored = this.ctx.ignoredIds();
     const wanted = ids ? new Set(ids) : null;
-    let skipped = 0;
-    const targets = state.flat.filter((b) => {
-      if (b.type !== 'bookmark' || ignored.has(b.id) || (wanted && !wanted.has(b.id))) return false;
-      if (!isCheckable(b.url) || isSkipped(b.url, linkCheck.skipDomains) || (linkCheck.skipPrivate && isPrivateAddress(b.url))) {
-        skipped++;
-        return false;
-      }
-      return true;
-    });
-
+    const { targets, skipped } = checkTargets(state.flat, linkCheck, ignored, wanted);
     // Bookmarks without a useful name also have their page title read, in the same request.
     const unnamed = new Set(findUntitled(state.flat, ignored).map((b) => b.id));
 
-    this.running = true;
-    this.done = 0;
-    this.total = targets.length;
-    this.#controller = new AbortController();
-    this.#paint();
+    const signal = this.job.start(targets.length);
     let results;
     try {
       results = await checkAll(targets, {
-        concurrency: linkCheck.concurrency,
-        timeout: linkCheck.timeoutSeconds * 1000,
-        cookies: linkCheck.useCookies,
-        noCookieWords: linkCheck.noCookieWords,
-        detectLogin: linkCheck.detectLogin,
-        loginHosts: linkCheck.loginHosts,
+        ...fetchOptions(linkCheck),
         titleFor: (b) => unnamed.has(b.id),
-        signal: this.#controller.signal,
-        onProgress: (done) => {
-          this.done = done;
-          this.#paint();
-        },
+        signal,
+        onProgress: (done) => this.job.progress(done),
       });
     } finally {
-      this.running = false;
+      this.job.finish();
     }
-    const cancelled = this.#controller.signal.aborted;
-    const problems = results.filter((r) => r.status !== 'ok');
-
-    // A partial re-check replaces only the entries for the bookmarks it covered.
-    const previous = wanted && state.linkResults ? state.linkResults.results.filter((r) => !wanted.has(r.id)) : [];
-    // Found titles are kept with the URL they came from, so an edited bookmark does not get a stale one.
-    const titles = Object.fromEntries(Object.entries(wanted ? state.linkResults?.titles ?? {} : {}).filter(([id]) => !wanted.has(id)));
-    for (const r of results) if (r.pageTitle) titles[r.id] = { url: r.url, title: r.pageTitle };
-    await saveLinkResults({
-      time: Date.now(),
-      checked: wanted ? state.linkResults?.checked ?? results.length : results.length,
-      skipped: wanted ? state.linkResults?.skipped ?? skipped : skipped,
-      cancelled,
-      results: [...previous, ...problems],
-      titles,
-    });
-    toast(`${cancelled ? 'Check cancelled' : 'Check finished'}: ${results.length} checked, ${problems.length} need attention.`, 'success');
-    await this.ctx.run(async () => {});
+    const cancelled = this.job.cancelled;
+    const saved = mergeLinkResults(state.linkResults, { results, skipped, cancelled, wanted });
+    await saveLinkResults(saved);
+    const problems = results.filter((r) => r.status !== 'ok').length;
+    toast(`${cancelled ? 'Check cancelled' : 'Check finished'}: ${results.length} checked, ${problems} need attention.`, 'success');
+    await this.ctx.reload();
   }
+}
 
-  // A progress bar that follows the running check; stale copies drop out once they leave the page.
-  progress() {
-    const bar = h('div', { class: 'progress', hidden: !this.running },
-      h('progress', { max: 1, value: 0 }),
-      h('span', { class: 'muted' }),
-      h('button', { class: 'small', text: 'Cancel', onclick: () => this.cancel() }));
-    this.#bars.push(bar);
-    this.#paint();
-    return bar;
-  }
-
-  #paint() {
-    this.#bars = this.#bars.filter((b) => b.isConnected || !b.dataset.painted);
-    for (const bar of this.#bars) {
-      bar.dataset.painted = '1';
-      bar.hidden = !this.running;
-      bar.querySelector('progress').max = Math.max(1, this.total);
-      bar.querySelector('progress').value = this.done;
-      bar.querySelector('span').textContent = `Checked ${this.done} of ${this.total}`;
-    }
-  }
+// Header, progress bar and summary of the last check, shared by the Broken links and Redirects views.
+export function checkControls(ctx, title, description) {
+  const saved = scans.linkResults(ctx);
+  const checker = ctx.linkChecker;
+  const summary = saved
+    ? `Last check ${formatDateTime(saved.time)}: ${saved.checked} checked, ${saved.skipped} skipped${saved.cancelled ? ' (cancelled part-way)' : ''}.`
+    : 'Links have not been checked yet.';
+  return h('div', {},
+    viewHeader(title, description,
+      h('button', { class: 'primary', text: saved ? 'Check again' : 'Check all links', disabled: checker.running, onclick: () => checker.start() })),
+    h('p', { class: 'muted', text: summary }),
+    checker.job.bar());
 }

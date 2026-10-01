@@ -28,11 +28,12 @@ test('replacement templates expand tokens and case prefixes', () => {
   assert.equal(expandReplacement('$URL|$NAME|$TITLE|$$', 'x', [], ctx), 'U|Menu/T|T|$');
 });
 
-test('groups are numbered oldest first and ignore whitelisted ids', () => {
+test('groups are numbered oldest first, ignore whitelisted ids and count the extra copies', () => {
   const list = [bm('b', 'https://a.test/', { dateAdded: 5 }), bm('a', 'https://a.test/', { dateAdded: 1 }), bm('c', 'https://a.test/', { dateAdded: 9 }), bm('d', 'https://other.test/')];
-  const { groups } = findDuplicates(list, { ignoredIds: new Set(['c']) });
+  const { groups, extra } = findDuplicates(list, { ignoredIds: new Set(['c']) });
   assert.equal(groups.length, 1);
   assert.deepEqual(groups[0].items.map((i) => [i.id, i.order]), [['a', 1], ['b', 2]]);
+  assert.equal(extra, 1);
 });
 
 test('filter rules exclude bookmarks and replace rules rewrite URLs', () => {

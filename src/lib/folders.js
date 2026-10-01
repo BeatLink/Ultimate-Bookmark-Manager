@@ -1,9 +1,14 @@
 // Folder-level checks: empty folders, same-name siblings and bookmarks without a useful name.
 
-import { ROOT_IDS, nodeType } from './tree.js';
+import { ROOT_IDS, isFolder, isBookmark } from './tree.js';
+import { groupBy } from './group.js';
 
 function containsBookmark(node) {
-  return (node.children ?? []).some((c) => nodeType(c) === 'bookmark' || (nodeType(c) === 'folder' && containsBookmark(c)));
+  return (node.children ?? []).some((c) => isBookmark(c) || (isFolder(c) && containsBookmark(c)));
+}
+
+function countFolders(node) {
+  return (node.children ?? []).reduce((n, c) => (isFolder(c) ? n + 1 + countFolders(c) : n), 0);
 }
 
 // Returns the topmost folders holding no bookmarks anywhere inside; removing one removes its empty subfolders too.
@@ -11,12 +16,11 @@ export function findEmptyFolders(root, ignoredIds = new Set()) {
   const out = [];
   const walk = (folder, path) => {
     for (const child of folder.children ?? []) {
-      if (nodeType(child) !== 'folder') continue;
-      const childPath = [...path, child.title ?? ''];
+      if (!isFolder(child)) continue;
       if (!ROOT_IDS.has(child.id) && !ignoredIds.has(child.id) && !containsBookmark(child)) {
         out.push({ id: child.id, parentId: child.parentId, title: child.title ?? '', path, subfolders: countFolders(child) });
       } else {
-        walk(child, childPath);
+        walk(child, [...path, child.title ?? '']);
       }
     }
   };
@@ -24,26 +28,16 @@ export function findEmptyFolders(root, ignoredIds = new Set()) {
   return out;
 }
 
-function countFolders(node) {
-  return (node.children ?? []).reduce((n, c) => (nodeType(c) === 'folder' ? n + 1 + countFolders(c) : n), 0);
-}
-
 // Returns groups of sibling folders sharing a name, each ordered by position with the first as merge target.
 export function findSameNameFolders(root, ignoredIds = new Set()) {
   const out = [];
   const walk = (folder, path) => {
-    const byName = new Map();
-    for (const child of folder.children ?? []) {
-      if (nodeType(child) !== 'folder') continue;
-      walk(child, [...path, child.title ?? '']);
-      if (ROOT_IDS.has(child.id) || ignoredIds.has(child.id)) continue;
-      const name = (child.title ?? '').trim();
-      if (!byName.has(name)) byName.set(name, []);
-      byName.get(name).push({ id: child.id, index: child.index, title: child.title ?? '', size: (child.children ?? []).length });
-    }
-    for (const [name, folders] of byName) {
-      if (folders.length < 2) continue;
-      folders.sort((a, b) => a.index - b.index);
+    const subfolders = (folder.children ?? []).filter(isFolder);
+    for (const child of subfolders) walk(child, [...path, child.title ?? '']);
+    const candidates = subfolders.filter((c) => !ROOT_IDS.has(c.id) && !ignoredIds.has(c.id));
+    for (const [name, siblings] of groupBy(candidates, (c) => (c.title ?? '').trim())) {
+      if (siblings.length < 2) continue;
+      const folders = siblings.map((c) => ({ id: c.id, index: c.index, title: c.title ?? '', size: (c.children ?? []).length })).sort((a, b) => a.index - b.index);
       out.push({ parentId: folder.id, path, title: name, folders });
     }
   };
