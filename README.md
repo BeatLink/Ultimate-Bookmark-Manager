@@ -84,3 +84,9 @@ Pushing a version tag publishes to [addons.mozilla.org](https://addons.mozilla.o
 3. Tag and push: `git tag v0.1.0 && git push origin v0.1.0`.
 
 The release job checks that the tag matches the manifest version, runs the tests and lint, submits the version for Mozilla's review, and creates a GitHub release with the package attached. Listed versions are signed once Mozilla has reviewed them. When uploading by hand instead, leave Firefox for Android unticked: Android has no bookmarks API.
+
+## License
+
+Ultimate Bookmark Manager is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See [LICENSE](LICENSE).
+
+The condition editor's layout in `src/ui/query-editor.css` is adapted from [react-querybuilder](https://react-querybuilder.js.org/) under the MIT license, whose notice is kept in that file.
