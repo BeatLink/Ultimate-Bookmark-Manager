@@ -81,3 +81,21 @@ test('an imported file with damaged parts imports what it can', async () => {
   assert.deepEqual(parsed.whitelist, {});
   assert.ok(Array.isArray(parsed.settings.linkCheck.skipDomains));
 });
+
+test('saved never-send-cookies lists gain the newer words once, keeping the cookie choice', async () => {
+  const { addNewCookieWords } = await import('../src/lib/settings.js');
+  const stored = { settings: { linkCheck: { useCookies: true, noCookieWords: ['logout', 'mine'] } } };
+  const storage = { async get(keys) { return Object.fromEntries([keys].flat().map((k) => [k, stored[k]])); }, async set(v) { Object.assign(stored, v); } };
+  assert.equal(await addNewCookieWords(storage), true);
+  const words = stored.settings.linkCheck.noCookieWords;
+  assert.deepEqual(words.slice(0, 2), ['logout', 'mine']);
+  assert.ok(words.includes('delete') && words.includes('token'));
+  assert.equal(stored.settings.linkCheck.useCookies, true);
+  stored.settings.linkCheck.noCookieWords = ['logout'];
+  assert.equal(await addNewCookieWords(storage), false, 'a word removed afterwards stays removed');
+  assert.deepEqual(stored.settings.linkCheck.noCookieWords, ['logout']);
+  const fresh = {};
+  const empty = { async get(keys) { return Object.fromEntries([keys].flat().map((k) => [k, fresh[k]])); }, async set(v) { Object.assign(fresh, v); } };
+  assert.equal(await addNewCookieWords(empty), false, 'a device that never saved settings already gets the defaults');
+  assert.equal(fresh.settings, undefined);
+});

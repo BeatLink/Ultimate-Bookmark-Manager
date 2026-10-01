@@ -1,6 +1,6 @@
 // Entry points (toolbar button, keyboard shortcut, Tools menu, "bm" address-bar keyword) and automatic organizing.
 
-import { loadSettings, loadWhitelist } from './lib/settings.js';
+import { loadSettings, loadWhitelist, addNewCookieWords } from './lib/settings.js';
 import { planMoves } from './lib/organize.js';
 import { flatten } from './lib/tree.js';
 import { Actions } from './lib/actions.js';
@@ -39,6 +39,7 @@ async function removeAiLeftovers() {
   }
 }
 browser.runtime.onInstalled.addListener(() => removeAiLeftovers().catch((err) => console.error('Cleanup failed', err)));
+browser.runtime.onInstalled.addListener(() => addNewCookieWords().catch((err) => console.error('Updating the never-send-cookies words failed', err)));
 
 browser.commands.onCommand.addListener((command) => {
   if (command === 'open-dashboard') openDashboard();

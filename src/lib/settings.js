@@ -96,6 +96,20 @@ export function readWhitelist(whitelist) {
   return out;
 }
 
+// Adds the never-send-cookies words a saved list predates, once, so a word removed afterwards stays removed.
+export async function addNewCookieWords(storage = browser.storage.local) {
+  const { settings, cookieWordsAdded } = await storage.get(['settings', 'cookieWordsAdded']);
+  if (cookieWordsAdded) return false;
+  const words = settings?.linkCheck?.noCookieWords;
+  const update = { cookieWordsAdded: true };
+  if (Array.isArray(words)) {
+    const missing = DEFAULT_NO_COOKIE_WORDS.filter((w) => !words.includes(w));
+    if (missing.length) update.settings = { ...settings, linkCheck: { ...settings.linkCheck, noCookieWords: [...words, ...missing] } };
+  }
+  await storage.set(update);
+  return 'settings' in update;
+}
+
 export async function saveSettings(settings, storage = browser.storage.local) {
   await storage.set({ settings });
 }
