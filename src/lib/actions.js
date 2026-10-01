@@ -1,12 +1,12 @@
 // Every change to bookmarks goes through here, so each one is snapshotted first and can be undone.
 
-import { nodeType } from './tree.js';
+import { nodeType, sortedByName } from './tree.js';
 import { loadSettings, saveSettings } from './settings.js';
 import { moveRulePaths } from './organize.js';
 
 const OTHER_BOOKMARKS = 'unfiled_____';
 
-function snapshot(node) {
+export function snapshot(node) {
   const snap = { id: node.id, type: nodeType(node), title: node.title ?? '' };
   if (node.url) snap.url = node.url;
   if (node.children) snap.children = node.children.map(snapshot);
@@ -37,6 +37,7 @@ export class Actions {
       update: (id, changes) => this.#update(id, changes, ops),
       move: (id, dest) => this.#move(id, dest, ops),
       createFolder: (parentId, title) => this.#createFolder(parentId, title, ops),
+      create: (parentId, index, snap) => this.#create(parentId, index, snap, ops),
       moveRulePaths: (from, to) => this.#moveRulePaths(from, to, ops),
     };
     try {
@@ -65,6 +66,54 @@ export class Actions {
     return this.run(label, async (rec) => {
       await rec.move(id, { parentId });
       await rec.moveRulePaths(from, to);
+    });
+  }
+
+  // Creates bookmarks, folders (with everything inside) or separators from snapshots, starting at `index` (null for the end).
+  create(parentId, index, snaps, label = `Added ${snaps.length} item(s)`) {
+    return this.run(label, async (rec) => {
+      const ids = [];
+      for (const [i, snap] of snaps.entries()) ids.push(await rec.create(parentId, index === null ? null : index + i, snap));
+      return ids;
+    });
+  }
+
+  // Moves items in order to `index` of a folder, counted before any of them leave it (null for the end).
+  // Each item may carry the folder path it moves `from` and `to`, so organize rules naming it follow.
+  moveItems(items, parentId, index, label = `Moved ${items.length} item(s)`) {
+    return this.run(label, async (rec) => {
+      let at = index;
+      for (const { id, from, to } of items) {
+        const [node] = await this.bookmarks.get(id);
+        let target = at;
+        if (target !== null && node.parentId === parentId && node.index < target) target--;
+        await rec.move(id, target === null ? { parentId } : { parentId, index: target });
+        if (at !== null) at = target + 1;
+        if (from && to && from.join('/') !== to.join('/')) await rec.moveRulePaths(from, to);
+      }
+    });
+  }
+
+  // Edits a bookmark or folder; a renamed folder takes the organize rules that name it along.
+  edit(id, changes, paths, label = `Edited “${changes.title ?? changes.url}”`) {
+    return this.run(label, async (rec) => {
+      await rec.update(id, changes);
+      if (paths && paths.from.join('/') !== paths.to.join('/')) await rec.moveRulePaths(paths.from, paths.to);
+    });
+  }
+
+  // Sorts a folder's contents by name the way Firefox does: separators stay put and folders come first between them.
+  sortFolder(folderId, label = 'Sorted a folder by name') {
+    return this.run(label, async (rec) => {
+      const children = await this.bookmarks.getChildren(folderId);
+      const order = children.map((c) => c.id);
+      for (const [i, child] of sortedByName(children).entries()) {
+        const from = order.indexOf(child.id);
+        if (from === i) continue;
+        await rec.move(child.id, { parentId: folderId, index: i });
+        order.splice(from, 1);
+        order.splice(i, 0, child.id);
+      }
     });
   }
 
@@ -199,6 +248,20 @@ export class Actions {
 
   async #moveRulePaths(from, to, ops) {
     if (await this.#rewriteRules(from, to)) ops.push({ kind: 'rulePaths', from, to });
+  }
+
+  // Builds a snapshot's whole tree but records only its top item, which undo removes with everything inside.
+  async #create(parentId, index, snap, ops) {
+    const build = async (s, parent, i) => {
+      const node = await this.bookmarks.create({
+        parentId: parent, ...(i === null ? {} : { index: i }), title: s.title ?? '', type: s.type, ...(s.url ? { url: s.url } : {}),
+      });
+      for (const child of s.children ?? []) await build(child, node.id, null);
+      return node.id;
+    };
+    const id = await build(snap, parentId, index);
+    ops.push({ kind: 'create', id });
+    return id;
   }
 
   async #createFolder(parentId, title, ops) {

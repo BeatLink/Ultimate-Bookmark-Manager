@@ -108,3 +108,94 @@ export class Selection {
     for (const fn of this.#listeners) fn(this);
   }
 }
+
+// Saves text as a file through the browser's download prompt.
+export function downloadFile(text, name, type = 'application/json') {
+  const a = h('a', { href: URL.createObjectURL(new Blob([text], { type })), download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+// Asks for several lines of text in a modal; resolves to { name: trimmed text }, or null when cancelled.
+// A field's `validate` returns an error message to keep the dialog open.
+export function fieldsDialog(heading, fields, confirmLabel = 'Save') {
+  return new Promise((resolve) => {
+    const inputs = fields.map((f) => h('input', { type: 'text', value: f.value ?? '', placeholder: f.placeholder, spellcheck: f.spellcheck ?? null }));
+    const error = h('p', { class: 'error small', hidden: true });
+    const check = (e) => {
+      if (e.submitter?.value !== 'ok') return;
+      for (const [i, f] of fields.entries()) {
+        const message = f.validate?.(inputs[i].value.trim());
+        if (!message) continue;
+        e.preventDefault();
+        error.textContent = message;
+        error.hidden = false;
+        inputs[i].focus();
+        return;
+      }
+    };
+    const dialog = h('dialog', { class: 'confirm prompt' },
+      h('form', { method: 'dialog', onsubmit: check },
+        h('h2', { text: heading }),
+        fields.map((f, i) => h('label', {}, h('span', { text: f.label }), inputs[i])),
+        error,
+        h('div', { class: 'row end' },
+          h('button', { type: 'button', text: 'Cancel', onclick: () => dialog.close('cancel') }),
+          h('button', { value: 'ok', class: 'primary', text: confirmLabel }))),
+    );
+    dialog.addEventListener('close', () => {
+      resolve(dialog.returnValue === 'ok' ? Object.fromEntries(fields.map((f, i) => [f.name, inputs[i].value.trim()])) : null);
+      dialog.remove();
+    });
+    document.body.append(dialog);
+    dialog.showModal();
+    inputs[0]?.select();
+  });
+}
+
+// A popup menu at a point on screen. Items are { label, key, disabled, run } or '-' for a divider; falsy items are skipped.
+// The chosen item runs after the menu has closed and `onClose` has run.
+export function showMenu(x, y, items, onClose) {
+  let chosen = null;
+  const dialog = h('dialog', { class: 'menu', 'aria-label': 'Menu' });
+  const list = h('div', { role: 'menu' });
+  const entries = items.filter(Boolean).filter((it, i, all) => it !== '-' || (i > 0 && i < all.length - 1 && all[i - 1] !== '-'));
+  for (const it of entries) {
+    if (it === '-') list.append(h('hr', { role: 'separator' }));
+    else list.append(h('button', { type: 'button', role: 'menuitem', disabled: !!it.disabled, onclick: () => { chosen = it; dialog.close(); } },
+      h('span', { text: it.label }), it.key && h('span', { class: 'menu-key', text: it.key })));
+  }
+  dialog.append(list);
+  const buttons = () => [...list.querySelectorAll('button:not(:disabled)')];
+  dialog.addEventListener('keydown', (e) => {
+    const all = buttons();
+    const at = all.indexOf(document.activeElement);
+    const next = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: all.length - 1 }[e.key];
+    if (next === undefined || !all.length) return;
+    e.preventDefault();
+    all[(next + all.length) % all.length].focus();
+  });
+  // A click or right-click outside the menu lands on the dialog's backdrop and closes it.
+  const outside = (e) => {
+    const r = dialog.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) {
+      e.preventDefault();
+      dialog.close();
+    }
+  };
+  dialog.addEventListener('mousedown', outside);
+  dialog.addEventListener('contextmenu', (e) => e.preventDefault());
+  dialog.addEventListener('close', () => {
+    dialog.remove();
+    onClose?.();
+    chosen?.run();
+  });
+  document.body.append(dialog);
+  dialog.showModal();
+  const r = dialog.getBoundingClientRect();
+  dialog.style.left = `${Math.max(4, Math.min(x, innerWidth - r.width - 4))}px`;
+  dialog.style.top = `${Math.max(4, Math.min(y, innerHeight - r.height - 4))}px`;
+  buttons()[0]?.focus();
+}

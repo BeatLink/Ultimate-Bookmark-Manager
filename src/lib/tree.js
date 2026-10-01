@@ -1,5 +1,7 @@
 // Helpers for walking the tree returned by browser.bookmarks.getTree().
 
+import { byText } from './text.js';
+
 // Built-in folders Firefox does not let extensions remove or rename.
 export const ROOT_IDS = new Set([
   'root________',
@@ -54,4 +56,31 @@ export function findNode(root, id) {
     if (hit) return hit;
   }
   return null;
+}
+
+// A folder's children in Firefox's "Sort by name" order: separators stay where they are, and between them folders come first, then the rest by name.
+export function sortedByName(children) {
+  const out = [];
+  let run = [];
+  const flush = () => {
+    const isFolder = (n) => (nodeType(n) === 'folder' ? 0 : 1);
+    run.sort((a, b) => isFolder(a) - isFolder(b) || byText(a.title ?? '', b.title ?? ''));
+    out.push(...run);
+    run = [];
+  };
+  for (const child of children) {
+    if (nodeType(child) === 'separator') {
+      flush();
+      out.push(child);
+    } else run.push(child);
+  }
+  flush();
+  return out;
+}
+
+// The folder titles from the top-level folder down to the given node, as organize rules store paths.
+export function pathTo(byId, id) {
+  const out = [];
+  for (let node = byId.get(id); node && node.parentId; node = byId.get(node.parentId)) out.unshift(node.title ?? '');
+  return out;
 }

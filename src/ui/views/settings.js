@@ -1,6 +1,6 @@
 // Settings: duplicate matching, custom rules, link-check tuning, skip list and whitelist.
 
-import { h, toast, confirmDialog } from '../dom.js';
+import { h, toast, confirmDialog, downloadFile } from '../dom.js';
 import { viewHeader, emptyState, helpLink } from '../components.js';
 
 // A section heading with its help link.
@@ -12,12 +12,7 @@ import { buildExport, parseImport, applyImport } from '../../lib/transfer.js';
 import { isSyncEnabled, syncStatus, hasConflictingRemote, enableSync, disableSync, guarded } from '../../lib/sync.js';
 
 function download(data, name) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const a = h('a', { href: URL.createObjectURL(blob), download: name });
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  downloadFile(JSON.stringify(data, null, 2), name);
 }
 
 // Sync toggle and status, plus exporting and importing settings files.
