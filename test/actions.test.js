@@ -83,3 +83,22 @@ test('a created folder is one undoable step', async () => {
   await actions.undoLatest();
   assert.deepEqual(await shape(bookmarks), before);
 });
+
+test('moving a folder rewrites the rules that name it, and undo puts both back', async () => {
+  const bookmarks = fakeBookmarks(spec());
+  const storage = fakeStorage();
+  const rules = [{ id: 'r', name: 'r', enabled: true, target: 'Menu/Folder/Sub', query: { combinator: 'and', rules: [{ id: 'c', field: 'folder', operator: 'inFolder', value: 'Menu/Folder' }] } }];
+  await storage.set({ settings: { organize: { rules, autoApply: false } } });
+  const actions = new Actions({ bookmarks, storage });
+  const before = await shape(bookmarks);
+  await actions.moveFolder('f', 'unfiled_____', { from: ['Menu', 'Folder'], to: ['Other', 'Folder'] });
+  assert.deepEqual((await bookmarks.getChildren('unfiled_____')).map((n) => n.title), ['Folder']);
+  const saved = (await storage.get('settings')).settings.organize.rules[0];
+  assert.equal(saved.target, 'Other/Folder/Sub');
+  assert.equal(saved.query.rules[0].value, 'Other/Folder');
+  await actions.undoLatest();
+  assert.deepEqual(await shape(bookmarks), before);
+  const restored = (await storage.get('settings')).settings.organize.rules[0];
+  assert.equal(restored.target, 'Menu/Folder/Sub');
+  assert.equal(restored.query.rules[0].value, 'Menu/Folder');
+});

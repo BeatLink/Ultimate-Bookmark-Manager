@@ -1,6 +1,8 @@
 // Every change to bookmarks goes through here, so each one is snapshotted first and can be undone.
 
 import { nodeType } from './tree.js';
+import { loadSettings, saveSettings } from './settings.js';
+import { moveRulePaths } from './organize.js';
 
 const OTHER_BOOKMARKS = 'unfiled_____';
 
@@ -35,6 +37,7 @@ export class Actions {
       update: (id, changes) => this.#update(id, changes, ops),
       move: (id, dest) => this.#move(id, dest, ops),
       createFolder: (parentId, title) => this.#createFolder(parentId, title, ops),
+      moveRulePaths: (from, to) => this.#moveRulePaths(from, to, ops),
     };
     try {
       return await body(rec);
@@ -55,6 +58,14 @@ export class Actions {
 
   createFolder(parentId, title, label = `Created folder “${title}”`) {
     return this.run(label, (rec) => rec.createFolder(parentId, title));
+  }
+
+  // Moves a folder into another one and points the organize rules that named it, or anything inside it, at its new place.
+  moveFolder(id, parentId, { from, to }, label = `Moved folder “${from.at(-1)}” into “${to.at(-2)}”`) {
+    return this.run(label, async (rec) => {
+      await rec.move(id, { parentId });
+      await rec.moveRulePaths(from, to);
+    });
   }
 
   // Moves bookmarks into a folder in Other Bookmarks, creating it if needed.
@@ -128,6 +139,7 @@ export class Actions {
         else if (op.kind === 'update') await this.bookmarks.update(resolve(op.id), op.before);
         else if (op.kind === 'move') await this.bookmarks.move(resolve(op.id), { parentId: resolve(op.from.parentId), index: op.from.index });
         else if (op.kind === 'create') await this.bookmarks.removeTree(resolve(op.id));
+        else if (op.kind === 'rulePaths') await this.#rewriteRules(op.to, op.from);
       }
     } finally {
       await this.storage.set({ history });
@@ -172,6 +184,21 @@ export class Actions {
     const [node] = await this.bookmarks.get(id);
     await this.bookmarks.move(id, dest);
     ops.push({ kind: 'move', id, from: { parentId: node.parentId, index: node.index } });
+  }
+
+  // Rewrites the saved organize rules; true when any rule changed.
+  async #rewriteRules(from, to) {
+    const settings = await loadSettings(this.storage);
+    const [root] = await this.bookmarks.getTree();
+    const roots = root.children.map((c) => ({ id: c.id, title: c.title }));
+    const rules = moveRulePaths(settings.organize.rules, from, to, roots);
+    if (rules === settings.organize.rules) return false;
+    await saveSettings({ ...settings, organize: { ...settings.organize, rules } }, this.storage);
+    return true;
+  }
+
+  async #moveRulePaths(from, to, ops) {
+    if (await this.#rewriteRules(from, to)) ops.push({ kind: 'rulePaths', from, to });
   }
 
   async #createFolder(parentId, title, ops) {

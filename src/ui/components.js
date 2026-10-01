@@ -1,7 +1,7 @@
 // Building blocks the views share: headers, selection toolbars, checkboxes and bookmark rows.
 
 import { h, formatDate } from './dom.js';
-import { formatPath } from '../lib/tree.js';
+import { formatPath, nodeType } from '../lib/tree.js';
 import { byText } from '../lib/text.js';
 
 // A small "?" with a short tip on hover that opens the matching section of the Help page; a link, so it works from the keyboard.
@@ -205,7 +205,7 @@ export function pickRule(root, entries, { heading = 'Choose a rule', current = '
         const path = segments.join('/');
         const own = byFolder.get(path) ?? [];
         if (own.length) placed.add(path);
-        const kids = (node.children ?? []).filter((c) => !c.url && c.children).map((c) => folderItem(c, [...segments, c.title ?? ''])).filter(Boolean);
+        const kids = (node.children ?? []).filter((c) => nodeType(c) === 'folder').map((c) => folderItem(c, [...segments, c.title ?? ''])).filter(Boolean);
         if (!own.length && !kids.length) return null;
         return h('li', {}, h('details', { open: true },
           h('summary', {}, h('span', { class: 'folder-label' }, h('span', { class: 'folder-icon', 'aria-hidden': 'true' }), node.title || '(no name)')),
@@ -271,7 +271,7 @@ export function pickFolder(root, current = '', { heading = 'Choose a folder', ve
 
     const folderItem = (node, segments) => {
       const path = folderPath(segments);
-      const subfolders = (node.children ?? []).filter((c) => !c.url && c.children);
+      const subfolders = (node.children ?? []).filter((c) => nodeType(c) === 'folder');
       const name = h('button', {
         class: 'folder-name', type: 'button', role: 'treeitem', 'data-path': path ?? '', disabled: path === null,
         title: path === null ? 'Folders with “/” in their name cannot be used as a target' : path.replaceAll('/', ' › '),
@@ -291,7 +291,7 @@ export function pickFolder(root, current = '', { heading = 'Choose a folder', ve
       const hits = [];
       const walk = (node, segments) => {
         for (const c of node.children ?? []) {
-          if (c.url || !c.children) continue;
+          if (nodeType(c) !== 'folder') continue;
           const segs = [...segments, c.title ?? ''];
           const path = folderPath(segs);
           if (path && (c.title ?? '').toLowerCase().includes(q)) hits.push(path);

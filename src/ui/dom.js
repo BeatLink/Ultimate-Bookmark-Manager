@@ -52,12 +52,13 @@ export function confirmDialog(message, confirmLabel = 'Continue', danger = true)
 // Asks for a line of text in a modal; resolves to the trimmed text, or null when cancelled or left blank.
 export function promptDialog(message, confirmLabel = 'OK', value = '') {
   return new Promise((resolve) => {
-    const input = h('input', { type: 'text', value, 'aria-label': message, autofocus: true });
-    const dialog = h('dialog', { class: 'confirm' },
+    const input = h('input', { type: 'text', value, autofocus: true });
+    // Cancel is a plain button, so Enter in the text box submits through the confirm button.
+    const dialog = h('dialog', { class: 'confirm prompt' },
       h('form', { method: 'dialog' },
-        h('label', { class: 'field block' }, message, input),
+        h('label', {}, h('span', { text: message }), input),
         h('div', { class: 'row end' },
-          h('button', { value: 'cancel', text: 'Cancel', formnovalidate: true }),
+          h('button', { type: 'button', text: 'Cancel', onclick: () => dialog.close('cancel') }),
           h('button', { value: 'ok', class: 'primary', text: confirmLabel }))),
     );
     dialog.addEventListener('close', () => {

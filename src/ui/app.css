@@ -147,6 +147,10 @@ details summary { cursor: pointer; font-size: .85em; color: var(--muted); }
 
 dialog.confirm { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); max-width: 30em; }
 dialog.confirm::backdrop { background: rgb(0 0 0 / .35); }
+dialog.prompt { width: min(26em, calc(100vw - 2em)); padding: 1.25em; }
+dialog.prompt form { display: flex; flex-direction: column; gap: 1em; }
+dialog.prompt label { display: flex; flex-direction: column; gap: .5em; font-weight: 600; }
+dialog.prompt input { width: 100%; box-sizing: border-box; font-weight: normal; }
 #toasts { position: fixed; bottom: 1em; right: 1em; display: flex; flex-direction: column; gap: .5em; z-index: 10; max-width: min(28em, calc(100vw - 2em)); }
 .toast { background: var(--text); color: var(--bg); padding: .6em .9em; border-radius: var(--radius); box-shadow: 0 2px 8px rgb(0 0 0 / .25); display: flex; gap: .75em; align-items: center; justify-content: space-between; }
 .toast.error { background: var(--danger); }
@@ -276,6 +280,8 @@ dialog.folder-picker::backdrop { background: rgb(0 0 0 / .35); }
 .folder-children { padding: .35em 0 0 1.4em; }
 .folder-head { display: flex; align-items: center; gap: .5em; flex-wrap: wrap; padding: .25em .5em; border-radius: var(--radius); }
 .folder-head:hover { background: var(--hover); }
+.folder-head[draggable=true] { cursor: grab; }
+.folder-head.drop-into { background: var(--hover); outline: 2px dashed var(--accent); outline-offset: -2px; }
 .folder-title { font-weight: 600; }
 .folder-head .rule-actions { margin-left: auto; opacity: .35; }
 .folder-head:hover .rule-actions, .folder-head:focus-within .rule-actions { opacity: 1; }

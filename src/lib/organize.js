@@ -551,6 +551,34 @@ function startsWithPath(path, prefix) {
   return prefix.length <= path.length && prefix.every((seg, i) => path[i] === seg);
 }
 
+// Rules with every destination and folder condition inside the folder at `from` pointed at `to` instead, both paths of titles.
+// The same list comes back when no rule named that folder.
+export function moveRulePaths(rules, from, to, rootFolders) {
+  const moved = (value) => {
+    const path = resolveTarget(value, rootFolders)?.path;
+    return path && startsWithPath(path, from) ? [...to, ...path.slice(from.length)].join('/') : null;
+  };
+  const inGroup = (group) => {
+    let changed = false;
+    const items = (group?.rules ?? []).map((item) => {
+      const next = isGroup(item) ? inGroup(item) : FOLDER_OPS.has(item.operator) && valueOf(item) && moved(valueOf(item));
+      if (!next) return item;
+      changed = true;
+      return isGroup(item) ? next : { ...item, value: next };
+    });
+    return changed ? { ...group, rules: items } : null;
+  };
+  let any = false;
+  const out = rules.map((rule) => {
+    const target = rule.target && moved(rule.target);
+    const query = inGroup(rule.query);
+    if (!target && !query) return rule;
+    any = true;
+    return { ...rule, ...(target ? { target } : {}), ...(query ? { query } : {}) };
+  });
+  return any ? out : rules;
+}
+
 // Whether the rule's conditions, folder conditions included, match the bookmark.
 export function ruleApplies(rule, bookmark, rootFolders) {
   return ruleMatches(rule, bookmark, rootFolders);

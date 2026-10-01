@@ -4,9 +4,10 @@ import { h, Selection, toast, confirmDialog, promptDialog } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, pickFolder, pickRule, marked, helpLink } from '../components.js';
 import { mountQueryEditor } from '../query-editor.bundle.js';
 import { saveSettings } from '../../lib/settings.js';
-import { newRule, duplicateRule, moveToNewRule, mergeRules, mergeCandidates, planMoves, resolveTarget, maxScore, rankingWarnings } from '../../lib/organize.js';
+import { newRule, duplicateRule, moveToNewRule, mergeRules, mergeCandidates, moveRulePaths, planMoves, resolveTarget, maxScore, rankingWarnings } from '../../lib/organize.js';
 import { eligibleToOutrank, eligibleToRankBelow } from '../../lib/rule-order.js';
 import { formatScore } from '../../lib/specificity.js';
+import { nodeType } from '../../lib/tree.js';
 
 // Unsaved edits live here so they survive the re-render that follows any other action.
 let draft = null;
@@ -283,8 +284,8 @@ function folderTree(root) {
   const walk = (node, path, depth) => {
     const own = [...path, node.title ?? ''];
     return {
-      id: node.id, title: node.title || '(no name)', key: own.join('/'), depth,
-      children: (node.children ?? []).filter((c) => !c.url && c.children).map((c) => walk(c, own, depth + 1)),
+      id: node.id, title: node.title || '(no name)', key: own.join('/'), path: own, depth,
+      children: (node.children ?? []).filter((c) => nodeType(c) === 'folder').map((c) => walk(c, own, depth + 1)),
     };
   };
   return (root.children ?? []).map((c) => walk(c, [], 0));
@@ -361,6 +362,52 @@ export default {
       });
     };
 
+    // The folder being dragged; any folder but the root folders can be moved into another.
+    let dragging = null;
+    const contains = (folder, id) => folder.id === id || folder.children.some((c) => contains(c, id));
+    const canDrop = (target) => dragging && dragging.id !== target.id && !contains(dragging, target.id) && !target.children.some((c) => c.id === dragging.id);
+    const moveFolder = (folder, target) => {
+      if (target.children.some((c) => c.path.at(-1) === folder.path.at(-1))) return toast(`${target.title} already has a folder called “${folder.title}”.`, 'error');
+      const from = folder.path;
+      const to = [...target.path, folder.path.at(-1)];
+      folderOpen.set(target.key, true);
+      return ctx.run(async () => {
+        // The saved rules are rewritten with the move, as one undoable step; unsaved rule edits follow the folder too.
+        await ctx.actions.moveFolder(folder.id, target.id, { from, to });
+        draft.rules = moveRulePaths(draft.rules, from, to, roots);
+        ctx.done(`Moved “${folder.title}” into “${target.title}”.`);
+      });
+    };
+    const dragProps = (n) => ({
+      draggable: n.depth > 0 ? 'true' : null,
+      ondragstart: (e) => {
+        if (n.depth === 0) return;
+        dragging = n;
+        e.dataTransfer.setData('application/x-bookmark-folder', n.id);
+        e.dataTransfer.effectAllowed = 'move';
+      },
+      ondragend: () => {
+        dragging = null;
+        for (const el of treeBox.querySelectorAll('.drop-into')) el.classList.remove('drop-into');
+      },
+      ondragover: (e) => {
+        if (!canDrop(n)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        e.currentTarget.classList.add('drop-into');
+      },
+      ondragleave: (e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('drop-into');
+      },
+      ondrop: (e) => {
+        e.preventDefault();
+        e.currentTarget.classList.remove('drop-into');
+        const folder = dragging;
+        dragging = null;
+        if (folder && canDrop(n)) moveFolder(folder, n);
+      },
+    });
+
     // The whole tree is rebuilt when rules are added, removed or moved; typing only refreshes the cards' text.
     const drawTree = () => {
       for (const unmount of editors.values()) unmount();
@@ -402,7 +449,7 @@ export default {
         const countEl = h('span', { class: 'rule-badge active' });
         folderCounts.set(n.key, countEl);
         return h('li', { class: 'folder-node', 'data-folder': n.key },
-          h('div', { class: 'folder-head', style: `--depth: ${n.depth}` },
+          h('div', { class: 'folder-head', style: `--depth: ${n.depth}`, title: n.depth > 0 ? 'Drag onto another folder to move it there' : null, ...dragProps(n) },
             h('button', { class: 'folder-toggle', type: 'button', 'aria-expanded': String(open), 'aria-label': `${open ? 'Collapse' : 'Expand'} ${n.title}`, hidden: !own.length && !kids.length,
               onclick: (e) => {
                 const opening = children.hidden;

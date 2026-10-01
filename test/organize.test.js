@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ruleMatches, resolveTarget, planMoves, validateRules, duplicateRule, describeRule, ruleApplies, migrateRule } from '../src/lib/organize.js';
+import { ruleMatches, resolveTarget, moveRulePaths, planMoves, validateRules, duplicateRule, describeRule, ruleApplies, migrateRule } from '../src/lib/organize.js';
 
 const roots = [
   { id: 'menu________', title: 'Bookmarks Menu' },
@@ -575,4 +575,21 @@ test('merging rules joins their conditions with "any" and hands over the ranking
   assert.ok(!has('go'));
   const catchAll = { ...newCatchAll(['Other Bookmarks']), id: 'ca' };
   assert.deepEqual(mergeCandidates(a, [a, b, catchAll]).map((r) => r.id), ['b'], 'catch-alls only merge with catch-alls');
+});
+
+test('moving a folder points destinations and folder conditions inside it at the new place', () => {
+  const inDev = { ...rule('a', [cond('contains', 'rust')], 'Bookmarks Menu/Dev/Rust'), query: { combinator: 'and', rules: [
+    { id: 'f', field: 'folder', operator: 'inFolder', value: 'Bookmarks Menu/Dev' },
+    { combinator: 'or', rules: [{ id: 'g', field: 'folder', operator: 'directlyInFolder', value: 'menu/Dev/Old' }] },
+    { id: 'k', field: 'either', operator: 'contains', value: 'Dev' },
+  ] } };
+  const other = rule('b', [cond('contains', 'x')], 'Bookmarks Menu/Developer');
+  const rules = [inDev, other];
+  const out = moveRulePaths(rules, ['Bookmarks Menu', 'Dev'], ['Other Bookmarks', 'Work', 'Dev'], roots);
+  assert.equal(out[0].target, 'Other Bookmarks/Work/Dev/Rust');
+  assert.equal(out[0].query.rules[0].value, 'Other Bookmarks/Work/Dev');
+  assert.equal(out[0].query.rules[1].rules[0].value, 'Other Bookmarks/Work/Dev/Old');
+  assert.equal(out[0].query.rules[2].value, 'Dev', 'keywords are left alone');
+  assert.equal(out[1], other, 'a folder that only starts with the same letters is not inside it');
+  assert.equal(moveRulePaths(rules, ['Bookmarks Toolbar', 'X'], ['Other Bookmarks', 'X'], roots), rules, 'untouched rules come back as the same list');
 });
