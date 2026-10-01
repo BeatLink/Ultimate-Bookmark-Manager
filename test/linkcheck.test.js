@@ -10,15 +10,38 @@ test('skip list matches hosts and subdomains only', () => {
   assert.ok(isCheckable('HTTPS://a.test') && !isCheckable('place:x'));
 });
 
-test('HEAD failures fall back to GET', async () => {
+test('each check is a single GET', async () => {
   const methods = [];
   const fetchImpl = async (url, { method }) => {
     methods.push(method);
-    return method === 'HEAD' ? response(405, { url }) : response(200, { url });
+    return response(200, { url });
   };
   const r = await checkUrl('https://a.test/', { fetchImpl });
   assert.equal(r.status, 'ok');
-  assert.deepEqual(methods, ['HEAD', 'GET']);
+  assert.deepEqual(methods, ['GET']);
+});
+
+test('page titles are read only when asked, and never from a login page', async () => {
+  const page = (html, { url, redirected = false } = {}) => ({
+    status: 200, statusText: '', url, redirected,
+    headers: new Headers({ 'content-type': 'text/html' }),
+    body: new Response(html).body,
+  });
+  const pages = {
+    'https://a.test/': () => page('<title>Page A</title>', { url: 'https://a.test/' }),
+    'https://b.test/': () => page('<title>https://b.test/</title>', { url: 'https://b.test/' }),
+    'https://c.test/x': () => page('<title>Sign in</title>', { url: 'https://c.test/login?next=/x', redirected: true }),
+  };
+  const fetchImpl = async (url) => pages[url]();
+  const items = Object.keys(pages).map((url) => ({ id: url, url, title: '', path: [] }));
+  const results = await checkAll(items, { fetchImpl, detectLogin: true, titleFor: () => true });
+  const by = Object.fromEntries(results.map((r) => [r.url, r]));
+  assert.equal(by['https://a.test/'].pageTitle, 'Page A');
+  assert.equal(by['https://b.test/'].pageTitle, undefined, 'a title that is just the URL is no use');
+  assert.equal(by['https://c.test/x'].category, 'login');
+  assert.equal(by['https://c.test/x'].pageTitle, undefined);
+  const plain = await checkUrl('https://a.test/', { fetchImpl });
+  assert.equal(plain.pageTitle, undefined, 'no title unless asked');
 });
 
 test('statuses, redirects and network errors are categorised', async () => {

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadTitles, titleFromHtml } from '../src/lib/page-titles.js';
+import { loadTitles } from '../src/lib/page-titles.js';
+import { titleFromHtml } from '../src/lib/html-title.js';
 import { unhelpfulName, findUntitled } from '../src/lib/folders.js';
 
 test('names that are blank or just a URL are flagged', () => {

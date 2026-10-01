@@ -3,6 +3,7 @@
 import { h, toast } from './dom.js';
 import { checkAll, isCheckable, isSkipped, isPrivateAddress } from '../lib/linkcheck.js';
 import { saveLinkResults } from '../lib/settings.js';
+import { findUntitled } from '../lib/folders.js';
 
 const ALL_SITES = { origins: ['<all_urls>'] };
 
@@ -45,6 +46,9 @@ export class LinkChecker {
       return true;
     });
 
+    // Bookmarks without a useful name also have their page title read, in the same request.
+    const unnamed = new Set(findUntitled(state.flat, ignored).map((b) => b.id));
+
     this.running = true;
     this.done = 0;
     this.total = targets.length;
@@ -59,6 +63,7 @@ export class LinkChecker {
         noCookieWords: linkCheck.noCookieWords,
         detectLogin: linkCheck.detectLogin,
         loginHosts: linkCheck.loginHosts,
+        titleFor: (b) => unnamed.has(b.id),
         signal: this.#controller.signal,
         onProgress: (done) => {
           this.done = done;
@@ -73,12 +78,16 @@ export class LinkChecker {
 
     // A partial re-check replaces only the entries for the bookmarks it covered.
     const previous = wanted && state.linkResults ? state.linkResults.results.filter((r) => !wanted.has(r.id)) : [];
+    // Found titles are kept with the URL they came from, so an edited bookmark does not get a stale one.
+    const titles = Object.fromEntries(Object.entries(wanted ? state.linkResults?.titles ?? {} : {}).filter(([id]) => !wanted.has(id)));
+    for (const r of results) if (r.pageTitle) titles[r.id] = { url: r.url, title: r.pageTitle };
     await saveLinkResults({
       time: Date.now(),
       checked: wanted ? state.linkResults?.checked ?? results.length : results.length,
       skipped: wanted ? state.linkResults?.skipped ?? skipped : skipped,
       cancelled,
       results: [...previous, ...problems],
+      titles,
     });
     toast(`${cancelled ? 'Check cancelled' : 'Check finished'}: ${results.length} checked, ${problems.length} need attention.`, 'success');
     await this.ctx.run(async () => {});

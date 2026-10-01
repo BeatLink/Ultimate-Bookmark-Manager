@@ -1,5 +1,8 @@
 // Checks bookmark URLs over the network and sorts the outcome into broken, redirected or fine.
 
+import { readTitle } from './html-title.js';
+import { unhelpfulName } from './folders.js';
+
 export const CATEGORIES = {
   notFound: { label: 'Not found (404 / 410)', severity: 'broken' },
   serverError: { label: 'Server error (5xx)', severity: 'broken' },
@@ -138,7 +141,8 @@ function sameUrl(a, b) {
   }
 }
 
-async function request(fetchImpl, url, method, timeout, outer, credentials) {
+// One GET for the page; with `wantTitle`, the title is read from the first bytes of its HTML before the rest is dropped.
+async function request(fetchImpl, url, timeout, outer, credentials, wantTitle) {
   const ctrl = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -149,15 +153,19 @@ async function request(fetchImpl, url, method, timeout, outer, credentials) {
   outer?.addEventListener('abort', cancel);
   try {
     const res = await fetchImpl(url, {
-      method,
+      method: 'GET',
       redirect: 'follow',
       credentials,
       cache: 'no-store',
       signal: ctrl.signal,
     });
-    // Only the status matters, so stop downloading the body.
-    res.body?.cancel?.().catch(() => {});
-    return { res };
+    if (!wantTitle || res.status >= 400) {
+      res.body?.cancel?.().catch(() => {});
+      return { res };
+    }
+    // A page that stalls part-way through still has its status; it only goes without a title.
+    const title = await readTitle(res).catch(() => '');
+    return { res, title };
   } catch (error) {
     if (outer?.aborted) throw new DOMException('Cancelled', 'AbortError');
     return { error: timedOut ? 'timeout' : error };
@@ -167,8 +175,9 @@ async function request(fetchImpl, url, method, timeout, outer, credentials) {
   }
 }
 
-// Checks one URL with HEAD, falling back to GET because many servers answer HEAD wrongly.
+// Checks one URL with a single GET, as many servers answer HEAD wrongly.
 // With `cookies` on, the request carries your cookies so pages you are logged into load as they do for you.
+// With `wantTitle` on, a usable page title comes back as `pageTitle`, except from a login page.
 export async function checkUrl(url, {
   timeout = 15000,
   signal,
@@ -177,13 +186,10 @@ export async function checkUrl(url, {
   noCookieWords = DEFAULT_NO_COOKIE_WORDS,
   detectLogin = false,
   loginHosts = DEFAULT_LOGIN_HOSTS,
+  wantTitle = false,
 } = {}) {
   const credentials = credentialsFor(url, { cookies, noCookieWords });
-  let attempt = await request(fetchImpl, url, 'HEAD', timeout, signal, credentials);
-  if (attempt.error || attempt.res.status >= 400) {
-    const retry = await request(fetchImpl, url, 'GET', timeout, signal, credentials);
-    if (!retry.error || attempt.error) attempt = retry;
-  }
+  const attempt = await request(fetchImpl, url, timeout, signal, credentials, wantTitle);
   if (attempt.error === 'timeout') return { url, status: 'broken', category: 'timeout' };
   if (attempt.error) {
     return { url, status: 'broken', category: 'unreachable', detail: String(attempt.error.message ?? attempt.error) };
@@ -193,17 +199,19 @@ export async function checkUrl(url, {
   if (category) {
     return { url, status: CATEGORIES[category].severity, category, httpStatus: res.status, detail: res.statusText };
   }
+  const t = attempt.title;
+  const pageTitle = t && !unhelpfulName(t, url) && !unhelpfulName(t, res.url || url) ? { pageTitle: t } : {};
   if (res.redirected && res.url && !sameUrl(res.url, url)) {
     if (detectLogin && isLoginRedirect(url, res.url, loginHosts)) {
       return { url, status: 'uncertain', category: 'login', httpStatus: res.status, detail: `→ ${res.url}`, finalUrl: res.url };
     }
-    return { url, status: 'redirect', httpStatus: res.status, finalUrl: res.url };
+    return { url, status: 'redirect', httpStatus: res.status, finalUrl: res.url, ...pageTitle };
   }
-  return { url, status: 'ok', httpStatus: res.status };
+  return { url, status: 'ok', httpStatus: res.status, ...pageTitle };
 }
 
-// Checks many bookmarks with limited parallelism, reporting progress after each one.
-export async function checkAll(bookmarks, { concurrency = 6, signal, onProgress, ...options } = {}) {
+// Checks many bookmarks with limited parallelism, reporting progress after each one; `titleFor(bookmark)` says whose page title to read too.
+export async function checkAll(bookmarks, { concurrency = 6, signal, onProgress, titleFor, ...options } = {}) {
   const results = [];
   let next = 0;
   let done = 0;
@@ -213,7 +221,7 @@ export async function checkAll(bookmarks, { concurrency = 6, signal, onProgress,
       const b = bookmarks[next++];
       let result;
       try {
-        result = await checkUrl(b.url, { ...options, signal });
+        result = await checkUrl(b.url, { ...options, signal, wantTitle: !!titleFor?.(b) });
       } catch (err) {
         if (err.name === 'AbortError') return;
         result = { url: b.url, status: 'broken', category: 'unreachable', detail: String(err) };
