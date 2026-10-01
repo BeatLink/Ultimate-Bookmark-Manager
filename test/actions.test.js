@@ -117,7 +117,10 @@ test('history older than its age limit is forgotten, with the id links only it u
   const pruned = pruneHistory(history, { days: 30, limit: 50, now });
   assert.deepEqual(pruned.entries.map((e) => e.id), ['new']);
   assert.deepEqual(pruned.idMap, { a: 'a2', a2: 'a3', p: 'p2' }, 'chains are followed and unused links dropped');
-  assert.deepEqual(pruneHistory(history, { days: 30, limit: 0, now }), { entries: [], idMap: {} });
+  assert.deepEqual(pruneHistory(history, { days: 30, limit: 0, now }), { entries: [], idMap: {}, redo: [] });
+  const withRedo = pruneHistory({ ...history, entries: [], redo: history.entries }, { days: 30, limit: 50, now });
+  assert.deepEqual(withRedo.redo.map((e) => e.id), ['new'], 'changes waiting to be redone expire the same way');
+  assert.deepEqual(withRedo.idMap, { a: 'a2', a2: 'a3', p: 'p2' }, 'and keep the links they use');
 });
 
 test('loading the history saves it once old entries have been forgotten', async () => {
@@ -126,5 +129,5 @@ test('loading the history saves it once old entries have been forgotten', async 
   const storage = { async get(key) { return { [key]: stored[key] }; }, async set(v) { Object.assign(stored, v); } };
   const entries = await new Actions({ storage, days: 30 }).list();
   assert.deepEqual(entries, []);
-  assert.deepEqual(stored.history, { entries: [], idMap: {} });
+  assert.deepEqual(stored.history, { entries: [], idMap: {}, redo: [] });
 });

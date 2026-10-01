@@ -72,10 +72,25 @@ const ctx = {
 
   // Tells the user an action happened and offers to undo it straight away.
   done(message) {
-    toast(message, 'success', { label: 'Undo', run: () => ctx.run(async () => {
+    toast(message, 'success', { label: 'Undo', run: () => ctx.undo() });
+  },
+
+  // Undoes the latest change, offering to redo it.
+  undo() {
+    return ctx.run(async () => {
       const entry = await ctx.actions.undoLatest();
-      if (entry) toast(`Undone: ${entry.label}`);
-    }) });
+      if (entry) toast(`Undone: ${entry.label}`, 'info', { label: 'Redo', run: () => ctx.redo() });
+      else toast('Nothing to undo.');
+    });
+  },
+
+  // Applies the latest undone change again, offering to undo it.
+  redo() {
+    return ctx.run(async () => {
+      const entry = await ctx.actions.redoLatest();
+      if (entry) toast(`Redone: ${entry.label}`, 'success', { label: 'Undo', run: () => ctx.undo() });
+      else toast('Nothing to redo.');
+    });
   },
 
   go(id) {

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Actions } from '../src/lib/actions.js';
 import { sortedByName, pathTo, flatten } from '../src/lib/tree.js';
+import { parseBackup } from '../src/lib/backup.js';
 import { toBookmarkHtml, parseBookmarkHtml, countBookmarks } from '../src/lib/bookmark-html.js';
 import { fakeBookmarks, fakeStorage } from './fake-browser.js';
 
@@ -125,4 +126,67 @@ test('import reads the loose markup other browsers write', () => {
   const parsed = parseBookmarkHtml(html);
   assert.deepEqual(parsed.map((c) => c.title), ['Bar', 'Three']);
   assert.deepEqual(parsed[0].children.map((c) => [c.title, c.url]), [['One & only', 'https://one.test'], ['Two', 'https://two.test']]);
+});
+
+test('undo then redo applies a change again, and redo again after a second undo', async () => {
+  const { bookmarks, actions } = setup();
+  const before = await shape(bookmarks);
+  await actions.moveItems([{ id: 'a' }], 'f', null);
+  await actions.remove(['f']);
+  const after = await shape(bookmarks);
+  await actions.undoLatest();
+  await actions.undoLatest();
+  assert.deepEqual(await shape(bookmarks), before);
+  assert.equal(await actions.nextRedo(), 'Moved 1 item(s)');
+  await actions.redoLatest();
+  await actions.redoLatest();
+  assert.deepEqual(await shape(bookmarks), after);
+  assert.equal(await actions.nextRedo(), null);
+  await actions.undoLatest();
+  await actions.undoLatest();
+  assert.deepEqual(await shape(bookmarks), before);
+  await actions.redoLatest();
+  await actions.redoLatest();
+  assert.deepEqual(await shape(bookmarks), after);
+});
+
+test('a new change clears what could be redone', async () => {
+  const { actions } = setup();
+  await actions.update([{ id: 'a', title: 'X' }]);
+  await actions.undoLatest();
+  assert.ok(await actions.nextRedo());
+  await actions.update([{ id: 'b', title: 'Y' }]);
+  assert.equal(await actions.nextRedo(), null);
+  assert.equal(await actions.redoLatest(), null);
+});
+
+test('restoring a backup replaces the top-level folders and undoes in one step', async () => {
+  const { bookmarks, actions } = setup();
+  const before = await shape(bookmarks);
+  const { folders, bookmarks: count, skipped } = parseBackup(JSON.stringify({
+    guid: 'root________', children: [
+      { guid: 'menu________', root: 'bookmarksMenuFolder', children: [
+        { typeCode: 1, title: 'New', uri: 'https://new.test' },
+        { typeCode: 1, title: 'Most visited', uri: 'place:sort=8' },
+        { typeCode: 2, title: 'Dir', children: [{ typeCode: 3 }] },
+      ] },
+    ],
+  }));
+  assert.equal(count, 1);
+  assert.equal(skipped, 1);
+  await actions.restore(folders);
+  assert.deepEqual(await titles(bookmarks, 'menu________'), ['New', 'Dir']);
+  assert.deepEqual(await titles(bookmarks, 'unfiled_____'), []);
+  await actions.undoLatest();
+  assert.deepEqual(await shape(bookmarks), before);
+});
+
+test('our own backup format restores too, and other files are refused', async () => {
+  const { bookmarks } = setup();
+  const [root] = await bookmarks.getTree();
+  const parsed = parseBackup(JSON.stringify({ format: 'bookmark-manager-backup', version: 1, tree: root }));
+  assert.deepEqual(Object.keys(parsed.folders), ['menu________', 'unfiled_____']);
+  assert.equal(parsed.bookmarks, 5);
+  assert.throws(() => parseBackup('nope'), /not a JSON/);
+  assert.throws(() => parseBackup('{"a":1}'), /not a bookmarks backup/);
 });

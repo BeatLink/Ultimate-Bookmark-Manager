@@ -7,12 +7,15 @@ import { moveRulePaths } from './organize.js';
 const OTHER_BOOKMARKS = 'unfiled_____';
 const DAY = 24 * 60 * 60 * 1000;
 
-// The history without entries older than `days` or past the newest `limit`, and without id links no remaining entry uses.
+// The history without entries (to undo or redo) older than `days` or past the newest `limit`, and without id links
+// no remaining entry uses.
 export function pruneHistory(history, { days, limit, now = Date.now() }) {
-  const entries = history.entries.filter((e) => !(e.time < now - days * DAY)).slice(0, limit);
+  const keep = (list) => (list ?? []).filter((e) => !(e.time < now - days * DAY)).slice(0, limit);
+  const entries = keep(history.entries);
+  const redo = keep(history.redo);
   // Any text in the remaining entries may be an id that undo looks up, so every link it leads to is kept.
   const used = new Set();
-  JSON.stringify(entries, (key, value) => (typeof value === 'string' && used.add(value), value));
+  JSON.stringify([entries, redo], (key, value) => (typeof value === 'string' && used.add(value), value));
   const idMap = {};
   for (let id of used) {
     while (Object.hasOwn(history.idMap, id) && !Object.hasOwn(idMap, id)) {
@@ -20,7 +23,7 @@ export function pruneHistory(history, { days, limit, now = Date.now() }) {
       id = history.idMap[id];
     }
   }
-  return { entries, idMap };
+  return { entries, idMap, redo };
 }
 
 export function snapshot(node) {
@@ -41,9 +44,10 @@ export class Actions {
   // The stored history, with expired entries forgotten and the forgetting saved.
   async load() {
     const { history } = await this.storage.get('history');
-    if (!history) return { entries: [], idMap: {} };
+    if (!history) return { entries: [], idMap: {}, redo: [] };
     const pruned = pruneHistory(history, { days: this.days, limit: this.limit });
-    if (pruned.entries.length !== history.entries.length || Object.keys(pruned.idMap).length !== Object.keys(history.idMap).length) {
+    if (pruned.entries.length !== history.entries.length || pruned.redo.length !== (history.redo?.length ?? 0)
+      || Object.keys(pruned.idMap).length !== Object.keys(history.idMap).length) {
       await this.storage.set({ history: pruned });
     }
     return pruned;
@@ -186,11 +190,68 @@ export class Actions {
     });
   }
 
-  // Reverts the most recent entry; older entries must be undone in order.
+  // Reverts the most recent entry; older entries must be undone in order. The reverted entry can then be redone.
   async undoLatest() {
     const history = await this.load();
     const entry = history.entries.shift();
     if (!entry) return null;
+    const ops = [];
+    try {
+      await this.#revert(entry, history, ops);
+    } finally {
+      history.redo = [{ ...entry, ops }, ...(history.redo ?? [])];
+      await this.storage.set({ history: pruneHistory(history, { days: this.days, limit: this.limit }) });
+    }
+    return entry;
+  }
+
+  // Applies the most recently undone entry again, which puts it back on the undo list.
+  async redoLatest() {
+    const history = await this.load();
+    const entry = history.redo?.shift();
+    if (!entry) return null;
+    const ops = [];
+    try {
+      await this.#revert(entry, history, ops);
+    } finally {
+      history.entries.unshift({ ...entry, ops });
+      await this.storage.set({ history: pruneHistory(history, { days: this.days, limit: this.limit }) });
+    }
+    return entry;
+  }
+
+  // The label of the change Redo would apply, or null.
+  async nextRedo() {
+    return (await this.load()).redo?.[0]?.label ?? null;
+  }
+
+  // Replaces the contents of Firefox's top-level folders with those in a backup, as one step that can be undone.
+  // `folders` maps a top-level folder id to the snapshots it should hold; folders not named are left alone.
+  restore(folders, label = 'Restored bookmarks from a backup') {
+    return this.run(label, async (rec) => {
+      for (const [rootId, snaps] of Object.entries(folders)) {
+        const current = await this.bookmarks.getChildren(rootId);
+        await rec.remove(current.map((c) => c.id));
+        for (const snap of snaps) await rec.create(rootId, null, snap);
+      }
+    });
+  }
+
+  async clearHistory() {
+    await this.storage.set({ history: { entries: [], idMap: {}, redo: [] } });
+  }
+
+  async #push(label, ops) {
+    const history = await this.load();
+    history.entries.unshift({ id: crypto.randomUUID(), time: Date.now(), label, ops });
+    // A new change makes the undone ones impossible to redo in order.
+    history.redo = [];
+    await this.storage.set({ history: pruneHistory(history, { days: this.days, limit: this.limit }) });
+  }
+
+  // Undoes an entry's ops, newest first, recording in `ops` what it did so that it can be reverted in turn.
+  // Ids of items removed and recreated since are followed through `history.idMap`.
+  async #revert(entry, history, ops) {
     const resolve = (id) => {
       const seen = new Set();
       while (history.idMap[id] && !seen.has(id)) {
@@ -201,33 +262,19 @@ export class Actions {
     };
     const recreate = async (snap, parentId, index) => {
       const created = await this.bookmarks.create({
-        parentId, index, title: snap.title, type: snap.type, ...(snap.url ? { url: snap.url } : {}),
+        parentId, ...(index === undefined || index === null ? {} : { index }), title: snap.title, type: snap.type, ...(snap.url ? { url: snap.url } : {}),
       });
       history.idMap[snap.id] = created.id;
       for (const [i, child] of (snap.children ?? []).entries()) await recreate(child, created.id, i);
+      return created.id;
     };
-    try {
-      for (const op of [...entry.ops].reverse()) {
-        if (op.kind === 'remove') await recreate(op.snapshot, resolve(op.parentId), op.index);
-        else if (op.kind === 'update') await this.bookmarks.update(resolve(op.id), op.before);
-        else if (op.kind === 'move') await this.bookmarks.move(resolve(op.id), { parentId: resolve(op.from.parentId), index: op.from.index });
-        else if (op.kind === 'create') await this.bookmarks.removeTree(resolve(op.id));
-        else if (op.kind === 'rulePaths') await this.#rewriteRules(op.to, op.from);
-      }
-    } finally {
-      await this.storage.set({ history });
+    for (const op of [...entry.ops].reverse()) {
+      if (op.kind === 'remove') ops.push({ kind: 'create', id: await recreate(op.snapshot, resolve(op.parentId), op.index) });
+      else if (op.kind === 'update') await this.#update(resolve(op.id), op.before, ops);
+      else if (op.kind === 'move') await this.#move(resolve(op.id), { parentId: resolve(op.from.parentId), index: op.from.index }, ops);
+      else if (op.kind === 'create') await this.#remove([resolve(op.id)], ops);
+      else if (op.kind === 'rulePaths') await this.#moveRulePaths(op.to, op.from, ops);
     }
-    return entry;
-  }
-
-  async clearHistory() {
-    await this.storage.set({ history: { entries: [], idMap: {} } });
-  }
-
-  async #push(label, ops) {
-    const history = await this.load();
-    history.entries.unshift({ id: crypto.randomUUID(), time: Date.now(), label, ops });
-    await this.storage.set({ history: pruneHistory(history, { days: this.days, limit: this.limit }) });
   }
 
   async #remove(ids, ops) {

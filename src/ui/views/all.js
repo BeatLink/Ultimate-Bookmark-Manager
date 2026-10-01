@@ -3,8 +3,9 @@
 import { h, toast, confirmDialog, promptDialog, fieldsDialog, showMenu, downloadFile, formatDate } from '../dom.js';
 import { viewHeader } from '../components.js';
 import { ROOT_IDS, nodeType, formatPath, pathTo } from '../../lib/tree.js';
-import { snapshot } from '../../lib/actions.js';
+import { snapshot, exportTree } from '../../lib/actions.js';
 import { toBookmarkHtml, parseBookmarkHtml, countBookmarks } from '../../lib/bookmark-html.js';
+import { parseBackup } from '../../lib/backup.js';
 import * as scans from '../scans.js';
 
 const PAGE = 200;
@@ -14,6 +15,9 @@ const DRAG_TYPE = 'application/x-bookmark-manager-ids';
 // Firefox asks before opening more tabs than this at once.
 const MANY_TABS = 15;
 const EXPANDED_KEY = 'all.expanded';
+const COLUMNS_KEY = 'all.columns';
+// Visit counts are read from history again when older than this.
+const VISITS_MAX_AGE = 60000;
 
 const mod = navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+';
 
@@ -25,10 +29,19 @@ const loadExpanded = () => {
   return new Set(['menu________', 'toolbar_____', OTHER]);
 };
 
+const loadColumns = () => {
+  const columns = { location: true, added: true, visited: false, visits: false };
+  try {
+    Object.assign(columns, JSON.parse(localStorage.getItem(COLUMNS_KEY)));
+  } catch { /* storage may be unavailable */ }
+  return columns;
+};
+
 // Search, open folders, selection, sorting and the clipboard survive the re-render that follows every change.
 const view = {
   query: '', filter: 'all', shown: PAGE,
   expanded: loadExpanded(),
+  columns: loadColumns(),
   selected: new Set(), focus: null, anchor: null,
   sort: { key: null, dir: 1 },
   clipboard: null,
@@ -41,10 +54,52 @@ const saveExpanded = () => {
   } catch { /* storage may be unavailable */ }
 };
 
-// Opens this page with the search box already filled in, e.g. with a site chosen on the dashboard.
-export function showInAll(ctx, query) {
-  Object.assign(view, { query, filter: 'all', shown: PAGE });
+const saveColumns = () => {
+  try {
+    localStorage.setItem(COLUMNS_KEY, JSON.stringify(view.columns));
+  } catch { /* storage may be unavailable */ }
+};
+
+// Opens this page with the search box filled in or a filter chosen, e.g. a site or "recently added" on the dashboard.
+export function showInAll(ctx, query, filter = 'all') {
+  Object.assign(view, { query, filter, shown: PAGE, sort: { key: null, dir: 1 } });
   ctx.go('all');
+}
+
+// Each bookmarked URL's last visit and visit count from Firefox's history, read once permission is granted.
+const visits = { map: null, at: 0, loading: null };
+const visitOf = (n) => (n.url && visits.map?.get(n.url)) || null;
+function loadVisits() {
+  visits.loading ??= browser.history.search({ text: '', startTime: 0, maxResults: 1000000 })
+    .then((items) => { visits.map = new Map(items.map((i) => [i.url, { last: i.lastVisitTime ?? 0, count: i.visitCount ?? 0 }])); })
+    .catch(() => { visits.map = new Map(); })
+    .finally(() => { visits.at = Date.now(); visits.loading = null; });
+  return visits.loading;
+}
+
+// Asks for an optional permission; must be the first thing a click does, or Firefox refuses to ask.
+const ask = (permission) => browser.permissions.request({ permissions: [permission] }).catch(() => false);
+
+// Saves every bookmark as a JSON backup this page, or Firefox's Library, can restore.
+export async function backupJson() {
+  downloadFile(JSON.stringify(await exportTree(), null, 2), `bookmarks-backup-${new Date().toISOString().slice(0, 10)}.json`);
+  toast('Backup downloaded.', 'success');
+}
+
+// Replaces every bookmark with those in a JSON backup, after asking; the restore is one step that can be undone.
+export async function restoreBackup(ctx, file) {
+  let parsed;
+  try {
+    parsed = parseBackup(await file.text());
+  } catch (err) {
+    return toast(err.message, 'error');
+  }
+  const left = parsed.skipped ? ` ${parsed.skipped} saved search(es) will be left out, as Firefox does not let add-ons create them.` : '';
+  if (!(await confirmDialog(`Replace all your bookmarks with the ${parsed.bookmarks} in this backup?${left} You can undo this.`, 'Restore'))) return;
+  await ctx.run(async () => {
+    await ctx.actions.restore(parsed.folders, `Restored ${parsed.bookmarks} bookmark(s) from a backup`);
+    ctx.done(`Restored ${parsed.bookmarks} bookmark(s) from the backup.`);
+  });
 }
 
 const isFolder = (n) => nodeType(n) === 'folder';
@@ -62,7 +117,18 @@ const SORTERS = {
   title: (a, b) => (a.title ?? '').localeCompare(b.title ?? '', undefined, { sensitivity: 'base', numeric: true }),
   url: (a, b) => (a.url ?? '').localeCompare(b.url ?? ''),
   dateAdded: (a, b) => (a.dateAdded ?? 0) - (b.dateAdded ?? 0),
+  visited: (a, b) => (visitOf(a)?.last ?? 0) - (visitOf(b)?.last ?? 0),
+  visits: (a, b) => (visitOf(a)?.count ?? 0) - (visitOf(b)?.count ?? 0),
 };
+
+// The columns after Name, in order; `where` shows only in search results.
+const COLUMNS = [
+  { key: 'location', label: 'Location', sort: 'url', width: 'minmax(10em, 3fr)', text: (n) => n.url ?? '' },
+  { key: 'where', label: 'Folder', width: 'minmax(8em, 2fr)' },
+  { key: 'added', label: 'Added', sort: 'dateAdded', width: '7.5em', text: (n) => (nodeType(n) === 'separator' ? '' : formatDate(n.dateAdded)) },
+  { key: 'visited', label: 'Most recent visit', sort: 'visited', width: '9em', text: (n) => formatDate(visitOf(n)?.last) },
+  { key: 'visits', label: 'Visit count', sort: 'visits', width: '5.5em', text: (n) => (n.url ? String(visitOf(n)?.count ?? 0) : ''), num: true },
+];
 
 export default {
   id: 'all',
@@ -118,9 +184,10 @@ export default {
       const out = [];
       if (searching()) {
         const q = view.query.trim().toLowerCase();
-        const dupes = view.filter === 'all' ? null : dupeIds();
+        const recent = view.filter === 'recent';
+        const dupes = view.filter === 'dupes' || view.filter === 'unique' ? dupeIds() : null;
         let hits = ctx.state.flat.filter((f) => {
-          if (f.type === 'separator') return false;
+          if (f.type === 'separator' || (recent && f.type !== 'bookmark')) return false;
           if (dupes) {
             if (f.type !== 'bookmark') return false;
             if (view.filter === 'dupes' ? !dupes.has(f.id) : dupes.has(f.id)) return false;
@@ -128,6 +195,7 @@ export default {
           return !q || f.title.toLowerCase().includes(q) || (f.url ?? '').toLowerCase().includes(q) || formatPath(f.path).toLowerCase().includes(q);
         }).map((f) => get(f.id));
         if (sorted()) hits = hits.sort((a, b) => SORTERS[view.sort.key](a, b) * view.sort.dir);
+        else if (recent) hits = hits.sort((a, b) => (b.dateAdded ?? 0) - (a.dateAdded ?? 0));
         total = hits.length;
         for (const n of hits.slice(0, view.shown)) out.push({ node: n, level: 0 });
       } else {
@@ -146,6 +214,7 @@ export default {
     // ---- Elements ----
     const list = h('ul', { class: 'bm-tree', role: 'tree', 'aria-label': 'Bookmarks', 'aria-multiselectable': 'true' });
     const head = h('div', { class: 'bm-tree-head', role: 'presentation' });
+    const wrap = h('div', { class: 'bm-tree-wrap' }, head, list);
     const status = h('p', { class: 'muted small tree-status' });
     const more = h('button', { text: 'Show more', onclick: () => { view.shown += PAGE; draw(); } });
     const rowEl = (id) => list.querySelector(`[data-id="${CSS.escape(id)}"]`);
@@ -164,6 +233,9 @@ export default {
       }, label, on && h('span', { 'aria-hidden': 'true', text: view.sort.dir > 0 ? ' ▲' : ' ▼' }));
     };
 
+    const shownColumns = () => COLUMNS.filter((c) => (c.key === 'where' ? searching() : view.columns[c.key]));
+    const showsVisits = () => view.columns.visited || view.columns.visits;
+
     const row = ({ node, level }) => {
       const type = nodeType(node);
       const folder = type === 'folder';
@@ -181,17 +253,18 @@ export default {
         h('span', { class: `twisty${folder && !searching() ? '' : ' none'}`, 'aria-hidden': 'true' }),
         type !== 'separator' && h('span', { class: `node-icon ${type}`, 'aria-hidden': 'true' }),
         name),
-      h('span', { class: 'cell location', text: node.url ?? '' }),
-      searching() && h('span', { class: 'cell where', text: formatPath(info.get(node.id)?.path ?? []) }),
-      h('span', { class: 'cell added', text: type === 'separator' ? '' : formatDate(node.dateAdded) }));
+      shownColumns().map((c) => h('span', {
+        class: `cell ${c.key}${c.num ? ' num' : ''}`,
+        text: c.key === 'where' ? formatPath(info.get(node.id)?.path ?? []) : c.text(node),
+      })));
     };
 
     // Rebuilds the rows, e.g. after a folder opens or the search changes; selection changes only repaint.
     const draw = () => {
       rows = computeRows();
       list.classList.toggle('searching', searching());
-      head.className = `bm-tree-head${searching() ? ' searching' : ''}`;
-      head.replaceChildren(...[sortButton('title', 'Name'), sortButton('url', 'Location'), searching() && h('span', { class: 'col-plain', text: 'Folder' }), sortButton('dateAdded', 'Added')].filter(Boolean));
+      wrap.style.setProperty('--cols', ['minmax(14em, 3fr)', ...shownColumns().map((c) => c.width)].join(' '));
+      head.replaceChildren(sortButton('title', 'Name'), ...shownColumns().map((c) => (c.sort ? sortButton(c.sort, c.label) : h('span', { class: 'col-plain', text: c.label }))));
       list.replaceChildren(...rows.map(row));
       if (!rows.length) list.append(h('li', { class: 'tree-empty muted', text: searching() ? 'Nothing matches.' : 'No bookmarks.' }));
       more.hidden = !searching() || total <= view.shown;
@@ -213,6 +286,7 @@ export default {
       const n = view.selected.size;
       const counts = searching() ? `${total} found` : `${bookmarkCount} bookmarks in ${folderCount} folders`;
       status.textContent = n ? `${counts} · ${n} selected` : counts;
+      drawDetails();
     };
 
     const focusRow = (id, scroll = true) => {
@@ -280,17 +354,42 @@ export default {
     };
 
     // ---- Opening bookmarks ----
-    const open = async (urls, where) => {
+    // `where` is 'tab', 'current', 'window' or 'private'; a container's cookie store opens the tabs in that container.
+    const open = async (urls, where, cookieStoreId) => {
       if (!urls.length) return;
       if (urls.length > MANY_TABS && !(await confirmDialog(`Open ${urls.length} tabs?`, 'Open them', false))) return;
       try {
         if (where === 'window' || where === 'private') await browser.windows.create({ url: urls, incognito: where === 'private' });
         else if (where === 'current') await browser.tabs.update({ url: urls[0] });
-        else for (const [i, url] of urls.entries()) await browser.tabs.create({ url, active: i === 0 && urls.length === 1 });
+        else for (const [i, url] of urls.entries()) await browser.tabs.create({ url, active: i === 0 && urls.length === 1, ...(cookieStoreId ? { cookieStoreId } : {}) });
       } catch (err) {
         const why = where === 'private' ? 'Firefox may need this add-on allowed in private windows (Add-ons › Bookmark Manager › Run in Private Windows).' : 'Firefox does not let add-ons open some addresses, such as about: pages, file: and javascript: links.';
         toast(`Could not open: ${err.message ?? err}. ${why}`, 'error');
       }
+    };
+    const openInContainer = async (urls, x, y) => {
+      let containers = [];
+      try {
+        containers = await browser.contextualIdentities.query({});
+      } catch { /* containers are turned off */ }
+      if (!containers?.length) return toast('Turn on container tabs in Firefox’s settings (General › Tabs) to open bookmarks in them.', 'error');
+      showMenu(x, y, containers.map((c) => ({ label: c.name, run: () => open(urls, 'tab', c.cookieStoreId) })));
+    };
+    // Saves the tabs of this window, without repeats or blank pages, into a new folder.
+    const bookmarkTabs = async () => {
+      if (!(await ask('tabs'))) return toast('Bookmarking tabs needs permission to read their addresses.', 'error');
+      const own = browser.runtime.getURL('');
+      const seen = new Set();
+      const tabs = (await browser.tabs.query({ currentWindow: true })).filter((t) => {
+        if (!t.url || t.url.startsWith(own) || ['about:blank', 'about:newtab', 'about:home'].includes(t.url) || seen.has(t.url)) return false;
+        seen.add(t.url);
+        return true;
+      });
+      if (!tabs.length) return toast('There are no tabs to bookmark in this window.');
+      const title = await promptDialog(`Bookmark ${tabs.length} tab(s) in a new folder named`, 'Bookmark tabs', `Tabs ${new Date().toLocaleDateString()}`);
+      if (!title) return;
+      await create([{ type: 'folder', title, children: tabs.map((t) => ({ type: 'bookmark', title: t.title || t.url, url: t.url })) }],
+        `Bookmarked ${tabs.length} tab(s)`, `Bookmarked ${tabs.length} tab(s) in “${title}”.`);
     };
     const urlsOf = (ids) => ids.map(get).filter(isBookmark).map((n) => n.url);
     // A folder opens the bookmarks directly inside it, as Firefox's "Open All in Tabs" does.
@@ -347,10 +446,15 @@ export default {
         { name: 'title', label: 'Name', value: n.title ?? '' },
         !folder && { name: 'url', label: 'URL', value: n.url, spellcheck: 'false', validate: validUrl },
       ].filter(Boolean));
-      if (!values) return;
+      if (values) await saveEdit(id, values);
+    };
+    // Saves a new name or URL; a renamed folder takes the organize rules that name it along.
+    const saveEdit = async (id, values) => {
+      const n = get(id);
+      const folder = isFolder(n);
       const changes = {};
       if (values.title !== (n.title ?? '')) changes.title = values.title;
-      if (!folder && values.url !== n.url) changes.url = values.url;
+      if (!folder && values.url !== undefined && values.url !== n.url) changes.url = values.url;
       if (!Object.keys(changes).length) return;
       const from = pathTo(byId, id);
       const paths = folder && changes.title !== undefined ? { from, to: [...from.slice(0, -1), changes.title] } : null;
@@ -455,12 +559,17 @@ export default {
         urls.length > 0 && { label: urls.length > 1 ? `Open ${urls.length} in new tabs` : 'Open in new tab', key: 'Enter', run: () => open(urls, 'tab') },
         urls.length > 0 && { label: 'Open in new window', run: () => open(urls, 'window') },
         urls.length > 0 && { label: 'Open in new private window', run: () => open(urls, 'private') },
+        urls.length > 0 && { label: 'Open in new container tab…', run: () => openInContainer(urls, x, y) },
         folder && { label: 'Open all in tabs', disabled: !folderUrls(folder.id).length, run: () => open(folderUrls(folder.id), 'tab') },
         searching() && single && { label: 'Show in folder', run: () => showInFolder(single.id) },
         '-',
         { label: 'New bookmark…', run: newBookmark },
         { label: 'New folder…', run: newFolder },
         { label: 'New separator', disabled: sorted(), run: newSeparator },
+        { label: 'Bookmark all tabs…', run: bookmarkTabs },
+        '-',
+        { label: 'Undo', key: `${mod}Z`, run: () => { view.active = true; ctx.undo(); } },
+        { label: 'Redo', key: `${mod}Shift+Z`, run: () => { view.active = true; ctx.redo(); } },
         '-',
         { label: 'Cut', key: `${mod}X`, disabled: !nodes.length || onlyRoots, run: () => toClipboard('cut') },
         { label: 'Copy', key: `${mod}C`, disabled: !nodes.length, run: () => toClipboard('copy') },
@@ -507,10 +616,12 @@ export default {
     });
     list.addEventListener('auxclick', (e) => {
       const el = rowOf(e);
-      if (el && e.button === 1 && isBookmark(get(el.dataset.id))) {
-        e.preventDefault();
-        open([get(el.dataset.id).url], 'tab');
-      }
+      if (!el || e.button !== 1) return;
+      e.preventDefault();
+      const n = get(el.dataset.id);
+      // A folder opens every bookmark directly inside it, as on the bookmarks toolbar.
+      if (isBookmark(n)) open([n.url], 'tab');
+      else if (isFolder(n)) open(folderUrls(n.id), 'tab');
     });
     list.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -572,10 +683,10 @@ export default {
       else if (ctrl && key.toLowerCase() === 'c') toClipboard('copy');
       else if (ctrl && key.toLowerCase() === 'z' && !e.shiftKey) {
         view.active = true;
-        ctx.run(async () => {
-          const entry = await ctx.actions.undoLatest();
-          toast(entry ? `Undone: ${entry.label}` : 'Nothing to undo.');
-        });
+        ctx.undo();
+      } else if (ctrl && (key.toLowerCase() === 'y' || (key.toLowerCase() === 'z' && e.shiftKey))) {
+        view.active = true;
+        ctx.redo();
       } else if (ctrl && key.toLowerCase() === 'v') {
         // The paste event below sees text copied elsewhere; if Firefox sends none, our own clipboard is pasted.
         pasteSeen = false;
@@ -729,12 +840,33 @@ export default {
       if (!(await confirmDialog(`Import ${count} bookmark(s) into a new folder “${title}” in Other Bookmarks?`, 'Import', false))) return;
       await create([{ type: 'folder', title, children: snaps }], `Imported ${count} bookmark(s)`, `Imported ${count} bookmark(s) into “${title}”.`, { parentId: OTHER, index: null });
     } });
+    const backupInput = h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: () => {
+      const file = backupInput.files[0];
+      backupInput.value = '';
+      if (file) restoreBackup(ctx, file);
+    } });
     const backupMenu = (e) => {
       const r = e.currentTarget.getBoundingClientRect();
       showMenu(r.left, r.bottom + 2, [
         { label: 'Export bookmarks to HTML…', run: exportHtml },
         { label: 'Import bookmarks from HTML…', run: () => fileInput.click() },
+        '-',
+        { label: 'Back up to JSON…', run: backupJson },
+        { label: 'Restore from JSON backup…', run: () => backupInput.click() },
       ]);
+    };
+    const columnsMenu = (e) => {
+      const r = e.currentTarget.getBoundingClientRect();
+      const toggle = async (key) => {
+        const on = !view.columns[key];
+        if (on && (key === 'visited' || key === 'visits') && !(await ask('history'))) return toast('Visit columns need permission to read your browsing history.', 'error');
+        view.columns[key] = on;
+        if (!on && view.sort.key === COLUMNS.find((c) => c.key === key).sort) view.sort = { key: null, dir: 1 };
+        saveColumns();
+        if (showsVisits()) loadVisits().then(() => draw());
+        draw();
+      };
+      showMenu(r.left, r.bottom + 2, COLUMNS.filter((c) => c.key !== 'where').map((c) => ({ label: c.label, checked: view.columns[c.key], run: () => toggle(c.key) })));
     };
     const organizeMenu = (e) => {
       const r = e.currentTarget.getBoundingClientRect();
@@ -756,15 +888,71 @@ export default {
     const filter = h('select', { 'aria-label': 'Show', onchange: () => { view.filter = filter.value; view.shown = PAGE; draw(); } },
       h('option', { value: 'all', text: 'All', selected: view.filter === 'all' }),
       h('option', { value: 'dupes', text: 'Only duplicates', selected: view.filter === 'dupes' }),
-      h('option', { value: 'unique', text: 'Only non-duplicates', selected: view.filter === 'unique' }));
+      h('option', { value: 'unique', text: 'Only non-duplicates', selected: view.filter === 'unique' }),
+      h('option', { value: 'recent', text: 'Recently added', selected: view.filter === 'recent' }));
 
     const toolbar = h('div', { class: 'row wrap tree-toolbar' },
       h('button', { class: 'small', text: 'Organize ▾', title: 'The same actions as the right-click menu', onclick: organizeMenu }),
+      h('button', { class: 'small', text: 'Columns ▾', title: 'Choose which columns to show', onclick: columnsMenu }),
       h('button', { class: 'small', text: 'Import and backup ▾', onclick: backupMenu }),
       h('button', { class: 'small', text: 'Expand all', onclick: () => setAllOpen(true), title: 'Open every folder' }),
       h('button', { class: 'small', text: 'Collapse all', onclick: () => setAllOpen(false), title: 'Close every folder' }),
-      fileInput);
+      fileInput, backupInput);
 
+    // ---- Details pane ----
+    // Edits the selected item in place, as the Library's bottom pane does; Enter or leaving a field saves.
+    let detailsFor;
+    const details = h('aside', { class: 'details-pane', 'aria-label': 'Details' });
+    function drawDetails() {
+      const ids = [...view.selected];
+      const n = ids.length === 1 ? get(ids[0]) : null;
+      const key = n ? `${n.id}:${visits.at}` : `none:${ids.length}`;
+      if (key === detailsFor) return;
+      detailsFor = key;
+      if (!n) {
+        details.replaceChildren(h('p', { class: 'muted small', text: ids.length ? `${ids.length} items selected.` : 'Select a bookmark or folder to see and edit its details.' }));
+        return;
+      }
+      const type = nodeType(n);
+      const visit = visitOf(n);
+      const meta = h('p', { class: 'muted small details-meta' },
+        h('span', { text: formatPath(info.get(n.id)?.path ?? []) }),
+        type !== 'separator' && n.dateAdded ? h('span', { text: `Added ${formatDate(n.dateAdded)}` }) : null,
+        type === 'bookmark' && visits.map ? h('span', { text: visit ? `Last visited ${formatDate(visit.last)} · ${visit.count} visit(s)` : 'Never visited' }) : null);
+      if (type === 'separator' || ROOT_IDS.has(n.id)) {
+        details.replaceChildren(h('p', { class: 'details-title', text: type === 'separator' ? 'Separator' : n.title }), meta);
+        return;
+      }
+      const title = h('input', { type: 'text', value: n.title ?? '', 'aria-label': 'Name' });
+      const url = type === 'bookmark' ? h('input', { type: 'text', value: n.url, spellcheck: 'false', 'aria-label': 'URL' }) : null;
+      const error = h('p', { class: 'error small', hidden: true });
+      // Enter fires both change and submit, so the same values are only saved once.
+      let saved = '';
+      const save = (e) => {
+        e?.preventDefault();
+        const values = { title: title.value.trim(), ...(url ? { url: url.value.trim() } : {}) };
+        if (JSON.stringify(values) === saved) return;
+        const bad = url && validUrl(values.url);
+        error.hidden = !bad;
+        error.textContent = bad ?? '';
+        if (bad) return;
+        saved = JSON.stringify(values);
+        saveEdit(n.id, values);
+      };
+      const reset = (e) => {
+        if (e.key !== 'Escape') return;
+        title.value = n.title ?? '';
+        if (url) url.value = n.url;
+        error.hidden = true;
+      };
+      details.replaceChildren(h('form', { class: 'details-form', onsubmit: save, onchange: save, onkeydown: reset },
+        h('label', {}, h('span', { text: 'Name' }), title),
+        url && h('label', {}, h('span', { text: 'URL' }), url),
+        h('button', { type: 'submit', hidden: true, tabindex: '-1' }),
+        error, meta));
+    }
+
+    if (showsVisits() && !visits.loading && (!visits.map || Date.now() - visits.at > VISITS_MAX_AGE)) loadVisits().then(() => draw());
     draw();
     if (view.active && view.focus) requestAnimationFrame(() => focusRow(view.focus));
     else if (view.focus) requestAnimationFrame(() => rowEl(view.focus)?.scrollIntoView({ block: 'nearest' }));
@@ -774,7 +962,8 @@ export default {
       h('div', { class: 'row wrap filters' }, search, filter),
       toolbar,
       status,
-      h('div', { class: 'bm-tree-wrap' }, head, list),
-      more);
+      wrap,
+      more,
+      details);
   },
 };

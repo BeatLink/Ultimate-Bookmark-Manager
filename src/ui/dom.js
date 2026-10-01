@@ -155,17 +155,25 @@ export function fieldsDialog(heading, fields, confirmLabel = 'Save') {
   });
 }
 
-// A popup menu at a point on screen. Items are { label, key, disabled, run } or '-' for a divider; falsy items are skipped.
-// The chosen item runs after the menu has closed and `onClose` has run.
+// A popup menu at a point on screen. Items are { label, key, disabled, checked, run } or '-' for a divider; falsy items
+// are skipped. The chosen item runs inside the click, after the menu has closed, so it may ask for a permission.
 export function showMenu(x, y, items, onClose) {
-  let chosen = null;
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    dialog.remove();
+    onClose?.();
+  };
   const dialog = h('dialog', { class: 'menu', 'aria-label': 'Menu' });
   const list = h('div', { role: 'menu' });
   const entries = items.filter(Boolean).filter((it, i, all) => it !== '-' || (i > 0 && i < all.length - 1 && all[i - 1] !== '-'));
   for (const it of entries) {
     if (it === '-') list.append(h('hr', { role: 'separator' }));
-    else list.append(h('button', { type: 'button', role: 'menuitem', disabled: !!it.disabled, onclick: () => { chosen = it; dialog.close(); } },
-      h('span', { text: it.label }), it.key && h('span', { class: 'menu-key', text: it.key })));
+    else list.append(h('button', {
+      type: 'button', role: it.checked === undefined ? 'menuitem' : 'menuitemcheckbox', 'aria-checked': it.checked === undefined ? null : String(it.checked),
+      disabled: !!it.disabled, onclick: () => { dialog.close(); finish(); it.run(); },
+    }, h('span', { class: it.checked === undefined ? '' : 'menu-check', text: it.label }), it.key && h('span', { class: 'menu-key', text: it.key })));
   }
   dialog.append(list);
   const buttons = () => [...list.querySelectorAll('button:not(:disabled)')];
@@ -187,11 +195,7 @@ export function showMenu(x, y, items, onClose) {
   };
   dialog.addEventListener('mousedown', outside);
   dialog.addEventListener('contextmenu', (e) => e.preventDefault());
-  dialog.addEventListener('close', () => {
-    dialog.remove();
-    onClose?.();
-    chosen?.run();
-  });
+  dialog.addEventListener('close', finish);
   document.body.append(dialog);
   dialog.showModal();
   const r = dialog.getBoundingClientRect();

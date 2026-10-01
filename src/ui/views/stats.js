@@ -10,6 +10,7 @@ import * as scans from '../scans.js';
 
 const TOP_SITES = 15;
 const TOP_FOLDERS = 10;
+const RECENT = 10;
 
 const monthLabel = (key) => {
   const [y, m] = key.split('-').map(Number);
@@ -93,6 +94,15 @@ export default {
       rows: s.protocols.map((x) => [x.name, x.count]),
     });
 
+    const recent = ctx.state.flat.filter((b) => b.type === 'bookmark').sort((a, b) => b.dateAdded - a.dateAdded).slice(0, RECENT);
+    const recentCard = h('div', { class: 'viz-card' },
+      h('div', { class: 'viz-head' },
+        h('div', {}, h('h2', { text: 'Recently bookmarked' }), h('p', { class: 'muted small', text: `The newest ${recent.length}, newest first.` })),
+        h('button', { class: 'small', type: 'button', text: 'See all', title: 'List every bookmark, newest first', onclick: () => showInAll(ctx, '', 'recent') })),
+      h('ol', { class: 'recent-list' }, recent.map((b) => h('li', {},
+        h('a', { href: b.url, target: '_blank', rel: 'noreferrer', title: b.url, text: b.title || b.url }),
+        h('span', { class: 'muted small', text: formatDate(b.dateAdded) })))));
+
     const fact = (label, value, detail) => h('div', { class: 'fact' }, h('span', { class: 'stat-label', text: label }), h('span', { class: 'fact-value', text: value }), detail);
     const bmLink = (b) => b && h('a', { href: b.url, target: '_blank', rel: 'noreferrer', class: 'small', text: b.title || b.url });
     const facts = h('div', { class: 'facts' },
@@ -107,7 +117,7 @@ export default {
         statTile({ label: 'Bookmarks', value: s.bookmarks, hero: true, href: '#all', note: `in ${fmt(s.folders)} folders, from ${fmt(s.sites.length)} sites` })),
       h('h2', { class: 'section-title', text: 'To tidy up' }),
       tidy,
-      h('div', { class: 'viz-grid' }, monthsCard, sitesCard, rootsCard, foldersCard, protocolsCard),
+      h('div', { class: 'viz-grid' }, monthsCard, recentCard, sitesCard, rootsCard, foldersCard, protocolsCard),
       facts);
   },
 };

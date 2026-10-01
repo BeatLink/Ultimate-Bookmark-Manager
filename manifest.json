@@ -11,7 +11,8 @@
     }
   },
   "icons": { "48": "icons/icon.svg", "96": "icons/icon.svg" },
-  "permissions": ["bookmarks", "storage", "menus"],
+  "permissions": ["bookmarks", "storage", "menus", "contextualIdentities", "cookies"],
+  "optional_permissions": ["tabs", "history"],
   "optional_host_permissions": ["<all_urls>"],
   "background": { "scripts": ["src/background.js"], "type": "module" },
   "action": { "default_title": "Bookmark Manager", "default_icon": "icons/icon.svg" },
