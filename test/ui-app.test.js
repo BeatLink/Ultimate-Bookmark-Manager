@@ -383,6 +383,37 @@ test('a refresh waits while a dialog is open and runs once it closes', async (t)
   assert.equal(treeReads, before + 1);
 });
 
+test('a refresh waits while something is dragged and runs once it is dropped or let go', async (t) => {
+  await visit('stats');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  for (const end of ['drop', 'dragend']) {
+    const before = treeReads;
+    main().dispatchEvent(new Event('dragstart', { bubbles: true }));
+    await browser.bookmarks.create({ parentId: 'toolbar_____', title: `During a drag ending in ${end}`, url: 'https://drag.test/' });
+    t.mock.timers.tick(500);
+    await flush();
+    assert.equal(treeReads, before);
+
+    main().dispatchEvent(new Event(end, { bubbles: true }));
+    t.mock.timers.tick(100);
+    await flush();
+    assert.equal(treeReads, before + 1);
+  }
+});
+
+test('a drag the page refuses does not hold back a refresh', async (t) => {
+  await visit('stats');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const before = treeReads;
+  const refuse = (e) => e.preventDefault();
+  main().addEventListener('dragstart', refuse, { once: true });
+  main().dispatchEvent(new Event('dragstart', { bubbles: true, cancelable: true }));
+  await browser.bookmarks.create({ parentId: 'toolbar_____', title: 'After a refused drag', url: 'https://refused.test/' });
+  t.mock.timers.tick(500);
+  await flush();
+  assert.equal(treeReads, before + 1);
+});
+
 test('a refresh that comes during a change waits until the change is done', async (t) => {
   await visit('empty-folders');
   t.mock.timers.enable({ apis: ['setTimeout'] });
