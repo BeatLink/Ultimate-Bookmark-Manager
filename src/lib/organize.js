@@ -70,7 +70,7 @@ export function isGroup(item) {
 
 export function newCondition(field = 'either', operator = 'contains', value = '') {
   if (field === 'folder') return { id: crypto.randomUUID(), field, operator, value };
-  return { id: crypto.randomUUID(), field, operator, value, caseSensitive: false, wholeWords: true };
+  return { id: crypto.randomUUID(), field, operator, value, caseSensitive: false, wholeWords: false };
 }
 
 export function newRule() {
@@ -89,8 +89,8 @@ export function newRule() {
 // A rule that takes whatever no other rule matches in the folders its conditions name; it always runs last.
 
 // Copies a rule under a new id so it can be edited separately; the copy's name is marked as such.
-// A copy of a condition or group under new ids, as react-querybuilder needs every id on the page to be unique.
-function renumber(item) {
+// A copy of a condition or group under new ids, as the editor needs every id on the page to be unique.
+export function renumber(item) {
   return { ...structuredClone(item), id: crypto.randomUUID(), ...(isGroup(item) && { rules: item.rules.map(renumber) }) };
 }
 
@@ -514,9 +514,8 @@ export function describeCondition(cond) {
   const value = valueOf(cond);
   const subject = FIELDS[cond.field] ?? FIELDS.either;
   if (FOLDER_OPS.has(cond.operator)) return `${subject} ${OPERATORS[cond.operator]} “${value.split('/').join(' › ')}”`;
-  // Matching inside words is the risky setting ("cat" in "category"), so the summary says when it is on.
-  const inside = WORD_OPS.has(cond.operator) && !cond.wholeWords ? ' (also inside words)' : '';
-  return `${subject} ${OPERATORS[cond.operator] ?? cond.operator} “${value}”${cond.caseSensitive && cond.operator !== 'onDomain' ? ' (exact case)' : ''}${inside}`;
+  const whole = WORD_OPS.has(cond.operator) && cond.wholeWords ? ' (whole words)' : '';
+  return `${subject} ${OPERATORS[cond.operator] ?? cond.operator} “${value}”${cond.caseSensitive && cond.operator !== 'onDomain' ? ' (exact case)' : ''}${whole}`;
 }
 
 function describeGroup(group, nested) {

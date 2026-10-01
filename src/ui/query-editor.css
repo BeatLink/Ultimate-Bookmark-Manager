@@ -1,0 +1,108 @@
+/*
+ * Layout of the rule condition editor: the parts of react-querybuilder's query-builder.css (v8.24.3) that apply to
+ * the markup query-editor.js draws. app.css sets the colours.
+ *
+ * react-querybuilder: The MIT License (MIT), Copyright (c) 2024 Jake Boone and other contributors.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+ * documentation files (the "Software"), to deal in the Software without restriction, including without limitation the
+ * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright
+ * notice and this permission notice shall be included in all copies or substantial portions of the Software.
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+ * WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+ * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
+:root {
+  --rqb-spacing: 0.5rem;
+  --rqb-border-width: 1px;
+  --rqb-branch-indent: var(--rqb-spacing);
+  --rqb-branch-width: var(--rqb-border-width);
+  --rqb-background-color: color-mix(in srgb, transparent, #004bb8 20%);
+  --rqb-border-color: #8081a2;
+  --rqb-border-style: solid;
+  --rqb-border-radius: 0.25rem;
+  --rqb-dnd-drop-indicator-color: rebeccapurple;
+  --rqb-dnd-drop-indicator-style: dashed;
+  --rqb-dnd-drop-indicator-width: 2px;
+  --rqb-dnd-drop-indicator-copy-color: #693;
+  --rqb-dnd-drop-indicator-copy-style: dashed;
+  --rqb-dnd-drop-indicator-copy-width: 2px;
+  --rqb-dnd-drop-indicator-group-color: #369;
+  --rqb-dnd-drop-indicator-group-style: dashed;
+  --rqb-dnd-drop-indicator-group-width: 2px;
+  --rqb-dnd-drop-not-allowed-cursor: not-allowed;
+  --rqb-branch-color: var(--rqb-border-color);
+  --rqb-branch-radius: var(--rqb-border-radius);
+  --rqb-branch-style: var(--rqb-border-style);
+}
+
+.ruleGroup { display: flex; flex-direction: column; gap: var(--rqb-spacing); padding: var(--rqb-spacing); border-width: var(--rqb-border-width); }
+.ruleGroup .ruleGroup-body { display: flex; flex-direction: column; gap: var(--rqb-spacing); }
+.ruleGroup .ruleGroup-body:empty { display: none; }
+.ruleGroup .ruleGroup-header, .ruleGroup .rule { display: flex; gap: var(--rqb-spacing); align-items: center; }
+.dndOver.rule, .dndOver.ruleGroup-header { padding-bottom: var(--rqb-spacing); }
+.dndGroup.rule.dndOver, .dndGroup.ruleGroup:has(.ruleGroup-header.dndOver) { padding: var(--rqb-spacing); }
+
+/* Branch lines joining each condition and group to the group it is in. */
+.queryBuilder-branches:dir(ltr) .ruleGroup-body { margin-left: calc(2 * var(--rqb-branch-indent)); }
+.queryBuilder-branches:dir(ltr) .rule, .queryBuilder-branches:dir(ltr) .ruleGroup .ruleGroup { position: relative; }
+.queryBuilder-branches:dir(ltr) .rule::before, .queryBuilder-branches:dir(ltr) .rule::after,
+.queryBuilder-branches:dir(ltr) .ruleGroup .ruleGroup::before, .queryBuilder-branches:dir(ltr) .ruleGroup .ruleGroup::after {
+  content: "";
+  width: var(--rqb-branch-indent);
+  left: calc(-1 * (var(--rqb-branch-indent) + var(--rqb-branch-width)));
+  border-radius: 0;
+  position: absolute;
+}
+.queryBuilder-branches:dir(ltr) .rule::before, .queryBuilder-branches:dir(ltr) .ruleGroup .ruleGroup::before {
+  top: calc(-1 * var(--rqb-spacing));
+  height: calc(50% + var(--rqb-spacing));
+  border-width: 0 0 var(--rqb-branch-width) var(--rqb-branch-width);
+}
+.queryBuilder-branches:dir(ltr) .rule::after, .queryBuilder-branches:dir(ltr) .ruleGroup .ruleGroup::after { top: 50%; height: 50%; border-width: 0 0 0 var(--rqb-branch-width); }
+.queryBuilder-branches:dir(ltr) .rule:last-child::after, .queryBuilder-branches:dir(ltr) .ruleGroup .ruleGroup:last-child::after { display: none; }
+.queryBuilder-branches:dir(ltr) .ruleGroup .ruleGroup::before, .queryBuilder-branches:dir(ltr) .ruleGroup .ruleGroup::after {
+  left: calc(-1 * (var(--rqb-branch-indent) + var(--rqb-branch-width) + var(--rqb-border-width)));
+}
+.queryBuilder-branches:dir(ltr) .ruleGroup .ruleGroup::before {
+  top: calc(-1 * (var(--rqb-spacing) + var(--rqb-border-width)));
+  height: calc(50% + var(--rqb-spacing) + var(--rqb-border-width));
+}
+.queryBuilder-branches:dir(ltr) .ruleGroup .ruleGroup::after { height: calc(50% + var(--rqb-border-width)); }
+
+.ruleGroup { border-color: var(--rqb-border-color); border-style: var(--rqb-border-style); border-radius: var(--rqb-border-radius); background: var(--rqb-background-color); }
+
+/* Drag and drop: a dashed line under the drop target, green while Alt copies, a box while Ctrl groups. */
+.dndOver.rule, .dndOver.ruleGroup-header:not(.dndGroup .ruleGroup-header) {
+  border-bottom-width: var(--rqb-dnd-drop-indicator-width);
+  border-bottom-style: var(--rqb-dnd-drop-indicator-style);
+  border-bottom-color: var(--rqb-dnd-drop-indicator-color);
+}
+.dndOver.rule.dndCopy, .dndOver.ruleGroup-header:not(.dndGroup .ruleGroup-header).dndCopy {
+  border-bottom-width: var(--rqb-dnd-drop-indicator-copy-width);
+  border-bottom-style: var(--rqb-dnd-drop-indicator-copy-style);
+  border-bottom-color: var(--rqb-dnd-drop-indicator-copy-color);
+}
+.dndDropNotAllowed { cursor: var(--rqb-dnd-drop-not-allowed-cursor); }
+.dndGroup.rule.dndOver, .dndGroup.ruleGroup:has(> .ruleGroup-header.dndOver) {
+  border-width: var(--rqb-dnd-drop-indicator-group-width);
+  border-style: var(--rqb-dnd-drop-indicator-group-style);
+  border-color: var(--rqb-dnd-drop-indicator-group-color);
+  border-radius: var(--rqb-border-radius);
+}
+.dndGroup.rule.dndOver.dndCopy, .dndGroup.ruleGroup:has(> .ruleGroup-header.dndOver).dndCopy {
+  border-color: var(--rqb-dnd-drop-indicator-copy-color);
+  border-width: var(--rqb-dnd-drop-indicator-copy-width);
+  border-style: var(--rqb-dnd-drop-indicator-copy-style);
+}
+.ruleGroup.dndDragging, .rule.dndDragging { opacity: .5; }
+.ruleGroup .queryBuilder-dragHandle, .rule .queryBuilder-dragHandle { cursor: move; }
+
+.queryBuilder-branches:dir(ltr) .rule::before, .queryBuilder-branches:dir(ltr) .rule::after,
+.queryBuilder-branches:dir(ltr) .ruleGroup .ruleGroup::before, .queryBuilder-branches:dir(ltr) .ruleGroup .ruleGroup::after {
+  border-color: var(--rqb-branch-color);
+  border-style: var(--rqb-branch-style);
+}
+.queryBuilder-branches:dir(ltr) .rule:last-child::before, .queryBuilder-branches:dir(ltr) .ruleGroup .ruleGroup:last-child::before { border-bottom-left-radius: var(--rqb-branch-radius); }

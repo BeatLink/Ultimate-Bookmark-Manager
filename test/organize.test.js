@@ -9,7 +9,7 @@ const roots = [
 ];
 const bm = (id, title, url, path = ['Bookmarks Menu']) => ({ id, title, url, type: 'bookmark', path });
 // Conditions and rules are written in the old shape and converted, so every test also exercises the migration.
-const cond = (op, words, extra = {}) => ({ field: 'either', op, values: words ? words.split(',') : [], caseSensitive: false, wholeWords: true, ...extra });
+const cond = (op, words, extra = {}) => ({ field: 'either', op, values: words ? words.split(',') : [], caseSensitive: false, wholeWords: false, ...extra });
 const rule = (id, conditions, target, extra = {}) => migrateRule({ id, name: id, enabled: true, match: 'any', conditions, target, ...extra });
 const conditionMatches = (c, b) => ruleMatches(rule('t', [c], 'X'), b);
 
@@ -231,7 +231,7 @@ test('whole words stops keywords matching inside other words', async () => {
   assert.deepEqual(occurrences(ww('beginsWith'), 'git', 'github guide'), []);
   assert.deepEqual(occurrences(ww('beginsWith'), 'git', 'git guide'), [[0, 3]]);
   assert.deepEqual(occurrences(ww('endsWith'), 'news', 'BBC News'), [[4, 8]]);
-  assert.equal(newCondition().wholeWords, true, 'new conditions default to whole words');
+  assert.equal(newCondition().wholeWords, false, 'new conditions match inside words until whole words is ticked');
 });
 
 test('the winning rule explains what matched and where', () => {

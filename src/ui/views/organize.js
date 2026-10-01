@@ -2,7 +2,7 @@
 
 import { h, Selection, toast, confirmDialog, promptDialog } from '../dom.js';
 import { viewHeader, emptyState, bindCheckboxes, selectAllToggle, bookmarkInfo, row, pickFolder, pickRule, marked, helpLink, actionMenu } from '../components.js';
-import { mountQueryEditor } from '../query-editor.bundle.js';
+import { mountQueryEditor } from '../query-editor.js';
 import { saveSettings } from '../../lib/settings.js';
 import { newRule, duplicateRule, moveToNewRule, mergeRules, mergeCandidates, moveRulePaths, planMoves, resolveTarget, maxScore, rankingWarnings } from '../../lib/organize.js';
 import { eligibleToOutrank, eligibleToRankBelow } from '../../lib/rule-order.js';
@@ -400,7 +400,6 @@ export default {
         ctx.done(`Moved “${folder.title}” into “${target.title}”.`);
       });
     };
-    // Folder drags stop here: the condition editor's drag library listens on the whole page and cancels any drag it did not start.
     const dragProps = (n) => ({
       draggable: n.depth > 0 ? 'true' : null,
       ondragstart: (e) => {
