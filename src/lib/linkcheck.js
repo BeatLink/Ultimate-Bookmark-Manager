@@ -24,7 +24,10 @@ export const DEFAULT_LOGIN_HOSTS = [
 ];
 
 // URLs containing any of these are checked without cookies, because opening them while logged in can change your account.
-export const DEFAULT_NO_COOKIE_WORDS = ['logout', 'log-out', 'logoff', 'signout', 'sign-out', 'unsubscribe'];
+export const DEFAULT_NO_COOKIE_WORDS = [
+  'logout', 'log-out', 'logoff', 'signout', 'sign-out', 'unsubscribe', 'delete', 'remove', 'cancel', 'revoke',
+  'confirm', 'verify', 'activate', 'approve', 'accept', 'reset', 'token', 'magic',
+];
 
 // Path parts that name a login page, such as /login or /users/sign_in.
 const LOGIN_SEGMENT = /^(log-?in|log_in|sign-?in|sign_in|signon|auth|authorize|authenticate|sso|oauth2?|saml2?|cas|idp)(\.\w+)?$/i;
@@ -50,6 +53,33 @@ export function isSkipped(url, skipList) {
   } catch {
     return false;
   }
+}
+
+// Host names that only exist on your own network, such as a router's admin page or a NAS.
+const LOCAL_SUFFIXES = ['localhost', 'local', 'lan', 'home', 'internal', 'intranet', 'home.arpa'];
+
+// The four numbers of an IPv4 address, or null when the host is not one.
+function ipv4(host) {
+  const parts = host.split('.');
+  return parts.length === 4 && parts.every((p) => /^\d{1,3}$/.test(p)) ? parts.map(Number) : null;
+}
+
+// True when the URL points at your own computer or network: loopback, private and link-local addresses, and local names.
+export function isPrivateAddress(url) {
+  let host;
+  try {
+    host = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  } catch {
+    return false;
+  }
+  const ip = ipv4(host);
+  if (ip) {
+    const [a, b] = ip;
+    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+  }
+  if (host.includes(':')) return host === '::' || host === '::1' || /^f[cd]/.test(host) || /^fe[89ab]/.test(host) || host.startsWith('::ffff:');
+  return !host.includes('.') || LOCAL_SUFFIXES.some((s) => host === s || host.endsWith(`.${s}`));
 }
 
 // True when the URL's path or query contains one of the words, ignoring case.

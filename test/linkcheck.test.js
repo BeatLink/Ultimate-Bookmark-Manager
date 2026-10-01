@@ -84,3 +84,26 @@ test('login redirects are uncertain only when detection is on', async () => {
   assert.equal(on.category, 'login');
   assert.equal(on.finalUrl, 'https://a.test/login?next=%2Fx');
 });
+
+test('addresses on your own network are recognised, public ones are not', async () => {
+  const { isPrivateAddress } = await import('../src/lib/linkcheck.js');
+  for (const url of ['http://localhost:8080/', 'http://127.0.0.1/', 'http://192.168.1.1/reboot', 'http://10.0.0.5/', 'http://172.20.1.1/', 'http://169.254.1.1/',
+    'http://100.64.0.1/', 'http://0x7f.1/', 'http://[::1]/', 'http://[fd12::1]/', 'http://[fe80::1]/', 'http://router/', 'http://nas.local/', 'http://printer.lan/', 'http://app.internal/']) {
+    assert.ok(isPrivateAddress(url), url);
+  }
+  for (const url of ['https://example.com/', 'http://172.32.0.1/', 'http://192.169.0.1/', 'http://8.8.8.8/', 'http://[2001:db8::1]/', 'https://local.example.com/', 'not a url']) {
+    assert.ok(!isPrivateAddress(url), url);
+  }
+});
+
+test('links are checked without cookies unless asked, and never for account-changing words', async () => {
+  const { credentialsFor } = await import('../src/lib/linkcheck.js');
+  const { DEFAULT_SETTINGS } = await import('../src/lib/settings.js');
+  assert.equal(DEFAULT_SETTINGS.linkCheck.useCookies, false);
+  assert.equal(DEFAULT_SETTINGS.linkCheck.skipPrivate, true);
+  assert.equal(credentialsFor('https://example.com/a', {}), 'omit');
+  assert.equal(credentialsFor('https://example.com/a', { cookies: true }), 'include');
+  for (const url of ['https://example.com/account/delete?id=1', 'https://example.com/email/confirm/abc', 'https://example.com/share?token=xyz', 'https://example.com/password-reset']) {
+    assert.equal(credentialsFor(url, { cookies: true }), 'omit', url);
+  }
+});

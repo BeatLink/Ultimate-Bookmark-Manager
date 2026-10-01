@@ -12,8 +12,9 @@ export const DEFAULT_SETTINGS = {
   linkCheck: {
     concurrency: 6,
     timeoutSeconds: 15,
-    skipDomains: ['localhost', '127.0.0.1'],
-    useCookies: true,
+    skipDomains: [],
+    skipPrivate: true,
+    useCookies: false,
     noCookieWords: [...DEFAULT_NO_COOKIE_WORDS],
     detectLogin: true,
     loginHosts: [...DEFAULT_LOGIN_HOSTS],

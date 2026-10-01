@@ -29,11 +29,11 @@ const SECTIONS = [
   ] },
   { id: 'untitled', title: 'No useful name', body: () => [
     p('Bookmarks whose name is blank, is its own URL (ignoring https://, www., case and a trailing slash), or is any bare web URL.'),
-    p(b('Fetch page titles'), ' reads each selected page and renames the bookmark to the page’s title. It uses your cookies like the link check, so pages behind a login use the session you already have. Pages that set their title with scripts are then opened in a minimized, muted window, unless that is turned off in Settings. Dead links and pages that send you to a login page are skipped. Pages without a usable title keep their name and show why. The renames are one step you can undo.'),
+    p(b('Fetch page titles'), ' reads each selected page and renames the bookmark to the page’s title. With cookies turned on for the link check it uses them too, so pages behind a login use the session you already have. Pages that set their title with scripts are then opened in a minimized, muted window, unless that is turned off in Settings. Dead links and pages that send you to a login page are skipped. Pages without a usable title keep their name and show why. The renames are one step you can undo.'),
   ] },
   { id: 'broken', title: 'Broken links', body: () => [
     p('The link check asks each bookmarked page for a response and groups the failures: not found, server error, other client errors, unreachable (DNS, connection or TLS errors) and timed out. It needs permission to access websites, which it asks for the first time.'),
-    p('The check sends your cookies, so pages you are logged into load as they do for you. A page that still sends you to a login page is listed as “Redirects to a login page” here, not under Redirects.'),
+    p('The check loads each bookmarked page from its own site, as a logged-out visitor unless cookies are turned on in Settings. Addresses on your own network are skipped. A page that sends you to a login page is listed as “Redirects to a login page” here, not under Redirects.'),
     p('“Access denied” (401/403), “rate limited” (429) and login redirects often still work in the browser, especially when you are logged in, so look before removing them. Sites on the skip list in Settings are never checked; ', b('Check again'), ' re-checks only the selected bookmarks.'),
   ] },
   { id: 'redirects', title: 'Redirects', body: () => [
@@ -73,11 +73,12 @@ const SECTIONS = [
     h('h3', { text: 'Duplicate matching' }),
     p('Two bookmarks are duplicates when their URLs match after the adjustments you tick. Custom rules go further: ', b('Exclude'), ' rules leave matching bookmarks out of the duplicate check, and ', b('Replace'), ' rules rewrite a URL before comparing (the bookmark itself is not changed). Replacements may use ', code('$&'), ', ', code('$1'), '…, ', code('$URL'), ', ', code('$NAME'), ' (folder path and name) and ', code('$TITLE'), ', and may start with ', code('\\L'), ' or ', code('\\U'), ' to lower- or upper-case the result.'),
     h('h3', { text: 'Link checking' }),
-    p('Parallel requests and the timeout tune the link check. Domains on the skip list, and their subdomains, are never checked.'),
-    p(b('Send your cookies'), ' checks each page as you, so logged-in pages are not mistaken for redirects. A check opens the page as you would, so URLs containing any word on the never-send list (such as logout or unsubscribe) are checked without cookies. Turn cookies off to check every page as a logged-out visitor.'),
+    p('Parallel requests and the timeout tune the link check. Domains on the skip list, and their subdomains, are never checked, and neither, unless you untick it, are addresses on your own network: your computer, private IP addresses such as 192.168.x.x, and local names such as router.lan or a name with no dot.'),
+    p(b('Send your cookies'), ' (off by default) checks each page as you, so logged-in pages are not mistaken for redirects. Loading a page as you can act on your account, as a delete, confirm or unsubscribe link would, so URLs containing any word on the never-send list are always checked without cookies.'),
     p('With login detection on, a redirect is treated as a login page when it lands on a listed login service, on a path such as ', code('/login'), ' or ', code('/signin'), ', or on a page whose return address (', code('next'), ', ', code('return_to'), ', ', code('continue'), '…) points back to the bookmark.'),
     h('h3', { text: 'Page titles' }),
     p('Fetch page titles reads the title from each page’s HTML. Some pages only set their title with scripts once they run; with the window option on, those are opened in a minimized, muted window to read the title, which is slower. Links whose URL contains a never-send-cookies word are never opened this way.'),
+    p('Each check contacts only the bookmarked page’s own site; nothing is sent to the add-on’s author or anyone else. The window option opens pages as normal tabs, so they also appear in your browsing history.'),
     h('h3', { text: 'Ignored items' }),
     p('Ignored bookmarks and folders are skipped by every check. Stop ignoring one to bring it back.'),
   ] },

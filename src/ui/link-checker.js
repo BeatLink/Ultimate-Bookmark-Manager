@@ -1,7 +1,7 @@
 // Runs the network check for the Broken links and Redirects views and keeps it going while the user switches views.
 
 import { h, toast } from './dom.js';
-import { checkAll, isCheckable, isSkipped } from '../lib/linkcheck.js';
+import { checkAll, isCheckable, isSkipped, isPrivateAddress } from '../lib/linkcheck.js';
 import { saveLinkResults } from '../lib/settings.js';
 
 const ALL_SITES = { origins: ['<all_urls>'] };
@@ -38,7 +38,7 @@ export class LinkChecker {
     let skipped = 0;
     const targets = state.flat.filter((b) => {
       if (b.type !== 'bookmark' || ignored.has(b.id) || (wanted && !wanted.has(b.id))) return false;
-      if (!isCheckable(b.url) || isSkipped(b.url, linkCheck.skipDomains)) {
+      if (!isCheckable(b.url) || isSkipped(b.url, linkCheck.skipDomains) || (linkCheck.skipPrivate && isPrivateAddress(b.url))) {
         skipped++;
         return false;
       }
