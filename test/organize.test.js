@@ -209,33 +209,13 @@ test('folder conditions limit which bookmarks a rule looks at', () => {
   assert.match(validateRules([onlyFolder], roots).get('o')[0], /folder conditions only narrow/);
 });
 
-test('a catch-all rule takes only what no other rule matches, and only in its folders', async () => {
-  const { newCatchAll } = await import('../src/lib/organize.js');
-  const flat = [
-    { id: 'of', type: 'folder', title: 'Other Bookmarks', path: [] },
-    bm('rust', 'Rust book', 'https://a.test', ['Other Bookmarks']),
-    bm('misc', 'Holiday photos', 'https://b.test', ['Other Bookmarks']),
-    bm('deep', 'Old thing', 'https://c.test', ['Other Bookmarks', 'Sub']),
-    bm('filed', 'Recipe', 'https://d.test', ['Bookmarks Menu']),
-    bm('placed', 'Rust again', 'https://e.test', ['Other Bookmarks', 'Dev']),
-  ];
-  const catchAll = { ...newCatchAll(['Other Bookmarks']), id: 'c', target: 'Other Bookmarks/Inbox' };
-  // Listed first on purpose: catch-alls run after the other rules whatever their position.
-  const rules = [catchAll, rule('dev', [cond('contains', 'rust')], 'Other Bookmarks/Dev')];
-  const { moves, problems } = planMoves(flat, rules, roots);
-  assert.equal(problems.size, 0);
-  assert.deepEqual(moves.map((m) => [m.bookmark.id, m.ruleId]), [['rust', 'dev'], ['misc', 'c']]);
-  assert.equal(describeRule(catchAll), 'Anything no other rule matches where folder is directly in “Other Bookmarks”');
+test('a leftover catch-all rule loses its flag and needs a title or URL condition to run', () => {
+  const old = { id: 'c', name: 'c', enabled: true, catchAll: true, target: 'Other Bookmarks/Inbox', query: { combinator: 'and', rules: [{ id: 'f', field: 'folder', operator: 'directlyInFolder', value: 'Other Bookmarks' }] } };
+  const migrated = migrateRule(old);
+  assert.ok(!('catchAll' in migrated));
+  assert.match(validateRules([migrated], roots).get('c')[0], /Add a condition on the title or URL/);
+  assert.equal(planMoves([bm('x', 'x', 'https://x.test', ['Other Bookmarks'])], [migrated], roots).moves.length, 0);
 });
-
-test('a catch-all rule needs a folder condition', async () => {
-  const { newCatchAll } = await import('../src/lib/organize.js');
-  const everywhere = { ...newCatchAll(), id: 'c', target: 'Inbox' };
-  assert.match(validateRules([everywhere], roots).get('c')[0], /needs a folder condition/);
-  assert.equal(planMoves([bm('x', 'x', 'https://x.test')], [everywhere], roots).moves.length, 0);
-});
-
-
 
 test('whole words stops keywords matching inside other words', async () => {
   const { occurrences, newCondition } = await import('../src/lib/organize.js');
@@ -366,19 +346,17 @@ test('a URL condition always outranks keyword matches, however many', async () =
   assert.equal(formatScore(win(rule('either', [cond('contains', 'videos')], 'E')).score), 'keywords 20');
 });
 
-test('a ranking list decides between related rules; specificity only between unrelated ones', async () => {
-  const { newCatchAll } = await import('../src/lib/organize.js');
+test('a ranking list decides between related rules; specificity only between unrelated ones', () => {
   const flat = [{ id: 'of', type: 'folder', title: 'Other Bookmarks', path: [] },
     bm('v1', 'CCNA subnetting explained', 'https://www.youtube.com/watch?v=abc', ['Other Bookmarks']),
     bm('v2', 'Lo-fi beats', 'https://www.youtube.com/watch?v=xyz', ['Other Bookmarks']),
     bm('n1', 'Random page', 'https://example.com/', ['Other Bookmarks'])];
   const yt = rule('yt', [cond('domain', 'youtube.com')], 'Bookmarks Menu/YouTube', { createdAt: 2 });
   const ccna = rule('ccna', [cond('contains', 'ccna')], 'Bookmarks Menu/Career', { createdAt: 1 });
-  const inbox = { ...newCatchAll(['Other Bookmarks']), id: 'inbox', target: 'Other Bookmarks/Inbox', createdAt: 3 };
+  const pages = rule('pages', [cond('contains', 'page')], 'Other Bookmarks/Inbox', { createdAt: 3 });
   const where = (rules) => Object.fromEntries(planMoves(flat, rules, roots).moves.map((m) => [m.bookmark.id, m.ruleId]));
-  assert.deepEqual(where([ccna, yt, inbox]), { v1: 'yt', v2: 'yt', n1: 'inbox' }, 'unrelated: the URL match wins');
-  assert.deepEqual(where([{ ...ccna, outranks: ['yt'] }, yt, inbox]), { v1: 'ccna', v2: 'yt', n1: 'inbox' }, 'CCNA ranks above YouTube');
-  assert.deepEqual(where([ccna, yt, { ...inbox, outranks: ['yt'] }]), { v1: 'ccna', v2: 'inbox', n1: 'inbox' }, 'a list can put a catch-all above YouTube; CCNA is unrelated to it, so built-in ranking puts CCNA first');
+  assert.deepEqual(where([ccna, yt, pages]), { v1: 'yt', v2: 'yt', n1: 'pages' }, 'unrelated: the URL match wins');
+  assert.deepEqual(where([{ ...ccna, outranks: ['yt'] }, yt, pages]), { v1: 'ccna', v2: 'yt', n1: 'pages' }, 'CCNA ranks above YouTube');
 });
 
 test('ranking lists follow through other rules, and loops are flagged and ignored', async () => {
@@ -407,21 +385,18 @@ test('ranking lists follow through other rules, and loops are flagged and ignore
 });
 
 test('every matching rule is listed strongest first, each loser with why it lost', async () => {
-  const { newCatchAll } = await import('../src/lib/organize.js');
   const { formatScore } = await import('../src/lib/specificity.js');
   const flat = [{ id: 'of', type: 'folder', title: 'Other Bookmarks', path: [] }, bm('v', 'CCNA subnetting video', 'https://www.youtube.com/watch?v=1', ['Other Bookmarks'])];
   const ccna = rule('ccna', [cond('contains', 'ccna')], 'Bookmarks Menu/Career', { createdAt: 5, name: 'CCNA', outranks: ['yt'] });
   const subnet = rule('subnet', [cond('contains', 'subnetting,video')], 'Bookmarks Menu/Networking', { createdAt: 2 });
   const video = rule('video', [cond('contains', 'video')], 'Bookmarks Menu/Videos', { createdAt: 1 });
   const yt = rule('yt', [cond('domain', 'youtube.com')], 'Bookmarks Menu/YouTube', { createdAt: 3 });
-  const inbox = { ...newCatchAll(['Other Bookmarks']), id: 'inbox', target: 'Other Bookmarks/Inbox' };
-  const [m] = planMoves(flat, [inbox, yt, video, ccna, subnet], roots).moves;
+  const [m] = planMoves(flat, [yt, video, ccna, subnet], roots).moves;
   assert.deepEqual(m.ranking.map((r) => [r.ruleId, formatScore(r.score), r.lost]), [
     ['subnet', 'keywords 40', null],
     ['ccna', 'keywords 20', 'less specific (keywords 20 vs keywords 40)'],
     ['yt', 'URL 50', 'ranked below “CCNA” by your rule order'],
     ['video', 'keywords 20', 'less specific (keywords 20 vs keywords 40)'],
-    ['inbox', 'catch-all', 'catch-alls only take what no other rule matches'],
   ]);
 });
 
@@ -474,6 +449,7 @@ test('rules saved in the old shape convert to react-querybuilder groups, one key
 
   const catchAll = migrateRule({ id: 'c', catchAll: true, conditions: [], target: 'X', sources: ['Other Bookmarks'], sourceSubfolders: false });
   assert.deepEqual(strip(catchAll.query), { combinator: 'or', not: false, rules: [{ field: 'folder', operator: 'directlyInFolder', value: 'Other Bookmarks' }] });
+  assert.ok(!('catchAll' in catchAll), 'the catch-all flag is dropped');
   const anyWithFolder = migrateRule({ id: 'a', match: 'any', conditions: [{ field: 'title', op: 'contains', values: ['a'] }], sources: ['Other Bookmarks'] });
   assert.deepEqual(strip(anyWithFolder.query), { combinator: 'and', not: false, rules: [
     { field: 'folder', operator: 'inFolder', value: 'Other Bookmarks' },
@@ -521,16 +497,6 @@ test('rules can rank above or below all other rules, and links against those tie
   assert.ok(rankingWarnings([top, against]).has('t'), 'both rules show the note');
 });
 
-test('a catch-all set to rank above all other rules beats rules with conditions', async () => {
-  const { newCatchAll } = await import('../src/lib/organize.js');
-  const flat = [{ id: 'of', type: 'folder', title: 'Other Bookmarks', path: [] }, bm('v', 'Rust video', 'https://www.youtube.com/watch?v=1', ['Other Bookmarks'])];
-  const yt = rule('yt', [cond('domain', 'youtube.com')], 'Bookmarks Menu/YouTube');
-  const inbox = { ...newCatchAll(['Other Bookmarks']), id: 'inbox', target: 'Other Bookmarks/Inbox' };
-  assert.equal(planMoves(flat, [yt, inbox], roots).moves[0].ruleId, 'yt');
-  assert.equal(planMoves(flat, [yt, { ...inbox, rankAll: 'above' }], roots).moves[0].ruleId, 'inbox');
-  assert.equal(planMoves(flat, [{ ...yt, rankAll: 'below' }, inbox], roots).moves[0].ruleId, 'inbox', 'a rule below all others loses even to a catch-all');
-});
-
 test('a condition or group can move into a new rule that keeps the destination, folders and ranking', async () => {
   const { moveToNewRule } = await import('../src/lib/organize.js');
   const src = rule('src', [cond('contains', 'music', { field: 'title' }), cond('domain', 'youtube.com')], 'Bookmarks Menu/YouTube',
@@ -556,7 +522,7 @@ test('a condition or group can move into a new rule that keeps the destination, 
 });
 
 test('merging rules joins their conditions with "any" and hands over the ranking', async () => {
-  const { mergeRules, mergeCandidates, newCatchAll } = await import('../src/lib/organize.js');
+  const { mergeRules, mergeCandidates } = await import('../src/lib/organize.js');
   const a = rule('a', [cond('contains', 'rust')], 'Dev', { outranks: ['c'] });
   const b = rule('b', [cond('contains', 'go'), cond('contains', 'zig')], 'Other', { outranks: ['d', 'a'], match: 'all' });
   const c = rule('c', [cond('contains', 'c')], 'C', { outranks: ['b'] });
@@ -573,8 +539,7 @@ test('merging rules joins their conditions with "any" and hands over the ranking
   assert.ok(has('rust'));
   assert.ok(has('go zig'));
   assert.ok(!has('go'));
-  const catchAll = { ...newCatchAll(['Other Bookmarks']), id: 'ca' };
-  assert.deepEqual(mergeCandidates(a, [a, b, catchAll]).map((r) => r.id), ['b'], 'catch-alls only merge with catch-alls');
+  assert.deepEqual(mergeCandidates(a, [a, b, c]).map((r) => r.id), ['b', 'c'], 'any other rule can be merged in');
 });
 
 test('moving a folder points destinations and folder conditions inside it at the new place', () => {

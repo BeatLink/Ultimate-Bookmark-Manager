@@ -15,23 +15,18 @@ export const POINTS = {
   regex: 15,
 };
 
-// A catch-all scores below any rule that matched, so it only wins when nothing else does (or a ranking list says so).
-export const CATCH_ALL_SCORE = -1;
-
 // Points from conditions on the URL are worth this many keyword points, so any URL match outranks any
 // number of title or keyword matches, while matches in the same tier still compare by points.
 export const URL_TIER = 10000;
 
 // A score split into its URL and keyword parts.
 export function splitScore(score) {
-  if (score < 0) return { url: 0, keywords: 0, catchAll: true };
-  return { url: Math.floor(score / URL_TIER), keywords: score % URL_TIER, catchAll: false };
+  return { url: Math.floor(score / URL_TIER), keywords: score % URL_TIER };
 }
 
 // A score as people read it: "URL 110 + keywords 40", never the combined number.
 export function formatScore(score) {
-  const { url, keywords, catchAll } = splitScore(score);
-  if (catchAll) return 'catch-all';
+  const { url, keywords } = splitScore(score);
   const parts = [url && `URL ${url}`, keywords && `keywords ${keywords}`].filter(Boolean);
   return parts.length ? parts.join(' + ') : '0';
 }

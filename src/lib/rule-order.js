@@ -92,12 +92,8 @@ export function eligibleToRankBelow(rule, rules) {
   return rules.filter((r) => r.id !== rule.id && !(r.outranks ?? []).includes(rule.id) && !order.ranksAbove(rule.id, r.id) && tierOf(r) >= tierOf(rule));
 }
 
-// The built-in ranking, used only between rules that no list relates: a rule with conditions over a catch-all,
-// then the more specific match, then the newer rule.
+// The built-in ranking, used only between rules that no list relates: the more specific match, then the newer rule.
 export function builtInBeats(a, b) {
-  const ta = a.rule.catchAll ? 0 : 1;
-  const tb = b.rule.catchAll ? 0 : 1;
-  if (ta !== tb) return ta > tb;
   if (a.score !== b.score) return a.score > b.score;
   const ca = a.rule.createdAt ?? 0;
   const cb = b.rule.createdAt ?? 0;
@@ -128,7 +124,6 @@ export function lostBecause(loser, winner, candidates, order, formatScore) {
   }
   const above = [winner, ...candidates].find((c) => c !== loser && order.ranksAbove(c.rule.id, loser.rule.id));
   if (above) return `ranked below “${above.rule.name || 'Unnamed rule'}” by your rule order`;
-  if (loser.rule.catchAll && !winner.rule.catchAll) return 'catch-alls only take what no other rule matches';
   if (loser.score !== winner.score) return `less specific (${formatScore(loser.score)} vs ${formatScore(winner.score)})`;
   if ((loser.rule.createdAt ?? 0) !== (winner.rule.createdAt ?? 0)) return 'older rule, equally specific';
   return 'earlier in the list, equally specific';

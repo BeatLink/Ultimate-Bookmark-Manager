@@ -82,7 +82,7 @@ function rankingList(move) {
     box.querySelector('.bm-url')?.replaceChildren(...marked(url, r.why?.url));
     const note = box.querySelector('.matched');
     if (note) note.hidden = false;
-    if (note) note.textContent = r.why?.terms.length ? `${r.lost ? `${r.ruleName || 'Unnamed rule'} matched` : 'Matched'} ${matchedText(r.why)}` : `${r.ruleName || 'Unnamed rule'} is a catch-all: nothing to highlight`;
+    if (note) note.textContent = r.why?.terms.length ? `${r.lost ? `${r.ruleName || 'Unnamed rule'} matched` : 'Matched'} ${matchedText(r.why)}` : `${r.ruleName || 'Unnamed rule'} matched nothing to highlight`;
     for (const b of box.querySelectorAll('.ranking-pick')) b.setAttribute('aria-pressed', String(b === button));
   };
   // The list is only built the first time it is opened.
@@ -94,7 +94,7 @@ function rankingList(move) {
         h('strong', { text: r.ruleName || 'Unnamed rule' }),
         h('span', { class: 'muted', text: ` → ${r.target.path.join(' › ')}` })),
       h('div', { class: 'small muted' },
-        [r.catchAll ? 'catch-all' : formatScore(r.score),
+        [formatScore(r.score),
           r.why?.terms.length ? `matched ${matchedText(r.why)}` : ''].filter(Boolean).join(' · ')),
       h('div', { class: 'small' }, r.lost ? h('span', { class: 'lost-reason', text: `Lost: ${r.lost}` }) : h('strong', { class: 'won-label', text: 'Wins' }))))));
   } }, h('summary', { text: `All ${move.others + 1} matching rules`, title: 'Strongest first; select a rule to highlight what it matched' }));
@@ -189,8 +189,7 @@ function rankingEditor(ctx, rule, rules, redraw) {
 function mergeButton(ctx, rule, rules, redraw) {
   const others = mergeCandidates(rule, rules);
   return h('button', { class: 'small', type: 'button', text: 'Merge…', title: 'Merge another rule into this one', disabled: !others.length, onclick: async () => {
-    const why = rule.catchAll ? 'Catch-alls only merge with other catch-alls' : 'Catch-alls only merge with other catch-alls, not with rules that have conditions';
-    const id = await pickRule(ctx.state.root, ruleEntries(ctx, rule, rules, others, why), { heading: `Merge into “${rule.name || 'Unnamed rule'}”`, confirm: 'Merge this rule' });
+    const id = await pickRule(ctx.state.root, ruleEntries(ctx, rule, rules, others, ''), { heading: `Merge into “${rule.name || 'Unnamed rule'}”`, confirm: 'Merge this rule' });
     const other = others.find((r) => r.id === id);
     if (!other) return;
     const name = (r) => `“${r.name || 'Unnamed rule'}”`;
@@ -217,7 +216,6 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
   const fillBody = () => body.append(...h('div', {},
     h('label', { class: 'field-row' }, h('span', { class: 'field-label', text: 'Enabled' }), h('span', { class: 'field-value' },
       h('input', { type: 'checkbox', checked: rule.enabled !== false, 'aria-label': 'Rule enabled', onchange: (e) => { rule.enabled = e.target.checked; redraw(); } }))),
-    rule.catchAll && field('', h('p', { class: 'muted small' }, 'Catch-all ', helpLink('Files whatever no other rule matches where its folder conditions hold; any matching rule beats it unless this one ranks above it', 'organize'))),
     field('Rule', queryEditor(ctx, rule, changed, (itemId) => {
       const moved = moveToNewRule(rules, rule.id, itemId);
       if (!moved) return;
@@ -249,7 +247,7 @@ function ruleCard(ctx, rule, rules, redraw, changed, parts) {
   const name = h('input', { type: 'text', class: 'rule-name', value: rule.name, placeholder: 'Unnamed rule', 'aria-label': 'Rule name',
     oninput: (e) => { rule.name = e.target.value; changed(); } });
 
-  const card = h('li', { class: `rule-card${rule.enabled === false ? ' disabled' : ''}${isOpen ? ' open' : ''}${rule.catchAll ? ' catch-all' : ''}`, 'data-rule': rule.id },
+  const card = h('li', { class: `rule-card${rule.enabled === false ? ' disabled' : ''}${isOpen ? ' open' : ''}`, 'data-rule': rule.id },
     h('div', { class: 'rule-head' },
       toggle,
       name,
@@ -443,7 +441,7 @@ export default {
         let filled = false;
         const fill = () => {
           filled = true;
-          children.append(...[...own.filter((r) => !r.catchAll), ...own.filter((r) => r.catchAll)].map(card), ...kids.map(node));
+          children.append(...own.map(card), ...kids.map(node));
         };
         if (open) fill();
         const countEl = h('span', { class: 'rule-badge active' });
@@ -504,8 +502,8 @@ export default {
         const above = (r.outranks ?? []).filter((id) => rules.some((x) => x.id === id)).length;
         const tier = r.rankAll === 'above' ? ' · above all' : r.rankAll === 'below' ? ' · below all' : '';
         const spec = maxScore(r);
-        parts.score.textContent = `${r.catchAll ? 'catch-all' : `≤ ${formatScore(spec)}`}${tier}${above ? ` · above ${above}` : ''}`;
-        parts.score.title = `${r.rankAll ? `Ranks ${r.rankAll} all other rules. ` : ''}${above ? `Ranks above ${above} rule(s) by your ranking lists. ` : ''}${r.catchAll ? 'A catch-all loses to any matching rule unless it is set to rank above it.' : SPECIFICITY_HELP}`;
+        parts.score.textContent = `≤ ${formatScore(spec)}${tier}${above ? ` · above ${above}` : ''}`;
+        parts.score.title = `${r.rankAll ? `Ranks ${r.rankAll} all other rules. ` : ''}${above ? `Ranks above ${above} rule(s) by your ranking lists. ` : ''}${SPECIFICITY_HELP}`;
         parts.score.classList.toggle('prioritised', above > 0 || !!r.rankAll);
         const issues = problems.get(r.id);
         if (issues) {
@@ -600,7 +598,7 @@ export default {
         editable: false,
         highlight: m.why,
         meta: [h('span', { class: 'matched', text: m.why?.terms.length ? `Matched ${matchedText(m.why)}` : '', hidden: !m.why?.terms.length }),
-          h('span', { text: `Rule: ${m.ruleName || 'unnamed'}${m.score >= 0 ? ` · ${formatScore(m.score)}` : ' · catch-all'}${m.others ? ` · beat ${m.others} other matching rule(s)` : ''}` }),
+          h('span', { text: `Rule: ${m.ruleName || 'unnamed'} · ${formatScore(m.score)}${m.others ? ` · beat ${m.others} other matching rule(s)` : ''}` }),
           m.others > 0 && rankingList(m)],
       }));
       // Long groups show their first rows until asked, since thousands of rows make every refresh slow; selection still covers them all.

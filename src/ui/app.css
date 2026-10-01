@@ -271,7 +271,6 @@ dialog.folder-picker::backdrop { background: rgb(0 0 0 / .35); }
 }
 .keyword.mono { font-family: ui-monospace, monospace; }
 
-.rule-card.catch-all { border-style: dashed; }
 
 .filters input[type=search] { max-width: 18em; }
 .rule-tree { display: flex; flex-direction: column; gap: 1em; margin-bottom: 1em; }

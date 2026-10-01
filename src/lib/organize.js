@@ -1,6 +1,6 @@
 // Organize rules: match bookmarks by title, URL, part of the URL or folder, and plan moves into target folders.
 
-import { valuePoints, CATCH_ALL_SCORE, URL_TIER, formatScore } from './specificity.js';
+import { valuePoints, URL_TIER, formatScore } from './specificity.js';
 import { buildOrder, rankCandidates, lostBecause } from './rule-order.js';
 
 // A rule's conditions are a react-querybuilder query. Each condition is { field, operator, value } with one keyword
@@ -87,9 +87,6 @@ export function newRule() {
 }
 
 // A rule that takes whatever no other rule matches in the folders its conditions name; it always runs last.
-export function newCatchAll(folders = []) {
-  return { ...newRule(), catchAll: true, query: newGroup(folders.map((f) => newCondition('folder', 'directlyInFolder', f))) };
-}
 
 // Copies a rule under a new id so it can be edited separately; the copy's name is marked as such.
 // A copy of a condition or group under new ids, as react-querybuilder needs every id on the page to be unique.
@@ -150,9 +147,9 @@ export function moveToNewRule(rules, ruleId, itemId) {
   return { rules: out, part };
 }
 
-// Rules `rule` can be merged with: any other rule, except that catch-alls only merge with catch-alls.
+// Rules `rule` can be merged with: every other rule.
 export function mergeCandidates(rule, rules) {
-  return rules.filter((r) => r.id !== rule.id && !!r.catchAll === !!rule.catchAll);
+  return rules.filter((r) => r.id !== rule.id);
 }
 
 // Merges `otherId` into `keepId`: the kept rule matches whatever either matched, keeps its own destination, name and
@@ -205,10 +202,14 @@ function migrateGroup(old) {
 }
 
 // Converts a rule saved before rules used react-querybuilder's shape; its source folders become folder conditions.
-// Rules already converted come back unchanged.
+// Rules already converted come back unchanged. A catch-all flag is dropped, leaving a rule that needs a title or URL condition to run.
 export function migrateRule(rule) {
-  if (rule.query) return rule;
-  const { match, conditions, sources, sourceSubfolders, ...rest } = rule;
+  if (rule.query && !('catchAll' in rule)) return rule;
+  const rest = { ...rule };
+  delete rest.catchAll;
+  if (rule.query) return rest;
+  const { match, conditions, sources, sourceSubfolders } = rule;
+  for (const key of ['match', 'conditions', 'sources', 'sourceSubfolders']) delete rest[key];
   let query = migrateGroup({ match, conditions });
   const folders = (sources ?? []).map((path) => newCondition('folder', sourceSubfolders === false ? 'directlyInFolder' : 'inFolder', path));
   if (folders.length) {
@@ -425,17 +426,14 @@ function bookmarkText(bookmark) {
 }
 
 // Scores bookmarks against one rule, or null when the rule does not match; build it once and reuse it for every bookmark.
-// A catch-all scores below any other match, whatever its conditions scored.
 function scorer(rule, rootFolders) {
   const compiled = compileGroup(rule.query ?? {}, rootFolders);
   if (!compiled.items.length) return () => null;
-  if (rule.catchAll) return (bookmark) => (groupScore(compiled, bookmarkText(bookmark)) === null ? null : CATCH_ALL_SCORE);
   return (bookmark) => groupScore(compiled, bookmarkText(bookmark));
 }
 
 // The most a rule can score: every condition it lists matching, in the part of the bookmark worth the most.
 export function maxScore(rule) {
-  if (rule.catchAll) return CATCH_ALL_SCORE;
   const cond = (c) => {
     if (FOLDER_OPS.has(c.operator) || c.operator === 'doesNotContain') return 0;
     const fields = fieldsOf(c);
@@ -485,12 +483,11 @@ function mergeRanges(ranges) {
 }
 
 // Why a rule matched a bookmark: the keywords that matched and where, plus merged ranges to highlight in the
-// title and the URL. Null when the rule does not match; a catch-all matches with nothing to show.
+// title and the URL. Null when the rule does not match.
 export function explainMatch(rule, bookmark, rootFolders) {
   if (!activeItems(rule.query).length) return null;
   const hits = groupHits(rule.query, bookmark, rootFolders);
   if (!hits) return null;
-  if (rule.catchAll) return { terms: [], title: [], url: [] };
   const terms = new Map();
   for (const hit of hits) {
     if (!terms.has(hit.value)) terms.set(hit.value, new Set());
@@ -532,7 +529,7 @@ function describeGroup(group, nested) {
 // The rule's logic in one line, with nested groups in brackets and inverted groups always as "not (…)" so they read unambiguously.
 export function describeRule(rule) {
   const text = activeItems(rule.query).length ? describeGroup(rule.query, false) : 'No conditions yet';
-  return rule.catchAll ? `Anything no other rule matches where ${text}` : text;
+  return text;
 }
 
 // Resolves "Root/Sub/Folder" against the top-level folders; a path not starting with one goes under Other Bookmarks.
@@ -592,9 +589,7 @@ export function validateRules(rules, rootFolders, flat = null) {
     const issues = [];
     const active = allConditions(rule.query).filter(valueOf);
     const inFolders = active.filter((c) => FOLDER_OPS.has(c.operator));
-    if (rule.catchAll) {
-      if (!inFolders.length) issues.push('A catch-all rule needs a folder condition, or it would move every bookmark you have.');
-    } else if (active.length === inFolders.length) {
+    if (active.length === inFolders.length) {
       issues.push('Add a condition on the title or URL; folder conditions only narrow a rule down.');
     }
     if (!resolveTarget(rule.target, rootFolders)) issues.push('Choose a target folder.');
@@ -636,7 +631,7 @@ export function rankingWarnings(rules) {
 
 // Works out where each bookmark should go. Of the enabled, valid rules that match it, a rule
 // wins over any it ranks above by the ranking lists; between rules no list relates, the more specific match wins
-// (URL conditions before keywords), then the newer rule, and catch-alls only take what nothing else matches.
+// (URL conditions before keywords), then the newer rule.
 // `tree` is the whole flattened tree, used to check the folders conditions name exist when `flat` holds only some bookmarks.
 // `unmatched` lists the bookmarks no enabled, valid rule matches.
 export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree = flat) {
@@ -676,7 +671,7 @@ export function planMoves(flat, rules, rootFolders, ignoredIds = new Set(), tree
       // Every matching rule, strongest first, each with what it matched and, below the winner, why it lost; worked out when first read.
       get ranking() {
         ranking ??= ranked.map((c) => ({
-          ruleId: c.rule.id, ruleName: c.rule.name, target: c.target, score: c.score, catchAll: !!c.rule.catchAll,
+          ruleId: c.rule.id, ruleName: c.rule.name, target: c.target, score: c.score,
           why: explainMatch(c.rule, b, rootFolders), lost: c === best ? null : lostBecause(c, best, ranked, order, formatScore),
         }));
         return ranking;
