@@ -5,6 +5,23 @@ import { loadSettings, saveSettings } from './settings.js';
 import { moveRulePaths } from './organize.js';
 
 const OTHER_BOOKMARKS = 'unfiled_____';
+const DAY = 24 * 60 * 60 * 1000;
+
+// The history without entries older than `days` or past the newest `limit`, and without id links no remaining entry uses.
+export function pruneHistory(history, { days, limit, now = Date.now() }) {
+  const entries = history.entries.filter((e) => !(e.time < now - days * DAY)).slice(0, limit);
+  // Any text in the remaining entries may be an id that undo looks up, so every link it leads to is kept.
+  const used = new Set();
+  JSON.stringify(entries, (key, value) => (typeof value === 'string' && used.add(value), value));
+  const idMap = {};
+  for (let id of used) {
+    while (Object.hasOwn(history.idMap, id) && !Object.hasOwn(idMap, id)) {
+      idMap[id] = history.idMap[id];
+      id = history.idMap[id];
+    }
+  }
+  return { entries, idMap };
+}
 
 export function snapshot(node) {
   const snap = { id: node.id, type: nodeType(node), title: node.title ?? '' };
@@ -14,15 +31,22 @@ export function snapshot(node) {
 }
 
 export class Actions {
-  constructor({ bookmarks = globalThis.browser?.bookmarks, storage = globalThis.browser?.storage.local, limit = 50 } = {}) {
+  constructor({ bookmarks = globalThis.browser?.bookmarks, storage = globalThis.browser?.storage.local, limit = 50, days = 30 } = {}) {
     this.bookmarks = bookmarks;
     this.storage = storage;
     this.limit = limit;
+    this.days = days;
   }
 
+  // The stored history, with expired entries forgotten and the forgetting saved.
   async load() {
     const { history } = await this.storage.get('history');
-    return history ?? { entries: [], idMap: {} };
+    if (!history) return { entries: [], idMap: {} };
+    const pruned = pruneHistory(history, { days: this.days, limit: this.limit });
+    if (pruned.entries.length !== history.entries.length || Object.keys(pruned.idMap).length !== Object.keys(history.idMap).length) {
+      await this.storage.set({ history: pruned });
+    }
+    return pruned;
   }
 
   async list() {
@@ -203,8 +227,7 @@ export class Actions {
   async #push(label, ops) {
     const history = await this.load();
     history.entries.unshift({ id: crypto.randomUUID(), time: Date.now(), label, ops });
-    history.entries.length = Math.min(history.entries.length, this.limit);
-    await this.storage.set({ history });
+    await this.storage.set({ history: pruneHistory(history, { days: this.days, limit: this.limit }) });
   }
 
   async #remove(ids, ops) {

@@ -29,7 +29,7 @@ const SECTIONS = [
   ] },
   { id: 'untitled', title: 'No useful name', body: () => [
     p('Bookmarks whose name is blank, is its own URL (ignoring https://, www., case and a trailing slash), or is any bare web URL.'),
-    p('The link check also reads the page title of each bookmark listed here, in the same request, and shows it as “Page title”. ', b('Fetch page titles'), ' uses those titles as they are and reads the other selected pages, then renames the bookmark to the page’s title. With cookies turned on for the link check it uses them too, so pages behind a login use the session you already have. Pages that set their title with scripts are then opened in a minimized, muted window, unless that is turned off in Settings. Dead links and pages that send you to a login page are skipped. Pages without a usable title keep their name and show why. The renames are one step you can undo.'),
+    p('The link check also reads the page title of each bookmark listed here, in the same request, and shows it as “Page title”. ', b('Fetch page titles'), ' uses those titles as they are and reads the other selected pages, then renames the bookmark to the page’s title. With cookies turned on for the link check it uses them too, so pages behind a login use the session you already have. Dead links and pages that send you to a login page are skipped. Pages without a usable title keep their name and show why. The renames are one step you can undo.'),
   ] },
   { id: 'broken', title: 'Broken links', body: () => [
     p('The link check makes one request per bookmarked page, which also gives the redirects and, for bookmarks without a useful name, the page title. It groups the failures: not found, server error, other client errors, unreachable (DNS, connection or TLS errors) and timed out. It needs permission to access websites, which it asks for the first time.'),
@@ -37,7 +37,7 @@ const SECTIONS = [
     p('“Access denied” (401/403), “rate limited” (429) and login redirects often still work in the browser, especially when you are logged in, so look before removing them. Sites on the skip list in Settings are never checked; ', b('Check again'), ' re-checks only the selected bookmarks.'),
   ] },
   { id: 'redirects', title: 'Redirects', body: () => [
-    p('Bookmarks whose URL now leads somewhere else, found by the link check. ', b('Fix'), ' replaces the saved URL with the one it redirects to. Check where it goes first: sites sometimes send removed pages to their home page, and fixing those would lose the original URL. Redirects to a login page are kept out of this list.'),
+    p('Bookmarks whose URL now leads somewhere else, found by the link check. ', b('Fix'), ' replaces the saved URL with the one it redirects to. Check where it goes first: sites sometimes send removed pages to their home page, and fixing those would lose the original URL. A redirect to a different site is flagged, as the old site may have closed and its address been taken over by someone else. Redirects to a login page are kept out of this list.'),
   ] },
   { id: 'organize', title: 'Organize', body: () => [
     p('Your folder tree, with the rules that file bookmarks into each folder listed under it. Add a rule with ', b('+ Rule'), ' on a folder’s row, or ', b('+ Rule for a new folder'), ' for a folder that does not exist yet; it is created when the rule first moves something. ', b('+ Folder'), ' creates a subfolder straight away, as a step you can undo. To change which folder a rule files into, drag it by its ⠿ handle onto that folder’s row, or use ', b('Move…'), ' in the rule’s ', b('☰'), ' menu, which also renames, duplicates, merges and deletes it. Select a rule’s name to open or close it. Drag a folder’s row onto another folder to move it inside; rules that file into it, or have a folder condition on it or anything inside it, follow it to its new place, and undoing the move puts them back. The search box and ', b('Only folders with rules'), ' help with large trees.'),
@@ -63,7 +63,7 @@ const SECTIONS = [
     p('Searching by name, URL or folder, or choosing only duplicates or only non-duplicates, lists the matches with their folder, 200 at a time; ', b('Show in folder'), ' in the right-click menu takes you to one in the tree. ', b('Import and backup'), ' saves every bookmark as an HTML file other browsers can import, or imports such a file into a new folder in Other Bookmarks. Tags, keywords and visit counts are not available to add-ons, so they are not shown.'),
   ] },
   { id: 'history', title: 'History & backup', body: () => [
-    p('Every change made here is recorded before it happens, so it can be undone. Undo works newest first, and restored bookmarks come back in their old place. How many changes are kept is set in Settings.'),
+    p('Every change made here is recorded before it happens, so it can be undone. Undo works newest first, and restored bookmarks come back in their old place. Changes older than 30 days are forgotten; Settings sets that age and how many changes are kept.'),
     p(b('Download full backup'), ' saves every bookmark as a JSON file. Firefox also keeps its own backups: Bookmarks › Manage bookmarks › Import and Backup.'),
   ] },
   { id: 'settings', title: 'Settings', body: () => [
@@ -77,8 +77,8 @@ const SECTIONS = [
     p(b('Send your cookies'), ' (off by default) checks each page as you, so logged-in pages are not mistaken for redirects. Loading a page as you can act on your account, as a delete, confirm or unsubscribe link would, so URLs containing any word on the never-send list are always checked without cookies.'),
     p('With login detection on, a redirect is treated as a login page when it lands on a listed login service, on a path such as ', code('/login'), ' or ', code('/signin'), ', or on a page whose return address (', code('next'), ', ', code('return_to'), ', ', code('continue'), '…) points back to the bookmark.'),
     h('h3', { text: 'Page titles' }),
-    p('Fetch page titles reads the title from each page’s HTML. Some pages only set their title with scripts once they run; with the window option on, those are opened in a minimized, muted window to read the title, which is slower. Links whose URL contains a never-send-cookies word are never opened this way.'),
-    p('Each check contacts only the bookmarked page’s own site; nothing is sent to the add-on’s author or anyone else. The window option opens pages as normal tabs, so they also appear in your browsing history.'),
+    p('Fetch page titles reads the title from each page’s HTML. Pages that only set their title with scripts once they run cannot be named this way and are marked as such.'),
+    p('Each check contacts only the bookmarked page’s own site; nothing is sent to the add-on’s author or anyone else.'),
     h('h3', { text: 'Ignored items' }),
     p('Ignored bookmarks and folders are skipped by every check. Stop ignoring one to bring it back.'),
   ] },

@@ -58,16 +58,12 @@ function fetchTitles(ctx, items) {
     if (!granted) return toast('Reading page titles needs permission to access websites.', 'error');
     Object.assign(job, { running: true, done: 0, total: rest.length, controller: new AbortController() });
     paint();
-    const { linkCheck, titles } = ctx.state.settings;
+    const { linkCheck } = ctx.state.settings;
     let results;
     try {
       results = await loadTitles(rest, {
-        tabs: browser.tabs,
-        windows: browser.windows,
         concurrency: linkCheck.concurrency,
-        windowConcurrency: Math.min(4, linkCheck.concurrency),
         timeout: linkCheck.timeoutSeconds * 1000,
-        windowFallback: titles.windowFallback,
         cookies: linkCheck.useCookies,
         noCookieWords: linkCheck.noCookieWords,
         loginHosts: linkCheck.loginHosts,

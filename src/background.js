@@ -106,7 +106,7 @@ async function autoOrganize() {
   if (!moves.length) return;
 
   const label = moves.length === 1 ? `Auto-organized “${moves[0].bookmark.title || moves[0].bookmark.url}”` : `Auto-organized ${moves.length} new bookmarks`;
-  await new Actions({ limit: settings.historyLimit }).organize(moves.map((m) => ({ id: m.bookmark.id, target: m.target })), label);
+  await new Actions({ limit: settings.historyLimit, days: settings.historyDays }).organize(moves.map((m) => ({ id: m.bookmark.id, target: m.target })), label);
 }
 
 // Settings sync: local edits are uploaded and changes from other devices applied, each after a short pause.
@@ -127,4 +127,9 @@ browser.storage.onChanged.addListener((changes, area) => {
 });
 
 browser.runtime.onStartup.addListener(() => soon('reconcile', () => reconcile(local, sync)));
+
+// Undo history past its age limit is forgotten at startup, even if the dashboard is never opened.
+browser.runtime.onStartup.addListener(() => loadSettings()
+  .then((settings) => new Actions({ limit: settings.historyLimit, days: settings.historyDays }).load())
+  .catch((err) => console.error('Clearing old undo history failed', err)));
 browser.runtime.onInstalled.addListener(() => soon('reconcile', () => reconcile(local, sync)));

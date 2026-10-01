@@ -102,3 +102,29 @@ test('moving a folder rewrites the rules that name it, and undo puts both back',
   assert.equal(restored.target, 'Menu/Folder/Sub');
   assert.equal(restored.query.rules[0].value, 'Menu/Folder');
 });
+
+test('history older than its age limit is forgotten, with the id links only it used', async () => {
+  const { pruneHistory } = await import('../src/lib/actions.js');
+  const day = 24 * 60 * 60 * 1000;
+  const now = 100 * day;
+  const history = {
+    entries: [
+      { id: 'new', time: now - day, label: 'new', ops: [{ kind: 'move', id: 'a', from: { parentId: 'p', index: 0 } }] },
+      { id: 'old', time: now - 40 * day, label: 'old', ops: [{ kind: 'move', id: 'z', from: { parentId: 'q', index: 0 } }] },
+    ],
+    idMap: { a: 'a2', a2: 'a3', z: 'z2', p: 'p2' },
+  };
+  const pruned = pruneHistory(history, { days: 30, limit: 50, now });
+  assert.deepEqual(pruned.entries.map((e) => e.id), ['new']);
+  assert.deepEqual(pruned.idMap, { a: 'a2', a2: 'a3', p: 'p2' }, 'chains are followed and unused links dropped');
+  assert.deepEqual(pruneHistory(history, { days: 30, limit: 0, now }), { entries: [], idMap: {} });
+});
+
+test('loading the history saves it once old entries have been forgotten', async () => {
+  const { Actions } = await import('../src/lib/actions.js');
+  const stored = { history: { entries: [{ id: 'x', time: 0, label: 'ancient', ops: [] }], idMap: { k: 'v' } } };
+  const storage = { async get(key) { return { [key]: stored[key] }; }, async set(v) { Object.assign(stored, v); } };
+  const entries = await new Actions({ storage, days: 30 }).list();
+  assert.deepEqual(entries, []);
+  assert.deepEqual(stored.history, { entries: [], idMap: {} });
+});

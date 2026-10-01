@@ -91,7 +91,7 @@ async function load() {
   ]);
   cache = new Map();
   Object.assign(state, { root, flat: flatten(root), settings: settingsValue, whitelist, linkResults });
-  ctx.actions.limit = settingsValue.historyLimit;
+  Object.assign(ctx.actions, { limit: settingsValue.historyLimit, days: settingsValue.historyDays });
 }
 
 function renderNav() {

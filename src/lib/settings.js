@@ -2,7 +2,7 @@
 
 import { DEFAULT_MATCHING } from './duplicates.js';
 import { dropRetiredRanking } from './rule-order.js';
-import { migrateRule } from './organize.js';
+import { migrateRule, isWellFormedRule } from './organize.js';
 import { DEFAULT_LOGIN_HOSTS, DEFAULT_NO_COOKIE_WORDS } from './linkcheck.js';
 
 export const DEFAULT_SETTINGS = {
@@ -19,43 +19,81 @@ export const DEFAULT_SETTINGS = {
     detectLogin: true,
     loginHosts: [...DEFAULT_LOGIN_HOSTS],
   },
-  titles: {
-    windowFallback: true,
-  },
   historyLimit: 50,
+  historyDays: 30,
   organize: {
     rules: [],
     autoApply: false,
   },
 };
 
-export function merge(defaults, stored) {
-  if (!stored || typeof stored !== 'object' || Array.isArray(defaults)) return stored ?? defaults;
-  const out = { ...defaults };
-  for (const [k, v] of Object.entries(stored)) {
-    out[k] = defaults[k] && typeof defaults[k] === 'object' && !Array.isArray(defaults[k]) ? merge(defaults[k], v) : v;
+// Lists of text; every other list in the settings holds objects.
+const TEXT_LISTS = new Set(['skipDomains', 'noCookieWords', 'loginHosts']);
+// The numbers the settings page allows, so a damaged value cannot ask for a billion parallel requests.
+const RANGES = { concurrency: [1, 32], timeoutSeconds: [3, 120], historyLimit: [1, 500], historyDays: [1, 3650] };
+const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+// Stored settings laid over the defaults; a value of the wrong type, as a damaged file or sync could bring, falls back to the default.
+export function merge(defaults, stored, key = '') {
+  if (Array.isArray(defaults)) {
+    if (!Array.isArray(stored)) return structuredClone(defaults);
+    return stored.filter(TEXT_LISTS.has(key) ? (v) => typeof v === 'string' : isObject);
+  }
+  if (isObject(defaults)) {
+    if (!isObject(stored)) return structuredClone(defaults);
+    const out = {};
+    for (const [k, v] of Object.entries(defaults)) out[k] = merge(v, stored[k], k);
+    // Settings this version does not know, from a newer one through sync, are kept so saving here does not drop them.
+    for (const [k, v] of Object.entries(stored)) if (!(k in defaults) && k !== '__proto__') out[k] = v;
+    return out;
+  }
+  if (typeof stored !== typeof defaults || (typeof stored === 'number' && !Number.isFinite(stored))) return defaults;
+  if (RANGES[key]) return Math.min(RANGES[key][1], Math.max(RANGES[key][0], stored));
+  return stored;
+}
+
+// Organize rules in their current shape, leaving out any too damaged to read.
+export function readRules(rules) {
+  const out = [];
+  // Priority numbers and fallback flags are retired; ranking lists replace them.
+  for (const rule of dropRetiredRanking(rules)) {
+    try {
+      const current = migrateRule(rule);
+      if (isWellFormedRule(current)) out.push(current);
+    } catch {
+      // A rule the converter cannot read is left out.
+    }
   }
   return out;
 }
 
+// Settings from storage, sync or a file, with anything damaged replaced by its default or left out.
+export function readSettings(stored) {
+  const settings = merge(DEFAULT_SETTINGS, stored);
+  settings.organize.rules = readRules(settings.organize.rules);
+  return settings;
+}
+
 export async function loadSettings(storage = browser.storage.local) {
   const { settings } = await storage.get('settings');
-  const loaded = merge(DEFAULT_SETTINGS, settings);
-  // Priority numbers and fallback flags are retired; ranking lists replace them.
-  loaded.organize.rules = dropRetiredRanking(loaded.organize.rules ?? []);
-  const rules = migrateRules(loaded.organize.rules);
-  if (rules !== loaded.organize.rules) {
-    loaded.organize.rules = rules;
+  const loaded = readSettings(settings);
+  const stored = isObject(settings?.organize) && Array.isArray(settings.organize.rules) ? settings.organize.rules : [];
+  const rules = loaded.organize.rules;
+  if (rules.length !== stored.length || rules.some((r, i) => r !== stored[i])) {
     // Converted rules are saved straight back, so they are converted once and synced in the new shape.
     await storage.set({ settings: { ...settings, organize: { ...settings.organize, rules } } });
   }
   return loaded;
 }
 
-// Rules in react-querybuilder's shape; the same list comes back when none needed converting.
-export function migrateRules(rules) {
-  const out = rules.map(migrateRule);
-  return out.some((r, i) => r !== rules[i]) ? out : rules;
+// Ignored items as id → { title, url }, leaving out entries that are not.
+export function readWhitelist(whitelist) {
+  const out = {};
+  if (!isObject(whitelist)) return out;
+  for (const [id, e] of Object.entries(whitelist)) {
+    if (isObject(e) && id !== '__proto__') out[id] = { title: String(e.title ?? ''), url: String(e.url ?? '') };
+  }
+  return out;
 }
 
 export async function saveSettings(settings, storage = browser.storage.local) {
@@ -65,7 +103,7 @@ export async function saveSettings(settings, storage = browser.storage.local) {
 // The whitelist maps bookmark id to a label so the settings page can show what each entry was.
 export async function loadWhitelist(storage = browser.storage.local) {
   const { whitelist } = await storage.get('whitelist');
-  return whitelist ?? {};
+  return readWhitelist(whitelist);
 }
 
 export async function addToWhitelist(entries, storage = browser.storage.local) {

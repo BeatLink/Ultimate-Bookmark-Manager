@@ -182,16 +182,13 @@ export default {
       h('label', { class: 'field block' }, 'Login services (one per line; subdomains included)',
         h('textarea', { rows: 4, class: 'mono', onchange: (e) => { lc.loginHosts = lines(e.target.value); } }, lc.loginHosts.join('\n'))));
 
-    const titlesBox = h('fieldset', {}, legend('Page titles', 'How Fetch page titles names bookmarks'),
-      h('label', { class: 'check-line' },
-        h('input', { type: 'checkbox', checked: s.titles.windowFallback, onchange: (e) => { s.titles.windowFallback = e.target.checked; } }),
-        'Open pages whose title is set by scripts in a minimized, muted window'));
-
     const general = h('fieldset', {}, h('legend', { text: 'General' }),
       h('label', { class: 'field' }, 'Folder for moved duplicates (in Other Bookmarks)',
         h('input', { type: 'text', value: s.dupesFolderName, onchange: (e) => { s.dupesFolderName = e.target.value.trim() || 'Dupes'; } })),
       h('label', { class: 'field' }, 'Undo history length',
-        h('input', { type: 'number', min: 1, max: 500, value: String(s.historyLimit), onchange: (e) => { s.historyLimit = Math.min(500, Math.max(1, Number(e.target.value) || 50)); } })));
+        h('input', { type: 'number', min: 1, max: 500, value: String(s.historyLimit), onchange: (e) => { s.historyLimit = Math.min(500, Math.max(1, Number(e.target.value) || 50)); } })),
+      h('label', { class: 'field' }, 'Forget undo history after (days)',
+        h('input', { type: 'number', min: 1, max: 3650, value: String(s.historyDays), onchange: (e) => { s.historyDays = Math.min(3650, Math.max(1, Number(e.target.value) || 30)); } })));
 
     const entries = Object.entries(ctx.state.whitelist);
     const whitelist = h('fieldset', {}, legend(`Ignored items (${entries.length})`, 'Ignored bookmarks and folders are skipped by every check'),
@@ -205,7 +202,7 @@ export default {
       viewHeader('Settings', 'Matching, sync, link checks and ignored items',
         h('button', { class: 'small', text: 'Discard changes', onclick: () => { draft = null; ctx.render(); } }),
         h('button', { class: 'primary', text: 'Save settings', onclick: save })),
-      syncAndBackup(ctx), matching, rulesBox, linkBox, titlesBox, general,
+      syncAndBackup(ctx), matching, rulesBox, linkBox, general,
       h('div', { class: 'row end' }, h('button', { class: 'primary', text: 'Save settings', onclick: save })),
       whitelist);
   },

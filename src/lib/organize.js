@@ -201,6 +201,13 @@ function migrateGroup(old) {
   return { ...newGroup(rules), combinator, not: old.match === 'none' };
 }
 
+// True when a rule has the shape the organizer reads: an id, a tree of groups and conditions, and a text target.
+export function isWellFormedRule(rule) {
+  const isItem = (x) => x !== null && typeof x === 'object' && (isGroup(x) ? x.rules.every(isItem) : typeof x.field === 'string' && typeof x.operator === 'string');
+  return typeof rule?.id === 'string' && isGroup(rule.query) && rule.query.rules.every(isItem)
+    && (rule.target === undefined || typeof rule.target === 'string') && (rule.outranks === undefined || Array.isArray(rule.outranks));
+}
+
 // Converts a rule saved before rules used react-querybuilder's shape; its source folders become folder conditions.
 // Rules already converted come back unchanged. A catch-all flag is dropped, leaving a rule that needs a title or URL condition to run.
 export function migrateRule(rule) {

@@ -45,3 +45,39 @@ test('rules saved in the old shape are converted once and saved back', async () 
   await loadSettings(storage);
   assert.equal(JSON.stringify(storage.data.settings), saved, 'loading again changes nothing');
 });
+
+test('damaged settings fall back to defaults instead of breaking the page', async () => {
+  const { readSettings, readWhitelist, DEFAULT_SETTINGS } = await import('../src/lib/settings.js');
+  const s = readSettings({
+    matching: 'yes',
+    dupesFolderName: 42,
+    linkCheck: { concurrency: 1e9, timeoutSeconds: NaN, skipDomains: 'example.com', noCookieWords: ['logout', 7, null], useCookies: 'true' },
+    historyDays: -5,
+    rules: [null, { kind: 'filter', pattern: 'x' }],
+    organize: { rules: [null, 'rule', { id: 'r', query: { rules: 'broken' } }, { id: 'ok', query: { combinator: 'or', rules: [{ field: 'title', operator: 'contains', value: 'a' }] }, target: 'X' }], autoApply: 1 },
+    future: { kept: true },
+  });
+  assert.deepEqual(s.matching, DEFAULT_SETTINGS.matching);
+  assert.equal(s.dupesFolderName, 'Dupes');
+  assert.equal(s.linkCheck.concurrency, 32, 'numbers are clamped to what Settings allows');
+  assert.equal(s.linkCheck.timeoutSeconds, 15);
+  assert.deepEqual(s.linkCheck.skipDomains, []);
+  assert.deepEqual(s.linkCheck.noCookieWords, ['logout']);
+  assert.equal(s.linkCheck.useCookies, false);
+  assert.equal(s.historyDays, 1);
+  assert.deepEqual(s.rules, [{ kind: 'filter', pattern: 'x' }]);
+  assert.deepEqual(s.organize.rules.map((r) => r.id), ['ok']);
+  assert.equal(s.organize.autoApply, false);
+  assert.deepEqual(s.future, { kept: true }, 'settings from a newer version are kept');
+  assert.deepEqual(readSettings('nonsense'), readSettings(undefined));
+  assert.deepEqual(readWhitelist({ a: { title: 'A', url: 'u' }, b: null, c: 'x', d: { title: 5 } }), { a: { title: 'A', url: 'u' }, d: { title: '5', url: '' } });
+  assert.deepEqual(readWhitelist([1, 2]), {});
+});
+
+test('an imported file with damaged parts imports what it can', async () => {
+  const { parseImport } = await import('../src/lib/transfer.js');
+  const parsed = parseImport(JSON.stringify({ format: 'bookmark-manager-settings', version: 1, settings: { linkCheck: null, organize: { rules: [{}] } }, whitelist: { a: 'bad' } }));
+  assert.equal(parsed.rules, 0);
+  assert.deepEqual(parsed.whitelist, {});
+  assert.ok(Array.isArray(parsed.settings.linkCheck.skipDomains));
+});
