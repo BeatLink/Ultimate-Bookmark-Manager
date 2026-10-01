@@ -8,5 +8,5 @@
   },
   "homepage": { "en-US": "https://github.com/BeatLink/Ultimate-Bookmark-Manager" },
   "support_url": { "en-US": "https://github.com/BeatLink/Ultimate-Bookmark-Manager/issues" },
-  "version": { "license": "GPL-3.0-or-later" }
+  "version": { "license": "GPL-3.0-only" }
 }
