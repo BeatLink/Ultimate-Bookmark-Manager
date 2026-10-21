@@ -69,23 +69,24 @@ export function lengthsOf(lib) {
     saveColumns();
   };
 
-  // Shows and saves each length as soon as it is found, so a long search fills the column as it goes.
+  // Shows each length, or why a page has none, as soon as it is known, and saves each length, so a long search fills the column as it goes.
   const liveLengths = () => {
     const found = {};
     let redraw = null;
     const live = {
       saving: Promise.resolve(),
       add: (b, r) => {
-        if (!r.seconds) return;
+        redraw ??= setTimeout(() => {
+          redraw = null;
+          ctx.render();
+        }, 300);
+        if (!r.seconds) return failures.set(b.id, r.error);
+        failures.delete(b.id);
         found[b.id] = { url: b.url, seconds: r.seconds };
         // Every write carries everything found so far, so a late storage event cannot drop an earlier find.
         keep({ ...lengths.saved, ...found });
         live.saving = live.saving.then(() => saveVideoLengths({ ...lengths.saved, ...found })).catch(() => {});
         showColumn();
-        redraw ??= setTimeout(() => {
-          redraw = null;
-          ctx.render();
-        }, 300);
       },
     };
     return live;
@@ -98,11 +99,10 @@ export function lengthsOf(lib) {
     search.step = 'Opening pages to find video lengths';
     job.total = misses.length;
     job.progress(0);
-    const opened = await loadPageLengths(misses, { signal, onResult, onProgress: (done) => job.progress(done) });
-    for (const [id, r] of opened) {
-      // A failure the HTML read already explained, such as a missing page, says more than the opened page does.
-      if (r.seconds || results.get(id).error === NO_LENGTH) results.set(id, r);
-    }
+    // A failure the HTML read already explained, such as a missing page, says more than the opened page does.
+    const better = (id, r) => r.seconds || results.get(id).error === NO_LENGTH;
+    const opened = await loadPageLengths(misses, { signal, onResult: (b, r) => better(b.id, r) && onResult(b, r), onProgress: (done) => job.progress(done) });
+    for (const [id, r] of opened) if (better(id, r)) results.set(id, r);
   };
 
   // Finds the length of each selected bookmark and of every bookmark inside the selected folders; with `fullPages`, pages whose HTML names none are then opened in a hidden window. Straight from the click, so Firefox may ask for permission.
@@ -116,6 +116,7 @@ export function lengthsOf(lib) {
     (fullPages ? askToOpenPages() : askAllSites()).then(async (granted) => {
       if (!granted) return toast(fullPages ? 'Opening pages to find video lengths needs permission to access websites and run scripts in them.' : 'Finding video lengths needs permission to access websites.', 'error');
       if (!lengths.saved) await loadSavedLengths();
+      for (const b of targets) failures.delete(b.id);
       const live = liveLengths();
       const signal = job.start(targets.length);
       let results;
@@ -128,8 +129,6 @@ export function lengthsOf(lib) {
         search.step = 'Finding video lengths';
         job.finish();
       }
-      for (const b of targets) failures.delete(b.id);
-      for (const [id, r] of results) if (r.error) failures.set(id, r.error);
       await live.saving;
       keep(mergeLengths(lengths.saved, targets, results, new Set(ctx.state.flat.map((b) => b.id))));
       try {

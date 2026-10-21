@@ -166,3 +166,23 @@ test('each length shows and is saved as soon as it is found, before the search e
   assert.equal(cell('n1', 'length'), '0:45');
   assert.equal(lastToast(), 'Found the video length of 2 of 2 page(s).');
 });
+
+test('why a page has no length shows as soon as it is known, before the search ends', async () => {
+  await browser.storage.local.set({ videoLengths: {} });
+  await idle();
+  const waiting = [];
+  browser.scripting.executeScript = () => new Promise((resolve) => waiting.push(() => resolve([{ result: 0 }])));
+  pick('gone');
+  pick('n1', { ctrlKey: true });
+  rightClick('n1');
+  choose('Find video lengths in full pages');
+  await idle(400);
+  pick('gone');
+  assert.match(meta(), /No video length: Not found/);
+  pick('n1');
+  assert.match(meta(), /No video length on the page/);
+  waiting.forEach((release) => release());
+  await idle(120);
+  pick('n1');
+  assert.match(meta(), /No video with a length on the opened page/);
+});
