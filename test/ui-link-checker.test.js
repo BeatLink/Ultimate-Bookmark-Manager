@@ -214,3 +214,23 @@ test('a removed progress bar stops being updated, and cancelling with nothing ru
   await ctx.finished;
   assert.equal(bar.querySelector('span').textContent, 'Checked 0 of 0');
 });
+
+test('a running check saves what it has found every second, keeping the old results of links not yet checked', async () => {
+  let release;
+  globalThis.fetch = async (url) => {
+    if (url === 'https://slow.test/') await new Promise((resolve) => { release = resolve; });
+    const status = url === 'https://gone.test/' ? 404 : 200;
+    return { status, statusText: '', url, redirected: false, headers: new Headers({ 'content-type': 'text/html' }), body: null };
+  };
+  const old = (id, url) => ({ id, url, status: 'broken', category: 'notFound', httpStatus: 404 });
+  const previous = { time: 1, checked: 2, skipped: 0, cancelled: false, results: [old('a', 'https://slow.test/'), old('b', 'https://fixed.test/')], titles: {} };
+  const ctx = makeCtx({ flat: [bookmark('a', 'https://slow.test/'), bookmark('b', 'https://fixed.test/'), bookmark('c', 'https://gone.test/')], linkResults: previous });
+  new LinkChecker(ctx).start();
+  await settle(1200);
+  assert.equal(saved().cancelled, true);
+  assert.deepEqual(saved().results.map((r) => `${r.id} ${r.httpStatus}`).sort(), ['a 404', 'c 404']);
+  release();
+  await ctx.finished;
+  assert.equal(saved().cancelled, false);
+  assert.deepEqual(saved().results.map((r) => r.id), ['c']);
+});

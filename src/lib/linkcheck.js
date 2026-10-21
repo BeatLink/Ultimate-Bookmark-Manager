@@ -219,8 +219,8 @@ export async function checkUrl(url, {
   return { url, status: 'ok', httpStatus: res.status, ...found };
 }
 
-// Checks many bookmarks with limited parallelism, reporting progress after each one; `titleFor(bookmark)` says whose page title to read too.
-export async function checkAll(bookmarks, { concurrency = 6, signal, onProgress, titleFor, ...options } = {}) {
+// Checks many bookmarks with limited parallelism, handing each result to `onResult` and reporting progress after each one; `titleFor(bookmark)` says whose page title to read too.
+export async function checkAll(bookmarks, { concurrency = 6, signal, onProgress, onResult, titleFor, ...options } = {}) {
   const results = [];
   await eachLimited(bookmarks, concurrency, async (b) => {
     let result;
@@ -231,6 +231,7 @@ export async function checkAll(bookmarks, { concurrency = 6, signal, onProgress,
       result = { url: b.url, status: 'broken', category: 'unreachable', detail: String(err) };
     }
     results.push({ ...result, id: b.id, title: b.title, path: b.path });
+    onResult?.(results.at(-1));
     onProgress?.(results.length, bookmarks.length);
   }, () => signal?.aborted);
   return results;

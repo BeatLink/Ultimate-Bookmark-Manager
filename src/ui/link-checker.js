@@ -9,6 +9,9 @@ import { saveLinkResults } from '../lib/settings.js';
 import { findUntitled } from '../lib/folders.js';
 import * as scans from './scans.js';
 
+// How often a running check saves what it has found so far.
+const LIVE_SAVE_MS = 1000;
+
 export class LinkChecker {
   job = new ProgressJob((done, total) => `Checked ${done} of ${total}`);
 
@@ -55,6 +58,17 @@ export class LinkChecker {
     // Bookmarks without a useful name also have their page title read, in the same request.
     const unnamed = new Set(findUntitled(state.flat, ignored).map((b) => b.id));
 
+    // While it runs, what is found so far is saved every second in place of those bookmarks' old results, marked as cancelled part-way until it ends; the page redraws when the saved results change.
+    const previous = state.linkResults;
+    const found = [];
+    let saving = Promise.resolve();
+    let timer = null;
+    const saveFound = () => {
+      timer = null;
+      const sofar = mergeLinkResults(previous, { results: [...found], skipped, cancelled: true, wanted: new Set(found.map((r) => r.id)) });
+      saving = saving.then(() => saveLinkResults(sofar)).catch(() => {});
+    };
+
     const signal = this.job.start(targets.length);
     let results;
     try {
@@ -62,13 +76,19 @@ export class LinkChecker {
         ...fetchOptions(linkCheck),
         titleFor: (b) => unnamed.has(b.id),
         signal,
+        onResult: (r) => {
+          found.push(r);
+          timer ??= setTimeout(saveFound, LIVE_SAVE_MS);
+        },
         onProgress: (done) => this.job.progress(done),
       });
     } finally {
+      clearTimeout(timer);
       this.job.finish();
     }
+    await saving;
     const cancelled = this.job.cancelled;
-    const saved = mergeLinkResults(state.linkResults, { results, skipped, cancelled, wanted });
+    const saved = mergeLinkResults(previous, { results, skipped, cancelled, wanted });
     await saveLinkResults(saved);
     const problems = results.filter((r) => r.status !== 'ok').length;
     toast(`${cancelled ? 'Check cancelled' : 'Check finished'}: ${results.length} checked, ${problems} need attention.`, 'success');

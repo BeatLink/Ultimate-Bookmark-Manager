@@ -188,7 +188,7 @@ async function start() {
   window.addEventListener('hashchange', route);
   for (const ev of ['onCreated', 'onRemoved', 'onChanged', 'onMoved']) browser.bookmarks[ev].addListener(() => scheduleRefresh());
   browser.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && ('settings' in changes || 'whitelist' in changes || 'videoLengths' in changes)) scheduleRefresh();
+    if (area === 'local' && ('settings' in changes || 'whitelist' in changes || 'videoLengths' in changes || 'linkResults' in changes)) scheduleRefresh();
   });
   // A refresh held back while the user was editing runs once they leave the field or close the dialog.
   document.addEventListener('focusout', () => refreshWaiting && scheduleRefresh(100));
