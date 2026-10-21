@@ -103,11 +103,16 @@ export function fakeBrowser({ tree = defaultTree(), granted = true } = {}) {
       update: record('tabs.update', async (id, props) => ({ id, ...props })),
       query: record('tabs.query', async () => tabs),
       getCurrent: record('tabs.getCurrent', async () => ({ id: 7, windowId: 3 })),
+      get: record('tabs.get', async (id) => ({ status: 'complete', ...tabs.find((t) => t.id === id) })),
+      remove: record('tabs.remove', async () => {}),
+      onUpdated: fakeEvent(),
     },
     windows: {
       create: record('windows.create', async (props) => ({ id: 2, ...props })),
       update: record('windows.update', async (id, props) => ({ id, ...props })),
+      remove: record('windows.remove', async () => {}),
     },
+    scripting: { executeScript: record('scripting.executeScript', async () => [{ result: 0 }]) },
     permissions: {
       request: record('permissions.request', async () => granted),
       contains: record('permissions.contains', async () => granted),

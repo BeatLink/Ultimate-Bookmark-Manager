@@ -118,3 +118,32 @@ test('lengths saved in another window show, and the column can be hidden again',
   choose('Video length');
   assert.deepEqual(headLabels(), ['Name', 'Location', 'Added']);
 });
+
+test('opening full pages needs permission to run scripts in them', async () => {
+  browser.permissions.request = async () => false;
+  pick('n1');
+  rightClick('n1');
+  choose('Find video lengths in full pages');
+  await idle();
+  assert.equal(lastToast(), 'Opening pages to find video lengths needs permission to access websites and run scripts in them.');
+});
+
+test('pages whose HTML names no length are opened in a hidden window and their videos read', async () => {
+  browser.permissions.request = async (asked) => asked.permissions?.includes('scripting') && asked.origins?.includes('<all_urls>');
+  browser.scripting.executeScript = async ({ target }) => [{ result: (await browser.tabs.get(target.tabId)).url === 'https://text.test/' ? 90 : 0 }];
+  pick('n1');
+  pick('gone', { ctrlKey: true });
+  pick('v2', { ctrlKey: true });
+  rightClick('n1');
+  choose('Find video lengths in full pages');
+  await idle(120);
+  assert.equal(lastToast(), 'Found the video length of 2 of 3 page(s). 1 had none; select one to see why.');
+  assert.equal(cell('n1', 'length'), '1:30');
+  assert.equal(cell('v2', 'length'), '1:05');
+  const opened = browser.calls.filter(([name]) => name === 'tabs.create').map(([, props]) => props.url);
+  assert.deepEqual(opened, ['https://text.test/', 'https://gone.test/']);
+  assert.ok(browser.calls.some(([name, props]) => name === 'windows.create' && props.state === 'minimized'));
+  assert.ok(browser.calls.some(([name]) => name === 'windows.remove'));
+  pick('gone');
+  assert.match(meta(), /No video length: Not found/);
+});

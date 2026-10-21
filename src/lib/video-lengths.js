@@ -3,6 +3,7 @@
 import { checkUrl, isCheckable, failureReason } from './linkcheck.js';
 import { loadPages } from './page-titles.js';
 import { formatLength } from './html-video.js';
+import { pageVideoLength, inPageWindow } from './page-video.js';
 
 export const NO_LENGTH = 'No video length on the page';
 
@@ -17,6 +18,14 @@ async function fetchLength(url, options = {}) {
 
 // Reads the video length of many pages, a few at a time; a Map from bookmark id to { seconds } or { error }.
 export const loadLengths = (bookmarks, options) => loadPages(bookmarks, fetchLength, options);
+
+// Whether opening the page in a tab could still find a length the HTML did not name.
+export const worthOpening = (result) => !result.seconds && !['Not a web page', 'Cancelled'].includes(result.error);
+
+// Opens each page in one minimized window, a few at a time, and reads its videos; a Map from bookmark id to { seconds } or { error }.
+export const loadPageLengths = (bookmarks, { concurrency = 3, signal, onProgress, ...options } = {}) => inPageWindow(
+  (windowId) => loadPages(bookmarks, (url, o) => pageVideoLength(url, { ...options, signal: o.signal, windowId }), { concurrency, signal, onProgress }),
+  options.api);
 
 // The saved lengths after a search: found ones are added, a failed page keeps its old length, and removed bookmarks are dropped.
 export function mergeLengths(saved, bookmarks, results, liveIds) {

@@ -5,3 +5,6 @@ export const askPermission = (permission) => browser.permissions.request({ permi
 
 // Asks for access to every website, which loading bookmarked pages needs; false when the user says no.
 export const askAllSites = () => browser.permissions.request({ origins: ['<all_urls>'] }).catch(() => false);
+
+// Asks for access to every website and for running scripts in its pages, which reading videos in opened pages needs; false when the user says no.
+export const askToOpenPages = () => browser.permissions.request({ permissions: ['scripting'], origins: ['<all_urls>'] }).catch(() => false);

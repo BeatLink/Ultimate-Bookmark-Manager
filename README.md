@@ -81,7 +81,7 @@ Every folder, bookmark and separator as a tree, managed like Firefox's Library:
 - Open and close folders, select with click, Ctrl-click, Shift-click and the arrow keys.
 - The right-click menu opens bookmarks in a new tab, window, private window or container tab; opens all of a folder in tabs (or middle-click the folder); adds a bookmark, folder or separator; bookmarks all tabs; undoes and redoes; cuts, copies, pastes and deletes; sorts a folder by name; and edits properties. A details pane edits the selected item in place.
 - Drag to move before, after or into folders (Ctrl-drag copies), and drop links from pages to bookmark them. Moving or renaming a folder takes the organize rules that name it along.
-- Sort the view by column and choose columns, including most recent visit and visit count from your history, and the length of the main video on each page (found for the bookmarks you select, and optionally written at the start of their names). Search lists matches with their folder, with filters for only duplicates, only non-duplicates, or recently added.
+- Sort the view by column and choose columns, including most recent visit and visit count from your history, and the length of the main video on each page (found for the bookmarks you select, by reading each page's HTML or, for players built by scripts, by opening the page in a hidden window; optionally written at the start of their names). Search lists matches with their folder, with filters for only duplicates, only non-duplicates, or recently added.
 - Export or import an HTML bookmarks file, and back up to or restore from JSON — this add-on's backups or Firefox's own.
 
 ### Shared by every page
@@ -108,6 +108,7 @@ Every folder, bookmark and separator as a tree, managed like Firefox's Library:
 | Containers, cookies | At install | Opening bookmarks in container tabs |
 | Access to all websites | The first link check, title fetch or video length search | Loading each bookmark's URL |
 | Tabs | The first *Bookmark all tabs* | Reading the tabs' addresses and titles |
+| Run scripts in pages | The first *Find video lengths in full pages* | Reading the length of the videos in each opened page |
 | History | Turning on the *Most recent visit* or *Visit count* column | Reading visit dates and counts |
 
 ## Privacy
