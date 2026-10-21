@@ -33,10 +33,10 @@ let hang = false;
 const browser = await openDashboard({ view: 'untitled', tree: tree(), local: { linkResults } });
 after(uninstallDom);
 
-// A fetch stand-in serving the pages above, set after the DOM installs its own; while `hang` is set it waits until the request is cancelled.
+// A fetch stand-in serving the pages above, set after the DOM installs its own; while `hang` is true or names the URL it waits until the request is cancelled.
 globalThis.fetch = async (url, init) => {
   fetched.push(url);
-  if (hang) {
+  if (hang === true || hang === url) {
     return new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))));
   }
   const page = pages[url];
@@ -135,6 +135,27 @@ test('the progress bar shows while titles load', async () => {
   hang = false;
   tick('u4', false);
   assert.equal(shown, true);
+});
+
+test('each page’s title or failure shows as soon as it is read, and the renaming waits for the end', async () => {
+  pages['https://four.test/'] = { status: 200, html: '<title>Page Four</title>' };
+  hang = 'https://two.test/';
+  tick('u2');
+  tick('u4');
+  await click('Fetch page titles');
+  await settle(400);
+  assert.equal(rowFor('u4').querySelector('.found-title').textContent, 'Page title: Page Four');
+  assert.equal(rowFor('u2').querySelector('.status'), null);
+  assert.equal(await titleOf('u4'), '');
+  await click('Cancel', main().querySelector('.progress'));
+  await settle(20);
+  hang = false;
+  assert.equal(await titleOf('u4'), 'Page Four');
+  await browser.bookmarks.update('u4', { title: '' });
+  await reload();
+  assert.equal(rowFor('u4').querySelector('.found-title'), null);
+  tick('u2', false);
+  tick('u4', false);
 });
 
 test('Select all ticks every listed bookmark', async () => {

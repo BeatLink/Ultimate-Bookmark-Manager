@@ -12,8 +12,10 @@ const REASONS = { blank: 'Name is blank', url: 'Name is just a URL' };
 
 // The running title fetch, kept here so switching views does not lose it.
 const job = new ProgressJob((done, total) => `Loading pages: ${done} of ${total}`);
-// Why each page could not be named, shown beside it after a fetch.
+// Why each page could not be named, shown beside it as soon as its page is read.
 const failures = new Map();
+// Titles a running fetch has read, shown beside each bookmark until the fetch ends and renames them all.
+const fetched = new Map();
 
 // The title the last link check read for this bookmark, while its URL is still the one checked.
 function foundTitle(ctx, b) {
@@ -21,8 +23,15 @@ function foundTitle(ctx, b) {
   return found && found.url === b.url ? found.title : null;
 }
 
+// The title a running fetch read for this bookmark, or else the one the link check found.
+function shownTitle(ctx, b) {
+  const read = fetched.get(b.id);
+  return read && read.url === b.url ? read.title : foundTitle(ctx, b);
+}
+
 // Renames the bookmarks that got a title, as one undoable step, and keeps the reason for the rest.
 async function applyTitles(ctx, items, results) {
+  fetched.clear();
   const changes = [];
   for (const [id, r] of results) {
     if (r.title) changes.push({ id, title: r.title });
@@ -46,14 +55,24 @@ function fetchTitles(ctx, items) {
   if (!rest.length) return applyTitles(ctx, items, known);
   askAllSites().then(async (granted) => {
     if (!granted) return toast('Reading page titles needs permission to access websites.', 'error');
+    let redraw = null;
+    const showResult = (b, r) => {
+      if (r.title) fetched.set(b.id, { url: b.url, title: r.title });
+      else failures.set(b.id, r.error);
+      redraw ??= setTimeout(() => {
+        redraw = null;
+        ctx.render();
+      }, 300);
+    };
     const signal = job.start(rest.length);
     let results;
     try {
-      results = await loadTitles(rest, { ...fetchOptions(ctx.state.settings.linkCheck), signal, onProgress: (done) => job.progress(done) });
+      results = await loadTitles(rest, { ...fetchOptions(ctx.state.settings.linkCheck), signal, onResult: showResult, onProgress: (done) => job.progress(done) });
     } catch (err) {
       toast(`Could not load pages: ${err.message ?? err}`, 'error');
       return;
     } finally {
+      clearTimeout(redraw);
       job.finish();
     }
     await applyTitles(ctx, items, new Map([...known, ...results]));
@@ -79,7 +98,7 @@ export default {
 
     const list = h('ul', { class: 'items' });
     const more = pagedList('untitled', list, items, (b) => {
-      const found = foundTitle(ctx, b);
+      const found = shownTitle(ctx, b);
       return row(sel, b.id, bookmarkInfo(b, ctx, {
         meta: [
           h('span', { class: 'reason', text: REASONS[b.reason] }),
