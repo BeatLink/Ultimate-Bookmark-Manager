@@ -2,6 +2,7 @@
 
 import { checkUrl, isCheckable, failureReason } from './linkcheck.js';
 import { loadPages } from './page-titles.js';
+import { formatLength } from './html-video.js';
 
 export const NO_LENGTH = 'No video length on the page';
 
@@ -32,3 +33,14 @@ export const lengthFor = (saved, node) => {
   const found = node.url && saved?.[node.id];
   return found && found.url === node.url ? found.seconds : null;
 };
+
+// A length written at the start of a name, such as "[1:05] " or "[1:02:03] ".
+const NAME_PREFIX = /^\[(?:\d+:)?\d{1,2}:\d{2}\] ?/;
+
+export const hasLengthInName = (title) => NAME_PREFIX.test(title ?? '');
+
+// The name with no length at its start.
+export const nameWithoutLength = (title) => (title ?? '').replace(NAME_PREFIX, '');
+
+// The name starting with the length, replacing any length already there.
+export const nameWithLength = (title, seconds) => `[${formatLength(seconds)}] ${nameWithoutLength(title)}`.trimEnd();

@@ -1,9 +1,9 @@
-// Each bookmark's video length, kept in storage.local, and the command that finds lengths for the selection.
+// Each bookmark's video length, kept in storage.local, and the commands that find lengths for the selection and write them into names.
 
 import { toast } from '../../dom.js';
 import { isBookmark } from '../../../lib/tree.js';
 import { checkTargets, fetchOptions } from '../../../lib/linkcheck.js';
-import { loadLengths, mergeLengths, lengthFor, NO_LENGTH } from '../../../lib/video-lengths.js';
+import { loadLengths, mergeLengths, lengthFor, NO_LENGTH, hasLengthInName, nameWithLength, nameWithoutLength } from '../../../lib/video-lengths.js';
 import { loadVideoLengths, saveVideoLengths } from '../../../lib/settings.js';
 import { formatLength } from '../../../lib/html-video.js';
 import { ProgressJob } from '../../progress.js';
@@ -50,15 +50,21 @@ browser.storage.onChanged.addListener((changes, area) => {
 export function lengthsOf(lib) {
   const { ctx, get } = lib;
 
-  // Finds the length of each selected bookmark and of every bookmark inside the selected folders; straight from the click, so Firefox may ask for permission.
-  const findLengths = (ids) => {
-    if (job.running) return toast('Video lengths are already being found.');
-    const wanted = new Set();
+  // The selected bookmarks and every bookmark inside the selected folders.
+  const bookmarksIn = (ids) => {
+    const found = new Map();
     const collect = (n) => {
-      if (isBookmark(n)) wanted.add(n.id);
+      if (isBookmark(n)) found.set(n.id, n);
       n.children?.forEach(collect);
     };
     ids.map(get).filter(Boolean).forEach(collect);
+    return [...found.values()];
+  };
+
+  // Finds the length of each selected bookmark and of every bookmark inside the selected folders; straight from the click, so Firefox may ask for permission.
+  const findLengths = (ids) => {
+    if (job.running) return toast('Video lengths are already being found.');
+    const wanted = new Set(bookmarksIn(ids).map((b) => b.id));
     const { targets, skipped } = checkTargets(ctx.state.flat, ctx.state.settings.linkCheck, new Set(), wanted);
     if (!targets.length) {
       return toast(skipped ? 'The link check skips every selected page, so it has no length to find.' : 'Select bookmarks or folders to find video lengths for.', 'error');
@@ -97,5 +103,23 @@ export function lengthsOf(lib) {
     });
   };
 
-  return { findLengths };
+  // What adding or removing the length would rename, as { id, title } changes.
+  const namesWithLength = (ids) => bookmarksIn(ids).filter((b) => lengthOf(b)).map((b) => ({ id: b.id, title: nameWithLength(b.title, lengthOf(b)) })).filter((c) => c.title !== get(c.id).title);
+  const namesWithoutLength = (ids) => bookmarksIn(ids).filter((b) => hasLengthInName(b.title)).map((b) => ({ id: b.id, title: nameWithoutLength(b.title) }));
+
+  // Renames the bookmarks as one step that can be undone.
+  const rename = (changes, label) => ctx.run(async () => {
+    await ctx.actions.update(changes, label);
+    ctx.done(`${label}.`);
+  });
+  const addLengthToNames = (ids) => {
+    const changes = namesWithLength(ids);
+    if (changes.length) rename(changes, `Added the video length to ${changes.length} name(s)`);
+  };
+  const removeLengthFromNames = (ids) => {
+    const changes = namesWithoutLength(ids);
+    if (changes.length) rename(changes, `Removed the video length from ${changes.length} name(s)`);
+  };
+
+  return { findLengths, namesWithLength, namesWithoutLength, addLengthToNames, removeLengthFromNames };
 }

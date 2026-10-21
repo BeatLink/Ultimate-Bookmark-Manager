@@ -93,6 +93,23 @@ test('pages the link check skips, or a selection with no bookmarks, find nothing
   closeMenu();
 });
 
+test('found lengths can be written into names and taken off again, each as one undoable step', async () => {
+  pick('f1');
+  rightClick('f1');
+  assert.ok(menuItems().includes('Remove video length from names (off)'));
+  choose('Add video length to names');
+  await idle();
+  assert.equal(lastToast(), 'Added the video length to 1 name(s).');
+  assert.equal((await browser.bookmarks.get('v2'))[0].title, '[1:05] Short');
+  assert.equal((await browser.bookmarks.get('n1'))[0].title, 'Article');
+  rightClick('f1');
+  assert.ok(menuItems().includes('Add video length to names (off)'));
+  choose('Remove video length from names');
+  await idle();
+  assert.equal(lastToast(), 'Removed the video length from 1 name(s).');
+  assert.equal((await browser.bookmarks.get('v2'))[0].title, 'Short');
+});
+
 test('lengths saved in another window show, and the column can be hidden again', async () => {
   await browser.storage.local.set({ videoLengths: { v1: { url: 'https://video.test/talk', seconds: 30 } } });
   await idle(700);

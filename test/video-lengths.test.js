@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadLengths, mergeLengths, lengthFor, NO_LENGTH } from '../src/lib/video-lengths.js';
+import { loadLengths, mergeLengths, lengthFor, NO_LENGTH, hasLengthInName, nameWithLength, nameWithoutLength } from '../src/lib/video-lengths.js';
 import { loadVideoLengths, saveVideoLengths } from '../src/lib/settings.js';
 import { fakeFetch } from './fake-fetch.js';
 
@@ -49,4 +49,16 @@ test('lengths are kept in storage, empty until something is found', async () => 
   assert.deepEqual(await loadVideoLengths(storage), {});
   await saveVideoLengths({ a: { url: 'https://a.test/', seconds: 1 } }, storage);
   assert.deepEqual(await loadVideoLengths(storage), { a: { url: 'https://a.test/', seconds: 1 } });
+});
+
+test('a length goes at the start of a name once, and comes off again', () => {
+  assert.equal(nameWithLength('Talk', 65), '[1:05] Talk');
+  assert.equal(nameWithLength('[0:30] Talk', 3723), '[1:02:03] Talk');
+  assert.equal(nameWithLength('', 65), '[1:05]');
+  assert.equal(nameWithoutLength('[1:02:03] Talk'), 'Talk');
+  assert.equal(nameWithoutLength('[draft] Talk'), '[draft] Talk');
+  assert.equal(nameWithoutLength(undefined), '');
+  assert.equal(hasLengthInName('[12:34] Talk'), true);
+  assert.equal(hasLengthInName('Talk [12:34]'), false);
+  assert.equal(hasLengthInName(undefined), false);
 });

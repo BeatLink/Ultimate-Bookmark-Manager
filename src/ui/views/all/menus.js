@@ -41,6 +41,8 @@ export function menusOf(lib) {
       { label: 'Delete', key: 'Del', disabled: !nodes.length || onlyRoots, run: () => lib.remove(ids) },
       '-',
       { label: 'Find video lengths', disabled: !nodes.some((n) => isBookmark(n) || isFolder(n)), run: () => lib.findLengths(ids) },
+      { label: 'Add video length to names', disabled: !lib.namesWithLength(ids).length, run: () => lib.addLengthToNames(ids) },
+      { label: 'Remove video length from names', disabled: !lib.namesWithoutLength(ids).length, run: () => lib.removeLengthFromNames(ids) },
       folder && folder.id !== ROOT && { label: lib.ctx.state.whitelist[folder.id]?.inside ?'Stop ignoring this folder' : 'Ignore folder and everything inside', run: () => lib.toggleIgnoredFolder(folder) },
       sortTarget && sortTarget.id !== ROOT && { label: `Sort “${sortTarget.title || '(no name)'}” by name`, disabled: !sortTarget.children?.length, run: () => lib.sortByName(sortTarget.id) },
       { label: 'Properties…', key: 'F2', disabled: !editable, run: () => lib.properties(single.id) },
