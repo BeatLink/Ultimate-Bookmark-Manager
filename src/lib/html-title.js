@@ -37,8 +37,11 @@ function charsetOf(res, bytes) {
   return /<meta[^>]+charset\s*=\s*["']?([\w-]+)/i.exec(head)?.[1] ?? 'utf-8';
 }
 
-// Reads up to MAX_BYTES of the body, stopping early once the title has closed.
-async function readHead(res) {
+// The title has been read once it closes or the body starts.
+const titleRead = (text) => /<\/title>/i.test(text) || /<body[\s>]/i.test(text);
+
+// Reads up to `maxBytes` of the body, stopping early once `enough(text so far)` is true.
+export async function readHead(res, { maxBytes = MAX_BYTES, enough = titleRead } = {}) {
   const reader = res.body?.getReader?.();
   if (!reader) return new Uint8Array();
   const chunks = [];
@@ -46,13 +49,13 @@ async function readHead(res) {
   const seen = new TextDecoder('latin1');
   let text = '';
   try {
-    while (size < MAX_BYTES) {
+    while (size < maxBytes) {
       const { done, value } = await reader.read();
       if (done) break;
       chunks.push(value);
       size += value.length;
       text += seen.decode(value, { stream: true });
-      if (/<\/title>/i.test(text) || /<body[\s>]/i.test(text)) break;
+      if (enough(text)) break;
     }
   } finally {
     reader.cancel().catch(() => {});

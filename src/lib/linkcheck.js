@@ -1,6 +1,7 @@
 // Checks bookmark URLs over the network and sorts the outcome into broken, redirected or fine.
 
 import { readTitle } from './html-title.js';
+import { readVideoLength } from './html-video.js';
 import { unhelpfulName } from './folders.js';
 import { bareDomain, onDomain } from './domains.js';
 import { eachLimited } from './pool.js';
@@ -123,6 +124,11 @@ export function isLoginRedirect(from, to, loginHosts = DEFAULT_LOGIN_HOSTS) {
   return false;
 }
 
+// A short reason a check failed, such as "Not found", or null when the page loaded.
+export const failureReason = (check) => (check.status === 'broken' || check.status === 'uncertain'
+  ? CATEGORIES[check.category].label.replace(/ — .*$/, '').replace(/ \(.*\)$/, '')
+  : null);
+
 function categorize(httpStatus) {
   if (httpStatus === 404 || httpStatus === 410) return 'notFound';
   if (httpStatus === 401 || httpStatus === 403) return 'denied';
@@ -140,8 +146,8 @@ function sameUrl(a, b) {
   }
 }
 
-// One GET for the page; with `wantTitle`, the title is read from the first bytes of its HTML before the rest is dropped.
-async function request(fetchImpl, url, timeout, outer, credentials, wantTitle) {
+// One GET for the page; `read(res)`, when given, reads what it needs from the first bytes of the HTML before the rest is dropped.
+async function request(fetchImpl, url, timeout, outer, credentials, read) {
   const ctrl = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -158,13 +164,12 @@ async function request(fetchImpl, url, timeout, outer, credentials, wantTitle) {
       cache: 'no-store',
       signal: ctrl.signal,
     });
-    if (!wantTitle || res.status >= 400) {
+    if (!read || res.status >= 400) {
       res.body?.cancel?.().catch(() => {});
       return { res };
     }
-    // A page that stalls part-way through still has its status; it only goes without a title.
-    const title = await readTitle(res).catch(() => '');
-    return { res, title };
+    // A page that stalls part-way through still has its status; it only goes without what was being read.
+    return { res, ...(await read(res).catch(() => ({}))) };
   } catch (error) {
     if (outer?.aborted) throw new DOMException('Cancelled', 'AbortError');
     return { error: timedOut ? 'timeout' : error };
@@ -174,7 +179,7 @@ async function request(fetchImpl, url, timeout, outer, credentials, wantTitle) {
   }
 }
 
-// Checks one URL with a single GET (many servers answer HEAD wrongly), with your cookies when `cookies` is on and, with `wantTitle`, the page title as `pageTitle`.
+// Checks one URL with a single GET (many servers answer HEAD wrongly), with your cookies when `cookies` is on; `wantTitle` adds the page title as `pageTitle` and `wantLength` its main video's length as `videoSeconds`.
 export async function checkUrl(url, {
   timeout = 15000,
   signal,
@@ -184,9 +189,13 @@ export async function checkUrl(url, {
   detectLogin = false,
   loginHosts = DEFAULT_LOGIN_HOSTS,
   wantTitle = false,
+  wantLength = false,
 } = {}) {
   const credentials = credentialsFor(url, { cookies, noCookieWords });
-  const attempt = await request(fetchImpl, url, timeout, signal, credentials, wantTitle);
+  const read = wantLength ? async (res) => ({ seconds: await readVideoLength(res) })
+    : wantTitle ? async (res) => ({ title: await readTitle(res) })
+      : null;
+  const attempt = await request(fetchImpl, url, timeout, signal, credentials, read);
   if (attempt.error === 'timeout') return { url, status: 'broken', category: 'timeout' };
   if (attempt.error) {
     return { url, status: 'broken', category: 'unreachable', detail: String(attempt.error.message ?? attempt.error) };
@@ -197,14 +206,17 @@ export async function checkUrl(url, {
     return { url, status: CATEGORIES[category].severity, category, httpStatus: res.status, detail: res.statusText };
   }
   const t = attempt.title;
-  const pageTitle = t && !unhelpfulName(t, url) && !unhelpfulName(t, res.url || url) ? { pageTitle: t } : {};
+  const found = {
+    ...(t && !unhelpfulName(t, url) && !unhelpfulName(t, res.url || url) ? { pageTitle: t } : {}),
+    ...(attempt.seconds ? { videoSeconds: attempt.seconds } : {}),
+  };
   if (res.redirected && res.url && !sameUrl(res.url, url)) {
     if (detectLogin && isLoginRedirect(url, res.url, loginHosts)) {
       return { url, status: 'uncertain', category: 'login', httpStatus: res.status, detail: `→ ${res.url}`, finalUrl: res.url };
     }
-    return { url, status: 'redirect', httpStatus: res.status, finalUrl: res.url, ...pageTitle };
+    return { url, status: 'redirect', httpStatus: res.status, finalUrl: res.url, ...found };
   }
-  return { url, status: 'ok', httpStatus: res.status, ...pageTitle };
+  return { url, status: 'ok', httpStatus: res.status, ...found };
 }
 
 // Checks many bookmarks with limited parallelism, reporting progress after each one; `titleFor(bookmark)` says whose page title to read too.

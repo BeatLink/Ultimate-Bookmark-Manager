@@ -15,6 +15,7 @@ import { wireInput } from './input.js';
 import { wireDragDrop } from './dnd.js';
 import { transferOf } from './transfer.js';
 import { detailsOf } from './details.js';
+import { lengths, job as lengthJob, loadSavedLengths, lengthsOf } from './lengths.js';
 
 export default {
   id: 'all',
@@ -63,7 +64,7 @@ export default {
         h('option', { value: 'unique', text: 'Only non-duplicates', selected: view.filter === 'unique' }),
         h('option', { value: 'recent', text: 'Recently added', selected: view.filter === 'recent' })),
     };
-    Object.assign(lib, rowsOf(lib), selectionOf(lib), foldersOf(lib), commandsOf(lib), menusOf(lib), detailsOf(lib), transferOf(lib));
+    Object.assign(lib, rowsOf(lib), selectionOf(lib), foldersOf(lib), commandsOf(lib), menusOf(lib), detailsOf(lib), transferOf(lib), lengthsOf(lib));
     wireInput(lib);
     wireDragDrop(lib);
 
@@ -79,6 +80,7 @@ export default {
       lib.fileInputs);
 
     if (showsVisits() && visitsStale()) loadVisits().then(lib.draw);
+    if (!lengths.saved) loadSavedLengths().then(lib.draw);
     lib.draw();
     if (view.active && view.focus) requestAnimationFrame(() => lib.focusRow(view.focus));
     else if (view.focus) requestAnimationFrame(() => lib.rowEl(view.focus)?.scrollIntoView({ block: 'nearest' }));
@@ -87,6 +89,7 @@ export default {
       viewHeader('All bookmarks', 'Your bookmarks as a tree: right-click for actions, drag to move, Ctrl-drag to copy'),
       h('div', { class: 'row wrap filters' }, lib.search, lib.filter),
       toolbar,
+      lengthJob.bar(),
       lib.status,
       lib.wrap,
       lib.more,

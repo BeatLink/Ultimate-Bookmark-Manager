@@ -4,6 +4,7 @@ import { h, formatDate } from '../../dom.js';
 import { ROOT_IDS, nodeType, formatPath } from '../../../lib/tree.js';
 import { view } from './state.js';
 import { visits, visitOf } from './visits.js';
+import { lengths, lengthNote } from './lengths.js';
 import { urlError } from './commands.js';
 
 export function detailsOf(lib) {
@@ -45,7 +46,7 @@ export function detailsOf(lib) {
   const drawDetails = () => {
     const ids = [...view.selected];
     const n = ids.length === 1 ? get(ids[0]) : null;
-    const key = n ? `${n.id}:${visits.at}` : `none:${ids.length}`;
+    const key = n ? `${n.id}:${visits.at}:${lengths.at}` : `none:${ids.length}`;
     if (key === shownFor) return;
     shownFor = key;
     if (!n) {
@@ -57,7 +58,8 @@ export function detailsOf(lib) {
     const meta = h('p', { class: 'muted small details-meta' },
       h('span', { text: formatPath(info.get(n.id)?.path ?? []) }),
       type !== 'separator' && n.dateAdded ? h('span', { text: `Added ${formatDate(n.dateAdded)}` }) : null,
-      type === 'bookmark' && visits.map ? h('span', { text: visit ? `Last visited ${formatDate(visit.last)} · ${visit.count} visit(s)` : 'Never visited' }) : null);
+      type === 'bookmark' && visits.map ? h('span', { text: visit ? `Last visited ${formatDate(visit.last)} · ${visit.count} visit(s)` : 'Never visited' }) : null,
+      type === 'bookmark' && lengthNote(n) ? h('span', { text: lengthNote(n) }) : null);
     if (type === 'separator' || ROOT_IDS.has(n.id)) {
       details.replaceChildren(h('p', { class: 'details-title', text: type === 'separator' ? 'Separator' : n.title }), meta);
       return;

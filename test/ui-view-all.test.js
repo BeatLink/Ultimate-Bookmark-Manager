@@ -232,13 +232,13 @@ test('the columns menu hides and shows a column and turning off a sorted column 
   const header = (text) => [...document.querySelectorAll('.bm-tree-head button')].find((b) => b.textContent.startsWith(text));
   header('Location').click();
   toolbarButton('Columns ▾').click();
-  assert.deepEqual(menuItems(), ['Location', 'Added', 'Most recent visit', 'Visit count']);
+  assert.deepEqual(menuItems(), ['Location', 'Added', 'Most recent visit', 'Visit count', 'Video length']);
   assert.equal(document.querySelector('dialog.menu button').getAttribute('aria-checked'), 'true');
   choose('Location');
   assert.deepEqual(headLabels(), ['Name', 'Added']);
   assert.equal(rowEl('a').querySelector('.cell.location'), null);
   assert.equal(rowIds()[3], 's1');
-  assert.equal(localStorage.getItem('all.columns'), JSON.stringify({ location: false, added: true, visited: false, visits: false }));
+  assert.equal(localStorage.getItem('all.columns'), JSON.stringify({ location: false, added: true, visited: false, visits: false, length: false }));
   toolbarButton('Columns ▾').click();
   choose('Location');
   assert.deepEqual(headLabels(), ['Name', 'Location', 'Added']);

@@ -15,7 +15,7 @@ const loadExpanded = () => {
 };
 
 const loadColumns = () => {
-  const columns = { location: true, added: true, visited: false, visits: false };
+  const columns = { location: true, added: true, visited: false, visits: false, length: false };
   try {
     Object.assign(columns, JSON.parse(localStorage.getItem(COLUMNS_KEY)));
   } catch { /* storage may be unavailable */ }

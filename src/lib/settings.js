@@ -1,4 +1,4 @@
-// Persistent settings, whitelist and saved link-check results in storage.local.
+// Persistent settings, whitelist, saved link-check results and found video lengths in storage.local.
 
 import { DEFAULT_MATCHING } from './duplicates.js';
 import { migrateRule, isWellFormedRule } from './rules.js';
@@ -157,4 +157,14 @@ export async function loadLinkResults(storage = browser.storage.local) {
 
 export async function saveLinkResults(linkResults, storage = browser.storage.local) {
   await storage.set({ linkResults });
+}
+
+// Found video lengths: bookmark id to { url, seconds }.
+export async function loadVideoLengths(storage = browser.storage.local) {
+  const { videoLengths } = await storage.get('videoLengths');
+  return videoLengths ?? {};
+}
+
+export async function saveVideoLengths(videoLengths, storage = browser.storage.local) {
+  await storage.set({ videoLengths });
 }

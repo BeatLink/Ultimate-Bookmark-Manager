@@ -45,7 +45,7 @@ test('the right-click menu on a bookmark offers opening, adding, editing and sor
     'Open in new tab', 'Open in new window', 'Open in new private window', 'Open in new container tab…',
     'New bookmark…', 'New folder…', 'New separator', 'Bookmark all tabs…',
     'Undo', 'Redo', 'Cut', 'Copy', 'Paste (off)', 'Delete',
-    'Sort “Bookmarks Menu” by name', 'Properties…',
+    'Find video lengths', 'Sort “Bookmarks Menu” by name', 'Properties…',
   ]);
   const keys = [...document.querySelectorAll('dialog.menu .menu-key')].map((k) => k.textContent);
   assert.deepEqual(keys, ['Enter', `${ctrl}Z`, `${ctrl}Shift+Z`, `${ctrl}X`, `${ctrl}C`, `${ctrl}V`, 'Del', 'F2']);

@@ -6,6 +6,8 @@ import { byText } from '../../../lib/text.js';
 import { askPermission } from '../../permissions.js';
 import { view, saveColumns, searching } from './state.js';
 import { visitOf, loadVisits } from './visits.js';
+import { lengthOf } from './lengths.js';
+import { formatLength } from '../../../lib/html-video.js';
 
 const SORTERS = {
   title: (a, b) => byText(a.title ?? '', b.title ?? ''),
@@ -13,6 +15,7 @@ const SORTERS = {
   dateAdded: (a, b) => (a.dateAdded ?? 0) - (b.dateAdded ?? 0),
   visited: (a, b) => (visitOf(a)?.last ?? 0) - (visitOf(b)?.last ?? 0),
   visits: (a, b) => (visitOf(a)?.count ?? 0) - (visitOf(b)?.count ?? 0),
+  length: (a, b) => (lengthOf(a) ?? 0) - (lengthOf(b) ?? 0),
 };
 
 // The columns after Name, in order; `where` shows only in search results.
@@ -22,6 +25,7 @@ const COLUMNS = [
   { key: 'added', label: 'Added', sort: 'dateAdded', width: '7.5em', text: (n) => (nodeType(n) === 'separator' ? '' : formatDate(n.dateAdded)) },
   { key: 'visited', label: 'Most recent visit', sort: 'visited', width: '9em', text: (n) => formatDate(visitOf(n)?.last) },
   { key: 'visits', label: 'Visit count', sort: 'visits', width: '5.5em', text: (n) => (n.url ? String(visitOf(n)?.count ?? 0) : ''), num: true },
+  { key: 'length', label: 'Video length', sort: 'length', width: '6.5em', text: (n) => formatLength(lengthOf(n)), num: true },
 ];
 
 export const shownColumns = () => COLUMNS.filter((c) => (c.key === 'where' ? searching() : view.columns[c.key]));

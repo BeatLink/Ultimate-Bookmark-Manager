@@ -1,7 +1,7 @@
 // The right-click menu, which the Organize button shows too.
 
 import { showMenu } from '../../dom.js';
-import { ROOT, ROOT_IDS, nodeType, isFolder } from '../../../lib/tree.js';
+import { ROOT, ROOT_IDS, nodeType, isFolder, isBookmark } from '../../../lib/tree.js';
 import { view, searching, sorted } from './state.js';
 
 const mod = navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+';
@@ -40,6 +40,7 @@ export function menusOf(lib) {
       '-',
       { label: 'Delete', key: 'Del', disabled: !nodes.length || onlyRoots, run: () => lib.remove(ids) },
       '-',
+      { label: 'Find video lengths', disabled: !nodes.some((n) => isBookmark(n) || isFolder(n)), run: () => lib.findLengths(ids) },
       folder && folder.id !== ROOT && { label: lib.ctx.state.whitelist[folder.id]?.inside ?'Stop ignoring this folder' : 'Ignore folder and everything inside', run: () => lib.toggleIgnoredFolder(folder) },
       sortTarget && sortTarget.id !== ROOT && { label: `Sort “${sortTarget.title || '(no name)'}” by name`, disabled: !sortTarget.children?.length, run: () => lib.sortByName(sortTarget.id) },
       { label: 'Properties…', key: 'F2', disabled: !editable, run: () => lib.properties(single.id) },
