@@ -365,6 +365,33 @@ test('importing a file without ignored items does not mention them', async () =>
   assert.equal(await answer(false), 'Replace your settings with the ones in “bare.json” (0 organize rule(s))?');
 });
 
+test('updating bookmarks from opened pages asks for its permissions and is saved once they are granted', async () => {
+  clearToasts();
+  const asked = [];
+  browser.permissions.request = async (request) => { asked.push(request); return true; };
+  enter(control('When you open a bookmarked page'), true);
+  await settle();
+  assert.deepEqual(asked, [{ permissions: ['scripting', 'webRequest'], origins: ['<all_urls>'] }]);
+  await click('Save settings');
+  assert.equal(saved().updateOnVisit, true);
+  enter(control('When you open a bookmarked page'), false);
+  await settle();
+  await click('Save settings');
+  assert.equal(saved().updateOnVisit, false);
+  assert.equal(asked.length, 1, 'turning it off asks for nothing');
+});
+
+test('updating bookmarks from opened pages stays off when its permissions are refused', async () => {
+  clearToasts();
+  browser.permissions.request = async () => false;
+  enter(control('When you open a bookmarked page'), true);
+  await settle();
+  assert.equal(control('When you open a bookmarked page').checked, false);
+  assert.match(toasts(), /needs permission to access websites, see page loads and run scripts/);
+  await click('Save settings');
+  assert.equal(saved().updateOnVisit, false);
+});
+
 test('the help links on the page lead to the Settings help', () => {
   const links = [...main().querySelectorAll('legend .help-link')];
   assert.ok(links.length >= 4);

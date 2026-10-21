@@ -38,7 +38,7 @@ export default {
     const untitled = scans.untitled(ctx).length;
     const empty = scans.emptyFolders(ctx).length;
     const sameName = scans.sameNameFolders(ctx).length;
-    const checkNote = links ? `checked ${formatDate(links.time)}` : 'Not checked yet';
+    const checkNote = links?.time ? `checked ${formatDate(links.time)}` : 'Not checked yet';
 
     const tidy = h('div', { class: 'stat-row' },
       statTile({ label: 'Duplicate copies', value: dupes, href: '#duplicates', tip: 'Extra copies of the same URL', muted: !dupes }),

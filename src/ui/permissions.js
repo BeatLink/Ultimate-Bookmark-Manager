@@ -8,3 +8,6 @@ export const askAllSites = () => browser.permissions.request({ origins: ['<all_u
 
 // Asks for access to every website and for running scripts in its pages, which reading videos in opened pages needs; false when the user says no.
 export const askToOpenPages = () => browser.permissions.request({ permissions: ['scripting'], origins: ['<all_urls>'] }).catch(() => false);
+
+// Asks for watching page loads and reading opened pages, which updating bookmarks from the pages you open needs; false when the user says no.
+export const askToWatchVisits = () => browser.permissions.request({ permissions: ['scripting', 'webRequest'], origins: ['<all_urls>'] }).catch(() => false);

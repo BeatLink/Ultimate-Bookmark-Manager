@@ -6,6 +6,7 @@ import { ignoredIdSet } from './lib/folders.js';
 import { flatten, rootFoldersOf } from './lib/tree.js';
 import { Actions } from './lib/actions.js';
 import { push, pull, reconcile, isSyncEnabled, isSyncKey, guarded } from './lib/sync.js';
+import { VisitWatcher } from './lib/page-visits.js';
 
 const VIEWS = {
   stats: 'Dashboard',
@@ -137,3 +138,8 @@ browser.runtime.onInstalled.addListener(() => soon('reconcile', () => reconcile(
 browser.runtime.onStartup.addListener(() => loadSettings()
   .then((settings) => new Actions({ limit: settings.historyLimit, days: settings.historyDays }).load())
   .catch((err) => console.error('Clearing old undo history failed', err)));
+
+// Opened bookmarked pages update their saved details once the permissions the setting asks for are granted.
+const visitWatcher = new VisitWatcher(browser);
+visitWatcher.watch();
+browser.permissions.onAdded.addListener(() => visitWatcher.watch());

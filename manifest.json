@@ -13,7 +13,7 @@
   },
   "icons": { "48": "icons/icon-48.png", "96": "icons/icon-96.png", "128": "icons/icon-128.png" },
   "permissions": ["bookmarks", "storage", "menus", "contextualIdentities", "cookies"],
-  "optional_permissions": ["tabs", "history", "scripting"],
+  "optional_permissions": ["tabs", "history", "scripting", "webRequest"],
   "optional_host_permissions": ["<all_urls>"],
   "background": { "scripts": ["src/background.js"], "type": "module" },
   "action": { "default_title": "Ultimate Bookmark Manager", "default_icon": "icons/icon.svg" },

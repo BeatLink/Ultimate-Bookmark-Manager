@@ -19,6 +19,8 @@ export const DEFAULT_SETTINGS = {
     detectLogin: true,
     loginHosts: [...DEFAULT_LOGIN_HOSTS],
   },
+  // Opening a bookmarked page updates its link status, title and video length.
+  updateOnVisit: false,
   historyLimit: 50,
   historyDays: 30,
   organize: {

@@ -78,6 +78,8 @@ const SECTIONS = [
     h('h3', { text: 'Link checking' }),
     p('Parallel requests and the timeout tune the link check. Domains on the skip list, and their subdomains, are never checked, and neither, unless you untick it, are addresses on your own network: your computer, private IP addresses such as 192.168.x.x, and local names such as router.lan or a name with no dot.'),
     p(b('Send your cookies'), ' (off by default) checks each page as you, so logged-in pages are not mistaken for redirects. Loading a page as you can act on your account, as a delete, confirm or unsubscribe link would, so URLs containing any word on the never-send list are always checked without cookies.'),
+    h('h3', { text: 'Opened pages' }),
+    p('When this is on, opening a bookmarked page in a tab updates what the add-on knows about it: a page that is not found or fails is listed under Broken links, one that now redirects under Redirects, and one that loads fine leaves both. A bookmark without a useful name gets the page’s title to rename it with, and a page with a video gets its length. Turning it on asks for permission to access websites, see page loads and run scripts in pages. Private windows are left out.'),
     p('With login detection on, a redirect is treated as a login page when it lands on a listed login service, on a path such as ', code('/login'), ' or ', code('/signin'), ', or on a page whose return address (', code('next'), ', ', code('return_to'), ', ', code('continue'), '…) points back to the bookmark.'),
     h('h3', { text: 'Page titles' }),
     p('Fetch page titles reads the title from each page’s HTML. Pages that only set their title with scripts once they run cannot be named this way and are marked as such.'),

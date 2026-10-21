@@ -1,6 +1,6 @@
 import { test, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { fakeBrowser } from './browser-env.js';
+import { fakeBrowser, fakeEvent } from './browser-env.js';
 import { fingerprint } from '../src/lib/sync.js';
 
 // One set of fake timers for the whole file, since clearing a timer left from another set cancels the wrong one.
@@ -389,4 +389,12 @@ test('a failure while forgetting old undo history at startup is logged instead o
     local.get = get;
   }
   assert.equal(error.mock.calls[0].arguments[0], 'Clearing old undo history failed');
+});
+
+test('granting the permissions the opened-pages setting asks for starts watching page loads', () => {
+  browser.webRequest = { onBeforeRequest: fakeEvent(), onCompleted: fakeEvent(), onErrorOccurred: fakeEvent() };
+  browser.permissions.onAdded.emit({ permissions: ['webRequest'] });
+  assert.equal(browser.webRequest.onCompleted.listeners.length, 1);
+  assert.equal(browser.tabs.onUpdated.listeners.length, 1);
+  delete browser.webRequest;
 });

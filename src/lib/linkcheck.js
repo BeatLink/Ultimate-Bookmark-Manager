@@ -201,22 +201,29 @@ export async function checkUrl(url, {
     return { url, status: 'broken', category: 'unreachable', detail: String(attempt.error.message ?? attempt.error) };
   }
   const { res } = attempt;
-  const category = categorize(res.status);
-  if (category) {
-    return { url, status: CATEGORIES[category].severity, category, httpStatus: res.status, detail: res.statusText };
-  }
   const t = attempt.title;
   const found = {
     ...(t && !unhelpfulName(t, url) && !unhelpfulName(t, res.url || url) ? { pageTitle: t } : {}),
     ...(attempt.seconds ? { videoSeconds: attempt.seconds } : {}),
   };
-  if (res.redirected && res.url && !sameUrl(res.url, url)) {
-    if (detectLogin && isLoginRedirect(url, res.url, loginHosts)) {
-      return { url, status: 'uncertain', category: 'login', httpStatus: res.status, detail: `→ ${res.url}`, finalUrl: res.url };
-    }
-    return { url, status: 'redirect', httpStatus: res.status, finalUrl: res.url, ...found };
+  return loadOutcome(url, {
+    httpStatus: res.status, statusText: res.statusText, finalUrl: res.redirected ? res.url : null, detectLogin, loginHosts, found,
+  });
+}
+
+// How loading `url` went, from its HTTP status and the address any redirects ended on; `found` is added to a page that loaded.
+export function loadOutcome(url, { httpStatus, statusText = '', finalUrl = null, detectLogin = false, loginHosts = DEFAULT_LOGIN_HOSTS, found = {} }) {
+  const category = categorize(httpStatus);
+  if (category) {
+    return { url, status: CATEGORIES[category].severity, category, httpStatus, detail: statusText };
   }
-  return { url, status: 'ok', httpStatus: res.status, ...found };
+  if (finalUrl && !sameUrl(finalUrl, url)) {
+    if (detectLogin && isLoginRedirect(url, finalUrl, loginHosts)) {
+      return { url, status: 'uncertain', category: 'login', httpStatus, detail: `→ ${finalUrl}`, finalUrl };
+    }
+    return { url, status: 'redirect', httpStatus, finalUrl, ...found };
+  }
+  return { url, status: 'ok', httpStatus, ...found };
 }
 
 // Checks many bookmarks with limited parallelism, handing each result to `onResult` and reporting progress after each one; `titleFor(bookmark)` says whose page title to read too.

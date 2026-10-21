@@ -8,6 +8,7 @@ import { folderLabel } from '../../lib/rules.js';
 import { compileRules } from '../../lib/duplicates.js';
 import { buildExport, parseImport, applyImport } from '../../lib/transfer.js';
 import { isSyncEnabled, syncStatus, hasConflictingRemote, enableSync, disableSync, guarded } from '../../lib/sync.js';
+import { askToWatchVisits } from '../permissions.js';
 
 // Unsaved edits survive a refresh; an untouched draft follows the saved settings when they change.
 let draft = null;
@@ -204,6 +205,19 @@ export default {
       checkLine(lc, 'detectLogin', 'List redirects to a login page under Broken links as “may still work”, not as redirects'),
       linesField(lc, 'loginHosts', 'Login services (one per line; subdomains included)', 4));
 
+    // Turning it on asks for its permissions first, and stays off when they are refused.
+    const visitBox = h('fieldset', {}, legend('Opened pages', 'Private windows are left out'),
+      h('label', { class: 'check-line' },
+        h('input', { type: 'checkbox', checked: s.updateOnVisit, onchange: async (e) => {
+          const box = e.target;
+          if (box.checked && !(await askToWatchVisits())) {
+            box.checked = false;
+            return toast('Updating bookmarks from the pages you open needs permission to access websites, see page loads and run scripts in pages.', 'error');
+          }
+          s.updateOnVisit = box.checked;
+        } }),
+        'When you open a bookmarked page, update its link status, its title (for bookmarks without a useful name) and its video length'));
+
     const general = h('fieldset', {}, h('legend', { text: 'General' }),
       h('label', { class: 'field' }, 'Folder for moved duplicates (in Other Bookmarks)',
         h('input', { type: 'text', value: s.dupesFolderName, onchange: (e) => { s.dupesFolderName = e.target.value.trim() || DEFAULT_SETTINGS.dupesFolderName; } })),
@@ -225,7 +239,7 @@ export default {
       viewHeader('Settings', 'Matching, sync, link checks and ignored items',
         h('button', { class: 'small', text: 'Discard changes', onclick: () => { draft = null; ctx.render(); } }),
         h('button', { class: 'primary', text: 'Save settings', onclick: save })),
-      syncAndBackup(ctx), matching, rulesBox, linkBox, general,
+      syncAndBackup(ctx), matching, rulesBox, linkBox, visitBox, general,
       h('div', { class: 'row end' }, h('button', { class: 'primary', text: 'Save settings', onclick: save })),
       whitelist);
   },

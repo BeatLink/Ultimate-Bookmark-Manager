@@ -47,6 +47,16 @@ test('before any check the page says links have not been checked', () => {
   assert.equal(document.querySelector('#nav a[href="#broken"] .badge').textContent, '');
 });
 
+test('before any check, pages found broken when opened are listed and the page says no check has run', async () => {
+  await browser.storage.local.set({ linkResults: { time: null, checked: 0, skipped: 0, cancelled: false, results: [{ id: 'gone', url: 'https://gone.test/', status: 'broken', category: 'notFound', httpStatus: 404 }], titles: {} } });
+  await reload();
+  assert.match(main().textContent, /No full check has run yet; what is listed comes from bookmarked pages you opened\./);
+  assert.match(main().textContent, /Gone/);
+  assert.ok(findButton('Check all links'));
+  await browser.storage.local.remove('linkResults');
+  await reload();
+});
+
 test('without permission to reach websites the check does not run', async () => {
   clearToasts();
   const request = browser.permissions.request;

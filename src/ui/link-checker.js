@@ -100,12 +100,12 @@ export class LinkChecker {
 export function checkControls(ctx, title, description) {
   const saved = scans.linkResults(ctx);
   const checker = ctx.linkChecker;
-  const summary = saved
+  const summary = saved?.time
     ? `Last check ${formatDateTime(saved.time)}: ${saved.checked} checked, ${saved.skipped} skipped${saved.cancelled ? ' (cancelled part-way)' : ''}.`
-    : 'Links have not been checked yet.';
+    : saved ? 'No full check has run yet; what is listed comes from bookmarked pages you opened.' : 'Links have not been checked yet.';
   return h('div', {},
     viewHeader(title, description,
-      h('button', { class: 'primary', text: saved ? 'Check again' : 'Check all links', disabled: checker.running, onclick: () => checker.start() })),
+      h('button', { class: 'primary', text: saved?.time ? 'Check again' : 'Check all links', disabled: checker.running, onclick: () => checker.start() })),
     h('p', { class: 'muted', text: summary }),
     checker.progress());
 }

@@ -50,6 +50,7 @@ One network check serves both pages. It loads each bookmarked page once, from th
 
 - **Broken links** groups the failures by kind: not found, server error, unreachable, timed out, access denied, login required, and so on.
 - **Redirects** lists bookmarks that now lead somewhere else, which you can fix one at a time or all at once. A redirect to a different site is flagged, since an expired domain can be taken over. Redirects to a login page are listed under Broken links instead.
+- Optionally, opening a bookmarked page during normal browsing updates its link status, the title for a bookmark without a useful name, and its video length (turned on in Settings under *Opened pages*; private windows are left out).
 
 ### Organize
 
@@ -109,6 +110,7 @@ Every folder, bookmark and separator as a tree, managed like Firefox's Library:
 | Access to all websites | The first link check, title fetch or video length search | Loading each bookmark's URL |
 | Tabs | The first *Bookmark all tabs* | Reading the tabs' addresses and titles |
 | Run scripts in pages | The first *Find video lengths in full pages* | Reading the length of the videos in each opened page |
+| Access to all websites, see page loads, run scripts in pages | Turning on *Opened pages* in Settings | Reading the status, title and video length of bookmarked pages you open |
 | History | Turning on the *Most recent visit* or *Visit count* column | Reading visit dates and counts |
 
 ## Privacy

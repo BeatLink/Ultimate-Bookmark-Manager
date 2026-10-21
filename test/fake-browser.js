@@ -56,6 +56,7 @@ export function fakeBookmarks(spec) {
     async getSubTree(id) { need(id); return [view(id, true)]; },
     async get(id) { need(id); return [view(id, false)]; },
     async getChildren(id) { return need(id).childIds.map((c) => view(c, false)); },
+    async search({ url }) { return [...nodes.keys()].filter((id) => nodes.get(id).url === url).map((id) => view(id, false)); },
     async create({ parentId, index, title, url, type }) {
       const id = `n${++counter}`;
       nodes.set(id, { id, parentId, title: title ?? '', url, type: type ?? (url ? 'bookmark' : 'folder'), dateAdded: counter, childIds: [] });

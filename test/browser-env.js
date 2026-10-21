@@ -116,6 +116,7 @@ export function fakeBrowser({ tree = defaultTree(), granted = true } = {}) {
     permissions: {
       request: record('permissions.request', async () => granted),
       contains: record('permissions.contains', async () => granted),
+      onAdded: fakeEvent(),
     },
     history: { search: record('history.search', async () => []) },
     contextualIdentities: { query: record('contextualIdentities.query', async () => []) },
