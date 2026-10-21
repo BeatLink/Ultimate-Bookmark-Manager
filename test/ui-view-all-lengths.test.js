@@ -147,3 +147,22 @@ test('pages whose HTML names no length are opened in a hidden window and their v
   pick('gone');
   assert.match(meta(), /No video length: Not found/);
 });
+
+test('each length shows and is saved as soon as it is found, before the search ends', async () => {
+  await browser.storage.local.set({ videoLengths: {} });
+  await idle();
+  let release;
+  browser.scripting.executeScript = () => new Promise((resolve) => { release = () => resolve([{ result: 45 }]); });
+  pick('v1');
+  pick('n1', { ctrlKey: true });
+  rightClick('n1');
+  choose('Find video lengths in full pages');
+  await idle(400);
+  assert.equal(cell('v1', 'length'), '1:02:03');
+  assert.equal(cell('n1', 'length'), '');
+  assert.deepEqual(Object.keys((await browser.storage.local.get('videoLengths')).videoLengths), ['v1']);
+  release();
+  await idle(120);
+  assert.equal(cell('n1', 'length'), '0:45');
+  assert.equal(lastToast(), 'Found the video length of 2 of 2 page(s).');
+});

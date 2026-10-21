@@ -62,14 +62,43 @@ export function lengthsOf(lib) {
     return [...found.values()];
   };
 
+  // Turns the column on the first time a search finds a length.
+  const showColumn = () => {
+    if (view.columns.length) return;
+    view.columns.length = true;
+    saveColumns();
+  };
+
+  // Shows and saves each length as soon as it is found, so a long search fills the column as it goes.
+  const liveLengths = () => {
+    const found = {};
+    let redraw = null;
+    const live = {
+      saving: Promise.resolve(),
+      add: (b, r) => {
+        if (!r.seconds) return;
+        found[b.id] = { url: b.url, seconds: r.seconds };
+        // Every write carries everything found so far, so a late storage event cannot drop an earlier find.
+        keep({ ...lengths.saved, ...found });
+        live.saving = live.saving.then(() => saveVideoLengths({ ...lengths.saved, ...found })).catch(() => {});
+        showColumn();
+        redraw ??= setTimeout(() => {
+          redraw = null;
+          ctx.render();
+        }, 300);
+      },
+    };
+    return live;
+  };
+
   // Opens the pages whose HTML named no length in a hidden window and reads their videos, updating `results` in place.
-  const openPages = async (targets, results, signal) => {
+  const openPages = async (targets, results, signal, onResult) => {
     const misses = targets.filter((b) => worthOpening(results.get(b.id)));
     if (!misses.length || signal.aborted) return;
     search.step = 'Opening pages to find video lengths';
     job.total = misses.length;
     job.progress(0);
-    const opened = await loadPageLengths(misses, { signal, onProgress: (done) => job.progress(done) });
+    const opened = await loadPageLengths(misses, { signal, onResult, onProgress: (done) => job.progress(done) });
     for (const [id, r] of opened) {
       // A failure the HTML read already explained, such as a missing page, says more than the opened page does.
       if (r.seconds || results.get(id).error === NO_LENGTH) results.set(id, r);
@@ -86,11 +115,13 @@ export function lengthsOf(lib) {
     }
     (fullPages ? askToOpenPages() : askAllSites()).then(async (granted) => {
       if (!granted) return toast(fullPages ? 'Opening pages to find video lengths needs permission to access websites and run scripts in them.' : 'Finding video lengths needs permission to access websites.', 'error');
+      if (!lengths.saved) await loadSavedLengths();
+      const live = liveLengths();
       const signal = job.start(targets.length);
       let results;
       try {
-        results = await loadLengths(targets, { ...fetchOptions(ctx.state.settings.linkCheck), signal, onProgress: (done) => job.progress(done) });
-        if (fullPages) await openPages(targets, results, signal);
+        results = await loadLengths(targets, { ...fetchOptions(ctx.state.settings.linkCheck), signal, onResult: live.add, onProgress: (done) => job.progress(done) });
+        if (fullPages) await openPages(targets, results, signal, live.add);
       } catch (err) {
         return toast(`Could not load pages: ${err.message ?? err}`, 'error');
       } finally {
@@ -99,17 +130,14 @@ export function lengthsOf(lib) {
       }
       for (const b of targets) failures.delete(b.id);
       for (const [id, r] of results) if (r.error) failures.set(id, r.error);
-      const saved = lengths.saved ?? (await loadVideoLengths().catch(() => ({})));
-      keep(mergeLengths(saved, targets, results, new Set(ctx.state.flat.map((b) => b.id))));
+      await live.saving;
+      keep(mergeLengths(lengths.saved, targets, results, new Set(ctx.state.flat.map((b) => b.id))));
       try {
         await saveVideoLengths(lengths.saved);
       } catch (err) {
         toast(`Could not save the video lengths: ${err.message ?? err}`, 'error');
       }
-      if (!view.columns.length) {
-        view.columns.length = true;
-        saveColumns();
-      }
+      showColumn();
       ctx.render();
       const found = [...results.values()].filter((r) => r.seconds).length;
       const missed = results.size - found;

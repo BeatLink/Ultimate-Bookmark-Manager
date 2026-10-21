@@ -23,8 +23,8 @@ export const loadLengths = (bookmarks, options) => loadPages(bookmarks, fetchLen
 export const worthOpening = (result) => !result.seconds && !['Not a web page', 'Cancelled'].includes(result.error);
 
 // Opens each page in one minimized window, a few at a time, and reads its videos; a Map from bookmark id to { seconds } or { error }.
-export const loadPageLengths = (bookmarks, { concurrency = 3, signal, onProgress, ...options } = {}) => inPageWindow(
-  (windowId) => loadPages(bookmarks, (url, o) => pageVideoLength(url, { ...options, signal: o.signal, windowId }), { concurrency, signal, onProgress }),
+export const loadPageLengths = (bookmarks, { concurrency = 3, signal, onProgress, onResult, ...options } = {}) => inPageWindow(
+  (windowId) => loadPages(bookmarks, (url, o) => pageVideoLength(url, { ...options, signal: o.signal, windowId }), { concurrency, signal, onProgress, onResult }),
   options.api);
 
 // The saved lengths after a search: found ones are added, a failed page keeps its old length, and removed bookmarks are dropped.

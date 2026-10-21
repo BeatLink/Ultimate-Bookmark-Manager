@@ -12,8 +12,8 @@ async function fetchTitle(url, options = {}) {
   return { error: failureReason(check) ?? 'Title is set by scripts or missing' };
 }
 
-// Reads many pages with `read(url, options)`, a few at a time, reporting progress after each one.
-export async function loadPages(bookmarks, read, { concurrency = 6, timeout = 15000, signal, onProgress, ...fetchOptions }) {
+// Reads many pages with `read(url, options)`, a few at a time, handing each result to `onResult` and reporting progress after each one.
+export async function loadPages(bookmarks, read, { concurrency = 6, timeout = 15000, signal, onProgress, onResult, ...fetchOptions }) {
   const results = new Map();
   await eachLimited(bookmarks, concurrency, async (b) => {
     let result;
@@ -23,6 +23,7 @@ export async function loadPages(bookmarks, read, { concurrency = 6, timeout = 15
       result = { error: signal?.aborted ? 'Cancelled' : 'Could not load the page' };
     }
     results.set(b.id, result);
+    onResult?.(b, result);
     onProgress?.(results.size, bookmarks.length);
   }, () => signal?.aborted);
   return results;
