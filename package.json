@@ -9,7 +9,8 @@
     "coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-include=\"src/**/*.js\" --test-coverage-lines=99 --test-coverage-branches=93 --test-coverage-functions=98 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info test/*.test.js",
     "lint": "npx --yes web-ext@10.7.0 lint",
     "start": "npx --yes web-ext@10.7.0 run",
-    "build": "npx --yes web-ext@10.7.0 build"
+    "build": "npx --yes web-ext@10.7.0 build",
+    "listing-icon": "node .github/scripts/upload-listing-icon.mjs"
   },
   "license": "GPL-3.0-or-later",
   "repository": {

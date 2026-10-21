@@ -1,0 +1,29 @@
+# Uploads the addons.mozilla.org listing icon. Start it by hand from the Actions tab; nothing else runs it.
+name: Listing icon
+
+on: workflow_dispatch
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    # The AMO API key lives in this environment, the same one the release uses.
+    environment: amo
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: AMO API key is set
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          if [ -z "$AMO_JWT_ISSUER" ] || [ -z "$AMO_JWT_SECRET" ]; then
+            echo "::error::Add AMO_JWT_ISSUER and AMO_JWT_SECRET to the amo environment's secrets"
+            exit 1
+          fi
+      - name: Upload the icon
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: npm run listing-icon
