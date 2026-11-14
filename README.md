@@ -5,6 +5,8 @@
 [![Coverage](https://img.shields.io/codecov/c/github/BeatLink/Ultimate-Bookmark-Manager?logo=codecov&logoColor=white)](https://codecov.io/gh/BeatLink/Ultimate-Bookmark-Manager)
 [![Mozilla publishing](https://img.shields.io/github/actions/workflow/status/BeatLink/Ultimate-Bookmark-Manager/release.yml?label=AMO%20publish&logo=firefoxbrowser&logoColor=white)](https://github.com/BeatLink/Ultimate-Bookmark-Manager/actions/workflows/release.yml)
 
+<a href="https://liberapay.com/BeatLink/donate"><img alt="Donate using Liberapay" src="https://liberapay.com/assets/widgets/donate.svg"></a>
+
 A Firefox add-on for finding and cleaning up problem bookmarks: duplicates, broken links, redirects, bookmarks without a name, empty folders, and bookmarks that belong in a different folder. Every change it makes is recorded first, so it can be undone.
 
 ## What it does
