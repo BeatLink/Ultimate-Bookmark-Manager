@@ -140,6 +140,11 @@ section > .items, section > div > .items { background: var(--surface); border: 1
 .bm-meta .matched { color: var(--text); }
 .status { color: var(--danger); }
 .redirect-to { font-size: .9em; overflow-wrap: anywhere; margin-top: .2em; }
+.find-form { display: flex; flex-direction: column; gap: .5em; max-width: 40em; margin-bottom: .75em; }
+.find-field { display: flex; flex-direction: column; gap: .2em; font-weight: 500; }
+.find-field input { font-weight: normal; }
+.replaced { margin-top: .4em; padding-left: .6em; border-left: 2px solid var(--accent); }
+.replaced > .muted { font-size: .85em; }
 .edit-form { display: flex; flex-direction: column; gap: .4em; }
 .edit-form input { width: 100%; }
 .folder-icon::before { content: "📁"; margin-right: .3em; }

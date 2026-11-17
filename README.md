@@ -54,6 +54,10 @@ One network check serves both pages. It loads each bookmarked page once, from th
 - **Redirects** lists bookmarks that now lead somewhere else, which you can fix one at a time or all at once. A redirect to a different site is flagged, since an expired domain can be taken over. Redirects to a login page are listed under Broken links instead.
 - Optionally, opening a bookmarked page during normal browsing updates its link status, the title for a bookmark without a useful name, and its video length (turned on in Settings under *Opened pages*; private windows are left out).
 
+### Find and replace
+
+Replace text in the names, the URLs or both of every bookmark, with a preview of each change before anything is touched. Matching ignores case unless *Match case* is ticked, and *Regex* allows regular expressions with `$1`, `$&` and `$<name>` in the replacement. Changes that would leave an invalid URL are left out, and the replacement is one step you can undo.
+
 ### Organize
 
 Rules that file bookmarks into folders. The page shows your whole folder tree, with each folder's rules listed under it.

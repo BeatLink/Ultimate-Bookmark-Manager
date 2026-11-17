@@ -14,12 +14,13 @@ import untitled from './views/untitled.js';
 import broken from './views/broken.js';
 import redirects from './views/redirects.js';
 import organize from './views/organize.js';
+import findReplace from './views/find-replace.js';
 import all from './views/all/index.js';
 import history from './views/history.js';
 import settings from './views/settings.js';
 import help from './views/help.js';
 
-const VIEWS = [stats, duplicates, emptyFolders, sameName, untitled, broken, redirects, organize, all, history, settings, help];
+const VIEWS = [stats, duplicates, emptyFolders, sameName, untitled, broken, redirects, organize, findReplace, all, history, settings, help];
 // Changes made elsewhere are picked up once a burst of them has settled.
 const REFRESH_DELAY_MS = 500;
 const isSidebar = new URLSearchParams(location.search).has('sidebar');

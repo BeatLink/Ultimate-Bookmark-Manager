@@ -17,6 +17,7 @@ const VIEWS = {
   broken: 'Broken links',
   redirects: 'Redirects',
   organize: 'Organize',
+  'find-replace': 'Find and replace',
   all: 'All bookmarks',
   history: 'Undo history & backup',
   settings: 'Settings',
