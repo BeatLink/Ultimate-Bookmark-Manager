@@ -81,7 +81,7 @@ test('installing builds a Tools menu with one item for every view', async () => 
   assert.deepEqual(callsOf('menus.removeAll'), [[]]);
   const items = callsOf('menus.create').map(([item]) => item);
   assert.deepEqual(items[0], { id: 'root', title: 'Ultimate Bookmark Manager', contexts: ['tools_menu'] });
-  assert.equal(items.length, 13);
+  assert.equal(items.length, 14);
   assert.ok(items.slice(1).every((item) => item.parentId === 'root' && item.id.startsWith('view:')));
   assert.deepEqual(items.find((item) => item.id === 'view:broken'), { id: 'view:broken', parentId: 'root', title: 'Broken links', contexts: ['tools_menu'] });
 });
@@ -160,7 +160,7 @@ test('the address-bar keyword suggests every view for empty input and filters by
     browser.omnibox.onInputChanged.emit(text, (list) => { out = list; });
     return out;
   };
-  assert.equal(suggest('  ').length, 12);
+  assert.equal(suggest('  ').length, 13);
   assert.deepEqual(suggest('DUP '), [{ content: 'duplicates', description: 'Duplicates' }]);
   assert.deepEqual(suggest('links'), [{ content: 'broken', description: 'Broken links' }]);
   assert.deepEqual(suggest('zzz'), []);

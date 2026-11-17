@@ -15,7 +15,7 @@ const sections = () => [...main().querySelectorAll('.help-section')];
 test('the help page has a section for every page, listed in its table of contents', () => {
   assert.equal(main().querySelector('h1').textContent, 'Help');
   const ids = sections().map((s) => s.id);
-  assert.deepEqual(ids, ['stats', 'duplicates', 'empty-folders', 'same-name', 'untitled', 'broken', 'redirects', 'organize', 'all', 'history', 'settings', 'shortcuts'].map((id) => `help-${id}`));
+  assert.deepEqual(ids, ['stats', 'duplicates', 'empty-folders', 'same-name', 'untitled', 'broken', 'redirects', 'organize', 'find-replace', 'all', 'history', 'settings', 'shortcuts'].map((id) => `help-${id}`));
   const toc = [...main().querySelectorAll('.help-toc a')];
   assert.equal(toc.length, ids.length);
   assert.equal(toc[0].getAttribute('href'), '#help:stats');

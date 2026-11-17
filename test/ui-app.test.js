@@ -60,12 +60,12 @@ test('the dashboard opens on the first page with every page listed in the naviga
   assert.equal(document.title, 'Dashboard — Ultimate Bookmark Manager');
   assert.equal(document.body.classList.contains('sidebar'), false);
   const links = [...document.querySelectorAll('#nav a')];
-  assert.equal(links.length, 12);
+  assert.equal(links.length, 13);
   assert.equal(links[0].className, 'active');
   assert.equal(links[0].getAttribute('aria-current'), 'page');
   assert.equal(links[1].hasAttribute('aria-current'), false);
   const options = [...document.querySelectorAll('#nav-select option')];
-  assert.equal(options.length, 12);
+  assert.equal(options.length, 13);
   assert.equal(options[0].selected, true);
   assert.equal(options.find((o) => o.value === 'help').textContent, 'Help');
 });
