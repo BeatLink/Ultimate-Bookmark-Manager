@@ -101,7 +101,7 @@ export function commandsOf(lib) {
     ].filter(Boolean));
     if (values) await saveEdit(id, values);
   };
-  // Saves a new name or URL; a renamed folder takes the organize rules that name it along.
+  // Saves a new name or URL; a renamed folder takes the rules that name it along.
   const saveEdit = async (id, values) => {
     const n = get(id);
     const folder = isFolder(n);

@@ -42,15 +42,33 @@ test('undo of an older entry follows ids remapped by a newer undo', async () => 
   assert.deepEqual(await shape(bookmarks), before);
 });
 
-test('organize creates missing nested folders, reuses existing ones, and undo removes what it created', async () => {
+test('applying rules creates missing nested folders, reuses existing ones, and undo removes what it created', async () => {
   const { bookmarks, actions } = setup();
   const before = await shape(bookmarks);
   const target = { rootId: 'unfiled_____', segments: ['Dev', 'Web'] };
-  await actions.organize([{ id: 'a', target }, { id: 'b', target }, { id: 'c', target: { rootId: 'menu________', segments: ['Folder'] } }]);
+  await actions.applyRules([{ id: 'a', target }, { id: 'b', target }, { id: 'c', target: { rootId: 'menu________', segments: ['Folder'] } }]);
   const [dev] = await bookmarks.getChildren('unfiled_____');
   const [web] = await bookmarks.getChildren(dev.id);
   assert.deepEqual(await titles(bookmarks, web.id), ['A', 'B']);
   assert.deepEqual(await titles(bookmarks, 'f'), ['E', 'C']);
+  assert.equal((await actions.list())[0].label, 'Ran rules on 3 bookmark(s)');
+  await actions.undoLatest();
+  assert.deepEqual(await shape(bookmarks), before);
+});
+
+test('applying rules edits, moves by folder id, deletes and ignores as one undoable step', async () => {
+  const { bookmarks, storage, actions } = setup();
+  const before = await shape(bookmarks);
+  await actions.applyRules([
+    { id: 'a', edits: { title: 'Alpha', url: 'https://alpha.test/' }, target: { folderId: 'g' } },
+    { id: 'b', remove: true, ignore: false },
+    { id: 'c', edits: {}, ignore: true, bookmark: { title: 'C', url: 'https://c.test/' } },
+    { id: 'e', edits: { title: 'Echo' }, ignore: true, bookmark: { title: 'E', url: 'https://e.test/' } },
+  ], 'Ran rules');
+  const [a] = await bookmarks.get('a');
+  assert.deepEqual([a.title, a.url, a.parentId], ['Alpha', 'https://alpha.test/', 'g']);
+  await assert.rejects(bookmarks.get('b'));
+  assert.deepEqual(storage.data.whitelist, { c: { title: 'C', url: 'https://c.test/' }, e: { title: 'Echo', url: 'https://e.test/' } }, 'ignored bookmarks are listed by their new name');
   await actions.undoLatest();
   assert.deepEqual(await shape(bookmarks), before);
 });
@@ -67,18 +85,18 @@ test('a created folder is one undoable step', async () => {
 
 test('moving a folder rewrites the rules that name it, and undo puts both back', async () => {
   const { bookmarks, storage, actions } = setup();
-  const rules = [{ id: 'r', name: 'r', enabled: true, target: 'Menu/Folder/Sub', query: { combinator: 'and', rules: [{ id: 'c', field: 'folder', operator: 'inFolder', value: 'Menu/Folder' }] } }];
-  await storage.set({ settings: { organize: { rules, autoApply: false } } });
+  const rules = [{ id: 'r', name: 'r', enabled: true, actions: [{ id: 'm', type: 'move', folderId: '', path: 'Menu/Folder/Sub' }], query: { combinator: 'and', rules: [{ id: 'c', field: 'folder', operator: 'inFolder', value: 'Menu/Folder' }] } }];
+  await storage.set({ settings: { organize: { rules } } });
   const before = await shape(bookmarks);
   await actions.moveFolder('f', 'unfiled_____', { from: ['Menu', 'Folder'], to: ['Other', 'Folder'] });
   assert.deepEqual(await titles(bookmarks, 'unfiled_____'), ['Folder']);
   const saved = (await storage.get('settings')).settings.organize.rules[0];
-  assert.equal(saved.target, 'Other/Folder/Sub');
+  assert.equal(saved.actions[0].path, 'Other/Folder/Sub');
   assert.equal(saved.query.rules[0].value, 'Other/Folder');
   await actions.undoLatest();
   assert.deepEqual(await shape(bookmarks), before);
   const restored = (await storage.get('settings')).settings.organize.rules[0];
-  assert.equal(restored.target, 'Menu/Folder/Sub');
+  assert.equal(restored.actions[0].path, 'Menu/Folder/Sub');
   assert.equal(restored.query.rules[0].value, 'Menu/Folder');
 });
 
@@ -207,20 +225,20 @@ test('loading the history saves it once old entries have been forgotten', async 
   assert.deepEqual(storage.data.history, { entries: [], idMap: {}, redo: [] });
 });
 
-test('renaming a folder points the organize rules at its new name, and undo puts both back', async () => {
+test('renaming a folder points the rules at its new name, and undo puts both back', async () => {
   const { bookmarks, storage, actions } = setup();
   const query = { id: 'q', combinator: 'or', not: false, rules: [{ id: 'c', field: 'either', operator: 'contains', value: 'x' }] };
-  await storage.set({ settings: { organize: { rules: [{ id: 'r', name: 'r', target: 'Menu/Folder/Sub', query }] } } });
+  await storage.set({ settings: { organize: { rules: [{ id: 'r', name: 'r', actions: [{ id: 'm', type: 'move', folderId: '', path: 'Menu/Folder/Sub' }], query }] } } });
   await actions.edit('f', { title: 'Renamed' }, { from: ['Menu', 'Folder'], to: ['Menu', 'Renamed'] });
   assert.equal((await bookmarks.get('f'))[0].title, 'Renamed');
-  assert.equal(storage.data.settings.organize.rules[0].target, 'Menu/Renamed/Sub');
+  assert.equal(storage.data.settings.organize.rules[0].actions[0].path, 'Menu/Renamed/Sub');
   assert.equal((await actions.list())[0].label, 'Edited “Renamed”');
   await actions.undoLatest();
   assert.equal((await bookmarks.get('f'))[0].title, 'Folder');
-  assert.equal(storage.data.settings.organize.rules[0].target, 'Menu/Folder/Sub');
+  assert.equal(storage.data.settings.organize.rules[0].actions[0].path, 'Menu/Folder/Sub');
 });
 
-test('an edit without a folder rename leaves the organize rules alone and is labelled by its URL when untitled', async () => {
+test('an edit without a folder rename leaves the rules alone and is labelled by its URL when untitled', async () => {
   const { bookmarks, storage, actions } = setup();
   await actions.edit('a', { url: 'https://new.test/' });
   await actions.edit('g', { title: 'Folder' }, { from: ['Menu', 'Folder'], to: ['Menu', 'Folder'] });

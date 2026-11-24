@@ -2,7 +2,7 @@
 
 import { findDuplicates } from '../lib/duplicates.js';
 import { findEmptyFolders, findSameNameFolders, findUntitled } from '../lib/folders.js';
-import { planMoves } from '../lib/organize.js';
+import { planRules, knownPages } from '../lib/rule-plan.js';
 import { rootFoldersOf } from '../lib/tree.js';
 
 export const duplicates = (ctx) => ctx.memo('duplicates', () => findDuplicates(ctx.state.flat, {
@@ -37,18 +37,19 @@ export const broken = (ctx) => linkResults(ctx)?.results.filter((r) => r.status 
 // The redirects of the last check, or null before any check.
 export const redirects = (ctx) => linkResults(ctx)?.results.filter((r) => r.status === 'redirect') ?? null;
 
-// The last plan worked out, reused until the bookmarks, the ignore list or the rules change.
-let lastPlan = { flat: null, whitelist: null, key: '', result: null };
+// The last plan worked out, reused until the bookmarks, the ignore list, the link check or the rules change.
+let lastPlan = { flat: null, whitelist: null, links: null, key: '', result: null };
 
-// Where the given organize rules would move bookmarks; the Organize page passes its unsaved draft.
-export function planFor(ctx, rules) {
+// What the given rules would do to bookmarks; the Rules page passes its unsaved draft, and `pages` adds pages read just now.
+export function planFor(ctx, rules, pages = null) {
   const key = JSON.stringify(rules);
-  const { flat, whitelist } = ctx.state;
-  if (lastPlan.flat === flat && lastPlan.whitelist === whitelist && lastPlan.key === key) return lastPlan.result;
-  const result = planMoves(flat, rules, rootFoldersOf(ctx.state.root), ctx.ignoredIds());
-  lastPlan = { flat, whitelist, key, result };
+  const { flat, whitelist, linkResults } = ctx.state;
+  if (!pages && lastPlan.flat === flat && lastPlan.whitelist === whitelist && lastPlan.links === linkResults && lastPlan.key === key) return lastPlan.result;
+  const known = new Map([...knownPages(linkResults), ...(pages ?? [])]);
+  const result = planRules(flat, rules, rootFoldersOf(ctx.state.root), { ignoredIds: ctx.ignoredIds(), pages: known });
+  if (!pages) lastPlan = { flat, whitelist, links: linkResults, key, result };
   return result;
 }
 
-// Where the saved organize rules would move bookmarks.
-export const organizePlan = (ctx) => ctx.memo('organize', () => planFor(ctx, ctx.state.settings.organize.rules));
+// What the saved rules would do to bookmarks.
+export const rulesPlan = (ctx) => ctx.memo('rules', () => planFor(ctx, ctx.state.settings.organize.rules));

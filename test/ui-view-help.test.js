@@ -2,7 +2,6 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { uninstallDom, settle } from './browser-env.js';
 import { openDashboard, main, show } from './ui-view-helpers.js';
-import { POINTS } from '../src/lib/specificity.js';
 
 // Records which help section was scrolled to.
 const scrolled = [];
@@ -15,7 +14,7 @@ const sections = () => [...main().querySelectorAll('.help-section')];
 test('the help page has a section for every page, listed in its table of contents', () => {
   assert.equal(main().querySelector('h1').textContent, 'Help');
   const ids = sections().map((s) => s.id);
-  assert.deepEqual(ids, ['stats', 'duplicates', 'empty-folders', 'same-name', 'untitled', 'broken', 'redirects', 'organize', 'find-replace', 'all', 'history', 'settings', 'shortcuts'].map((id) => `help-${id}`));
+  assert.deepEqual(ids, ['stats', 'duplicates', 'empty-folders', 'same-name', 'untitled', 'broken', 'redirects', 'rules', 'find-replace', 'all', 'history', 'settings', 'shortcuts'].map((id) => `help-${id}`));
   const toc = [...main().querySelectorAll('.help-toc a')];
   assert.equal(toc.length, ids.length);
   assert.equal(toc[0].getAttribute('href'), '#help:stats');
@@ -30,10 +29,10 @@ test('each section links to its page, except the one about opening the add-on', 
   }
 });
 
-test('the organize section quotes the points each kind of condition scores', () => {
-  const organize = main().querySelector('#help-organize').textContent;
-  assert.match(organize, new RegExp(`exact URL ${POINTS.exactUrl}`));
-  assert.match(organize, new RegExp(`each regex ${POINTS.regex}`));
+test('the rules section explains every action and the order rules run in', () => {
+  const rules = main().querySelector('#help-rules').textContent;
+  for (const action of ['Move to folder', 'Find and replace', 'Rename to page title', 'Use redirect target', 'Ignore', 'Delete']) assert.match(rules, new RegExp(action));
+  assert.match(rules, /the last move wins/);
 });
 
 test('opening help at a page’s section scrolls to that section', async () => {

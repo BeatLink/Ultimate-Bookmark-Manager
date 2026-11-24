@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadTitles } from '../src/lib/page-titles.js';
+import { loadTitles, loadPageDetails } from '../src/lib/page-titles.js';
 import { fakeFetch } from './fake-fetch.js';
 
 const items = (pages) => Object.keys(pages).map((url) => ({ id: url, url }));
@@ -51,4 +51,22 @@ test('a page whose check throws is reported as not loaded, or as cancelled once 
   const items = [{ id: 'a', url: 'https://a.test/' }, { id: 'b', url: 'https://b.test/' }];
   const cancelled = await loadTitles(items, { fetchImpl, signal: ctrl.signal, concurrency: 1 });
   assert.deepEqual([...cancelled], [['a', { error: 'Cancelled' }]]);
+});
+
+test('page details hold the title and where a page redirects to, and failures say why', async () => {
+  const pages = {
+    'https://a.test/': { html: '<title>Page A</title>' },
+    'https://moved.test/': { html: '<title>Moved here</title>', finalUrl: 'https://moved.test/new' },
+    'https://bare.test/': { html: '<p>no title</p>' },
+    'https://gone.test/': { status: 404 },
+    'ftp://files.test/': {},
+  };
+  const results = await loadPageDetails(items(pages), { fetchImpl: fakeFetch(pages), timeout: 200 });
+  assert.deepEqual(Object.fromEntries(results), {
+    'https://a.test/': { title: 'Page A' },
+    'https://moved.test/': { title: 'Moved here', finalUrl: 'https://moved.test/new' },
+    'https://bare.test/': {},
+    'https://gone.test/': { error: 'Not found' },
+    'ftp://files.test/': { error: 'Not a web page' },
+  });
 });

@@ -1,7 +1,7 @@
 // Every change to bookmarks goes through here, so each one is snapshotted first and can be undone.
 
 import { nodeType, isFolder, sortedByName, rootFoldersOf, OTHER } from './tree.js';
-import { loadSettings, saveSettings } from './settings.js';
+import { loadSettings, saveSettings, addToWhitelist } from './settings.js';
 import { moveRulePaths } from './rules.js';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -89,7 +89,7 @@ export class Actions {
     return this.run(label, (rec) => rec.createFolder(parentId, title));
   }
 
-  // Moves a folder into another one and points the organize rules that named it, or anything inside it, at its new place.
+  // Moves a folder into another one and points the rules that named it, or anything inside it, at its new place.
   moveFolder(id, parentId, { from, to }, label = `Moved folder “${from.at(-1)}” into “${to.at(-2)}”`) {
     return this.run(label, async (rec) => {
       await rec.move(id, { parentId });
@@ -106,7 +106,7 @@ export class Actions {
     });
   }
 
-  // Moves items in order to `index` of a folder (null for the end), counted before any leave it; an item's `from` and `to` paths carry organize rules along.
+  // Moves items in order to `index` of a folder (null for the end), counted before any leave it; an item's `from` and `to` paths carry rules along.
   moveItems(items, parentId, index, label = `Moved ${items.length} item(s)`) {
     return this.run(label, async (rec) => {
       let at = index;
@@ -121,7 +121,7 @@ export class Actions {
     });
   }
 
-  // Edits a bookmark or folder; a renamed folder takes the organize rules that name it along.
+  // Edits a bookmark or folder; a renamed folder takes the rules that name it along.
   edit(id, changes, paths, label = `Edited “${changes.title ?? changes.url}”`) {
     return this.run(label, async (rec) => {
       await rec.update(id, changes);
@@ -154,8 +154,8 @@ export class Actions {
     });
   }
 
-  // Moves each bookmark to its resolved target folder, creating any folders on the way that do not exist yet.
-  organize(moves, label = `Organized ${moves.length} bookmark(s) by rule`) {
+  // Carries out planned rule changes: deletions, edits and moves into each target folder, creating any folders on the way that do not exist yet; ignored bookmarks join the whitelist, which undo leaves alone.
+  applyRules(changes, label = `Ran rules on ${changes.length} bookmark(s)`) {
     return this.run(label, async (rec) => {
       const folders = new Map();
       const ensure = async ({ rootId, segments }) => {
@@ -170,7 +170,17 @@ export class Actions {
         }
         return parentId;
       };
-      for (const { id, target } of moves) await rec.move(id, { parentId: await ensure(target) });
+      const ignored = [];
+      for (const { id, edits = {}, target, remove, ignore, bookmark } of changes) {
+        if (remove) {
+          await rec.remove([id]);
+          continue;
+        }
+        if (Object.keys(edits).length) await rec.update(id, edits);
+        if (target) await rec.move(id, { parentId: target.folderId ?? await ensure(target) });
+        if (ignore) ignored.push({ id, title: edits.title ?? bookmark?.title, url: edits.url ?? bookmark?.url });
+      }
+      if (ignored.length) await addToWhitelist(ignored, this.storage);
     });
   }
 
@@ -294,7 +304,7 @@ export class Actions {
     ops.push({ kind: 'move', id, from: { parentId: node.parentId, index: node.index } });
   }
 
-  // Points the saved organize rules that name the folder at `from` to `to`; nothing is recorded when no rule changes.
+  // Points the saved rules that name the folder at `from` to `to`; nothing is recorded when no rule changes.
   async #moveRulePaths(from, to, ops) {
     if (from.join('/') === to.join('/')) return;
     const settings = await loadSettings(this.storage);

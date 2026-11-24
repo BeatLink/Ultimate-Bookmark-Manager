@@ -20,7 +20,7 @@ const browser = await openDashboard({
   tree: tree(),
   local: {
     syncEnabled: false,
-    settings: { organize: { rules: [], autoApply: true } },
+    settings: { organize: { rules: [{ id: 'kept', name: 'Kept', enabled: true, autoRun: true, query: { id: 'q', combinator: 'or', not: false, rules: [] }, actions: [] }] } },
     whitelist: {
       b1: { title: 'Ignored page', url: 'https://ignored.test/' },
       f1: { title: '', url: '', inside: true },
@@ -65,14 +65,14 @@ test('sync shows as off when it has been turned off', () => {
   assert.match(sync.querySelector('p.muted').textContent, /Sync is off; settings stay on this device\./);
 });
 
-test('saving stores the changed matching options and keeps the saved organize settings', async () => {
+test('saving stores the changed matching options and keeps the saved rules', async () => {
   clearToasts();
   enter(control('Ignore the query string'), true);
   enter(control('Ignore letter case'), true);
   await click('Save settings');
   assert.equal(saved().matching.ignoreQuery, true);
   assert.equal(saved().matching.ignoreCase, true);
-  assert.equal(saved().organize.autoApply, true);
+  assert.equal(saved().organize.rules[0].id, 'kept');
   assert.match(toasts(), /Settings saved\./);
 });
 
@@ -347,7 +347,7 @@ test('importing settings asks first, then replaces settings and adds ignored ite
     whitelist: { z: { title: 'From file', url: 'https://z.test/' } },
   })], 'mine.json');
   await importFile(file());
-  assert.equal(await answer(false), 'Replace your settings with the ones in “mine.json” (0 organize rule(s))? Its 1 ignored item(s) are added to yours.');
+  assert.equal(await answer(false), 'Replace your settings with the ones in “mine.json” (0 rule(s))? Its 1 ignored item(s) are added to yours.');
   assert.equal(saved().dupesFolderName, 'Remote');
   clearToasts();
   enter(control('Ignore letter case'), false);
@@ -362,7 +362,7 @@ test('importing settings asks first, then replaces settings and adds ignored ite
 
 test('importing a file without ignored items does not mention them', async () => {
   await importFile(new File([JSON.stringify({ format: FORMAT, version: 1, settings: {} })], 'bare.json'));
-  assert.equal(await answer(false), 'Replace your settings with the ones in “bare.json” (0 organize rule(s))?');
+  assert.equal(await answer(false), 'Replace your settings with the ones in “bare.json” (0 rule(s))?');
 });
 
 test('updating bookmarks from opened pages asks for its permissions and is saved once they are granted', async () => {

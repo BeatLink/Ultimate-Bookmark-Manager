@@ -2,7 +2,6 @@
 
 import { h, formatDate, openDialog, menuBelow, confirmDialog } from './dom.js';
 import { formatPath, isFolder } from '../lib/tree.js';
-import { groupBy } from '../lib/group.js';
 import { folderLabel } from '../lib/rules.js';
 import { addToWhitelist } from '../lib/settings.js';
 
@@ -178,56 +177,30 @@ function choiceButton(props, choose, dialog, ...children) {
 
 const dialogButtons = (ok) => h('form', { method: 'dialog', class: 'row end' }, h('button', { value: 'cancel', text: 'Cancel' }), ok);
 
-// Asks for a rule in a dialog showing the folder tree with each rule under its destination folder and `extras` above it; resolves to the chosen id or null.
-export function pickRule(root, entries, { heading = 'Choose a rule', current = '', extras = [], confirm = 'Use this rule' } = {}) {
-  let chosen = current;
+// Asks for a rule in a dialog listing `entries` ({ id, label, detail }) in order, with a search; resolves to the chosen id or null.
+export function pickRule(entries, { heading = 'Choose a rule', confirm = 'Use this rule' } = {}) {
+  let chosen = '';
   const ok = h('button', { value: 'ok', class: 'primary', text: confirm });
-  const tree = h('ul', { class: 'folder-tree rule-tree-picker', role: 'tree' });
-  const search = h('input', { type: 'search', placeholder: 'Search rules and folders', 'aria-label': 'Search rules and folders' });
-  const dialog = h('dialog', { class: 'folder-picker' }, h('h2', { text: heading }), search, tree, dialogButtons(ok));
+  const list = h('ul', { class: 'folder-tree rule-picker', role: 'listbox' });
+  const search = h('input', { type: 'search', placeholder: 'Search rules', 'aria-label': 'Search rules' });
+  const dialog = h('dialog', { class: 'folder-picker' }, h('h2', { text: heading }), search, list, dialogButtons(ok));
   const update = () => {
     ok.disabled = !chosen;
-    for (const b of tree.querySelectorAll('.rule-choice')) b.classList.toggle('selected', b.dataset.id === chosen);
+    for (const b of list.querySelectorAll('.rule-choice')) b.classList.toggle('selected', b.dataset.id === chosen);
   };
-  const choice = (e) => h('li', {}, choiceButton(
-    { class: 'rule-choice folder-name', role: 'treeitem', 'data-id': e.id, disabled: !!e.disabled, title: e.reason ?? e.label },
-    () => { chosen = e.id; update(); }, dialog,
-    h('span', { class: e.extra ? 'rank-all-icon' : 'rule-icon', 'aria-hidden': 'true' }), e.label));
-
-  const drawTree = () => {
+  const draw = () => {
     const q = search.value.trim().toLowerCase();
-    const shown = entries.filter((e) => !q || e.label.toLowerCase().includes(q) || e.folder.toLowerCase().includes(q));
-    const byFolder = groupBy(shown, (e) => e.folder);
-    const placed = new Set();
-    // A folder is listed when it or a folder inside it has a rule; its rules come before its subfolders.
-    const folderItem = (node, segments) => {
-      const path = segments.join('/');
-      const own = byFolder.get(path) ?? [];
-      if (own.length) placed.add(path);
-      const kids = (node.children ?? []).filter(isFolder).map((c) => folderItem(c, [...segments, c.title ?? ''])).filter(Boolean);
-      if (!own.length && !kids.length) return null;
-      return h('li', {}, h('details', { open: true },
-        h('summary', {}, h('span', { class: 'folder-label' }, h('span', { class: 'folder-icon', 'aria-hidden': 'true' }), node.title || '(no name)')),
-        h('ul', { role: 'group' }, own.map(choice), kids)));
-    };
-    const folders = root.children.map((c) => folderItem(c, [c.title ?? ''])).filter(Boolean);
-    const elsewhere = shown.filter((e) => !placed.has(e.folder));
-    const missing = elsewhere.length > 0 && h('li', {}, h('details', { open: true },
-      h('summary', {}, h('span', { class: 'folder-label muted', text: 'Folders that do not exist yet' })),
-      h('ul', { role: 'group' }, elsewhere.map(choice))));
-    tree.replaceChildren(
-      ...extras.filter((e) => !q || e.label.toLowerCase().includes(q)).map((e) => choice({ ...e, extra: true })),
-      ...folders,
-      ...(missing ? [missing] : []),
-    );
-    if (!tree.childElementCount) tree.append(h('li', { class: 'muted', text: 'No matching rules.' }));
+    const shown = entries.filter((e) => !q || e.label.toLowerCase().includes(q) || (e.detail ?? '').toLowerCase().includes(q));
+    list.replaceChildren(...(shown.length
+      ? shown.map((e) => h('li', {}, choiceButton({ class: 'rule-choice folder-name', role: 'option', 'data-id': e.id, title: e.detail ?? e.label },
+        () => { chosen = e.id; update(); }, dialog, h('span', { class: 'rule-icon', 'aria-hidden': 'true' }), e.label)))
+      : [h('li', { class: 'muted', text: 'No matching rules.' })]));
     update();
   };
-  search.addEventListener('input', drawTree);
-  drawTree();
+  search.addEventListener('input', draw);
+  draw();
   const done = openDialog(dialog, (result) => (result === 'ok' ? chosen : null));
   search.focus();
-  tree.querySelector('.selected')?.scrollIntoView?.({ block: 'center' });
   return done;
 }
 

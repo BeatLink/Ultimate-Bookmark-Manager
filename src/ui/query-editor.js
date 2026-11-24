@@ -153,7 +153,7 @@ export function mountQueryEditor(element, query, onChange, { root, moveToNewRule
   const copyButton = (cls, title, path) => h('button', { type: 'button', class: `${cls} small`, title, text: '⧉', onclick: own(() => moveItem(editor.query, path, [...parentOf(path), path.at(-1) + 1], true) && commit()) });
 
   const moveButton = (item) => h('button', {
-    type: 'button', class: 'small', title: 'Move this into a new rule with the same destination, folders and ranking', 'aria-label': 'Move to a new rule', text: '↗',
+    type: 'button', class: 'small', title: 'Move this into a new rule with the same actions and folder conditions', 'aria-label': 'Move to a new rule', text: '↗',
     onclick: () => moveToNewRule(item.id),
   });
 

@@ -27,14 +27,14 @@ const tree = () => [
 ];
 
 const rule = {
-  id: 'r1', name: 'News', enabled: true, target: 'Bookmarks Toolbar/News', outranks: [], createdAt: 1,
+  id: 'r1', name: 'News', enabled: true, actions: [{ id: 'm1', type: 'move', folderId: '', path: 'Bookmarks Toolbar/News' }], createdAt: 1,
   query: { id: 'g1', combinator: 'or', not: false, rules: [{ id: 'c1', field: 'either', operator: 'contains', value: 'news', caseSensitive: false, wholeWords: false }] },
 };
 
 const browser = await openDashboard({
   view: 'stats',
   tree: tree(),
-  local: { settings: { organize: { rules: [rule], autoApply: false } }, whitelist: { gone: { title: 'Gone', url: '' } } },
+  local: { settings: { organize: { rules: [rule] } }, whitelist: { gone: { title: 'Gone', url: '' } } },
 });
 after(uninstallDom);
 
@@ -60,7 +60,7 @@ test('each tidy-up tile counts what its page deals with and links to it', () => 
   assert.equal(t['No useful name'].value, '1');
   assert.equal(t['Empty folders'].value, '2');
   assert.equal(t['Same-name folders'].value, '1');
-  assert.equal(t['Waiting to be organized'].value, '1');
+  assert.equal(t['Waiting for rules'].value, '1');
   assert.deepEqual(t.Ignored, { value: '1', note: undefined, href: '#settings', muted: false });
 });
 

@@ -1,4 +1,4 @@
-// Organize rules: their shape, how they are built, edited, read from older saves, described and pointed at folders.
+// Rules: their conditions and actions, how they are built, edited, read from older saves, described and pointed at folders.
 
 import { MENU, TOOLBAR, OTHER, MOBILE } from './tree.js';
 
@@ -69,15 +69,36 @@ export function newCondition(field = 'either', operator = 'contains', value = ''
   return { id: crypto.randomUUID(), field, operator, value, caseSensitive: false, wholeWords: false };
 }
 
+// What a rule can do to a bookmark it matches, in the order the menu lists them.
+export const ACTIONS = {
+  move: 'Move to folder',
+  replace: 'Find and replace',
+  pageTitle: 'Rename to page title',
+  redirect: 'Use redirect target',
+  ignore: 'Ignore',
+  delete: 'Delete',
+};
+
+// Which bookmark fields each choice of a replace action's "Look in" changes.
+export const LOOK_IN = { both: 'names and URLs', title: 'names', url: 'URLs' };
+
+// A move remembers its folder by id, so a renamed or moved folder keeps its rules, and by path, to find or create it when the id is gone.
+export function newAction(type = 'move') {
+  const action = { id: crypto.randomUUID(), type };
+  if (type === 'move') return { ...action, folderId: '', path: '' };
+  if (type === 'replace') return { ...action, find: '', replace: '', field: 'both', caseSensitive: false, regex: false };
+  return action;
+}
+
 export function newRule() {
   return {
     id: crypto.randomUUID(),
     name: '',
     enabled: true,
+    // Whether the rule also runs on each new bookmark a few seconds after it is added.
+    autoRun: false,
     query: newGroup(),
-    target: '',
-    // The rules this one ranks above when both match; the built-in ranking only applies between unrelated rules.
-    outranks: [],
+    actions: [newAction()],
     createdAt: Date.now(),
   };
 }
@@ -87,6 +108,8 @@ export function renumber(item) {
   return { ...structuredClone(item), id: crypto.randomUUID(), ...(isGroup(item) && { rules: item.rules.map(renumber) }) };
 }
 
+const renumberActions = (actions) => (actions ?? []).map((a) => ({ ...structuredClone(a), id: crypto.randomUUID() }));
+
 // Copies a rule under a new id so it can be edited separately; the copy's name is marked as such.
 export function duplicateRule(rule) {
   const copy = structuredClone(rule);
@@ -94,6 +117,7 @@ export function duplicateRule(rule) {
   copy.createdAt = Date.now();
   copy.name = rule.name ? `${rule.name} (copy)` : '';
   copy.query = renumber(copy.query);
+  copy.actions = renumberActions(copy.actions);
   return copy;
 }
 
@@ -126,7 +150,7 @@ function find(group, id) {
   return null;
 }
 
-// Moves a condition or group into a new rule placed after its old one, with the same destination, ranking and scoping folder conditions; null when the item is not in the rule.
+// Moves a condition or group into a new rule placed after its old one, with the same actions and scoping folder conditions; null when the item is not in the rule.
 export function moveToNewRule(rules, ruleId, itemId) {
   const rule = rules.find((r) => r.id === ruleId);
   const item = rule && find(rule.query, itemId);
@@ -140,41 +164,39 @@ export function moveToNewRule(rules, ruleId, itemId) {
     ...newRule(),
     name: `${ruleName(rule)} (part)`,
     enabled: rule.enabled,
-    target: rule.target,
+    autoRun: rule.autoRun,
     query,
-    outranks: [...(rule.outranks ?? [])],
-    ...(rule.rankAll && { rankAll: rule.rankAll }),
+    actions: renumberActions(rule.actions),
   };
-  const out = rules.map((r) => {
-    if (r.id === ruleId) return { ...r, query: without(r.query, itemId) };
-    // Rules ranked above the old rule are ranked above the new one too.
-    return r.outranks?.includes(ruleId) ? { ...r, outranks: [...r.outranks, part.id] } : r;
-  });
+  const out = rules.map((r) => (r.id === ruleId ? { ...r, query: without(r.query, itemId) } : r));
   out.splice(out.findIndex((r) => r.id === ruleId) + 1, 0, part);
   return { rules: out, part };
 }
 
-// Merges `otherId` into `keepId`, which then matches whatever either matched and takes on the other's ranking links; returns the rules without the other.
+// Merges `otherId` into `keepId`, which then matches whatever either matched and keeps its own actions; returns the rules without the other.
 export function mergeRules(rules, keepId, otherId) {
   const keep = rules.find((r) => r.id === keepId);
   const other = rules.find((r) => r.id === otherId);
   if (!keep || !other || keep === other) return rules;
   // "Any" groups that are not inverted are joined directly rather than nested.
   const parts = [keep.query, other.query].flatMap((q) => (q.combinator === 'or' && !q.not ? q.rules : [q]));
-  const outranks = [...new Set([...(keep.outranks ?? []), ...(other.outranks ?? [])])].filter((id) => id !== keepId && id !== otherId);
-  return rules.filter((r) => r !== other).map((r) => {
-    if (r === keep) return { ...keep, query: newGroup(parts), outranks };
-    if (!r.outranks?.includes(otherId)) return r;
-    return { ...r, outranks: [...new Set(r.outranks.map((id) => (id === otherId ? keepId : id)))] };
-  });
+  return rules.filter((r) => r !== other).map((r) => (r === keep ? { ...keep, query: newGroup(parts) } : r));
+}
+
+// The list with the item at `from` moved to position `to`, as rules and their actions run in list order.
+export function reorder(list, from, to) {
+  const out = [...list];
+  const [item] = out.splice(from, 1);
+  out.splice(Math.max(0, Math.min(to, out.length)), 0, item);
+  return out;
 }
 
 // ---- Rules saved in older shapes ----
 
 const OLD_OPERATORS = { notContains: 'doesNotContain', containsAll: 'contains', startsWith: 'beginsWith', equals: '=', domain: 'onDomain', param: 'hasParam', regex: 'matchesRegex' };
 const OLD_FIELDS = { domain: 'host', param: 'query' };
-// Fields older versions saved on a rule and this one ignores.
-const RETIRED_FIELDS = ['priority', 'fallback', 'catchAll'];
+// Fields older versions saved on a rule and this one ignores; rules now run in list order instead of by ranking.
+const RETIRED_FIELDS = ['priority', 'fallback', 'catchAll', 'outranks', 'rankAll'];
 
 // An old keyword-list condition as one condition per keyword: "all of" and "none of" lists make an "and" group, the rest an "or" group.
 function migrateCondition(old) {
@@ -199,15 +221,9 @@ function migrateGroup(old) {
   return { ...newGroup(rules, combinator), not: old.match === 'none' };
 }
 
-// A rule as this version reads it: an old condition list becomes a query, source folders become folder conditions and retired fields go; a current rule comes back unchanged.
-export function migrateRule(rule) {
-  const retired = RETIRED_FIELDS.filter((key) => key in rule);
-  if (rule.query && !retired.length) return rule;
-  const rest = { ...rule };
-  for (const key of retired) delete rest[key];
-  if (rule.query) return rest;
+// An old condition list as a query, with its source folders as folder conditions.
+function migrateConditions(rule) {
   const { match, conditions, sources, sourceSubfolders } = rule;
-  for (const key of ['match', 'conditions', 'sources', 'sourceSubfolders']) delete rest[key];
   let query = migrateGroup({ match, conditions });
   const folders = (sources ?? []).map((path) => newCondition('folder', sourceSubfolders === false ? 'directlyInFolder' : 'inFolder', path));
   if (folders.length) {
@@ -216,15 +232,34 @@ export function migrateRule(rule) {
     else if (query.combinator === 'and' && !query.not) query = { ...query, rules: [scope, ...query.rules] };
     else query = newGroup([scope, query], 'and');
   }
-  return { ...rest, query };
+  return query;
 }
 
-// True when a rule has the shape the organizer reads: an id, a tree of groups and conditions, and a text target.
+// A rule as this version reads it: an old condition list becomes a query, a target folder a move action that runs on new bookmarks when `autoRun` says so, and retired fields go; a current rule comes back unchanged.
+export function migrateRule(rule, { autoRun = false } = {}) {
+  const retired = RETIRED_FIELDS.filter((key) => key in rule);
+  if (rule.query && rule.actions && !retired.length) return rule;
+  const rest = { ...rule };
+  for (const key of [...retired, 'match', 'conditions', 'sources', 'sourceSubfolders']) delete rest[key];
+  if (!rule.query) rest.query = migrateConditions(rule);
+  if (!rule.actions) {
+    delete rest.target;
+    rest.actions = [{ ...newAction('move'), path: typeof rule.target === 'string' ? rule.target : '' }];
+    rest.autoRun = autoRun;
+  }
+  return rest;
+}
+
+const isAction = (a) => a !== null && typeof a === 'object' && typeof a.id === 'string' && Object.hasOwn(ACTIONS, a.type)
+  && (a.type !== 'move' || (typeof a.path === 'string' && typeof a.folderId === 'string'))
+  && (a.type !== 'replace' || (typeof a.find === 'string' && typeof a.replace === 'string' && Object.hasOwn(LOOK_IN, a.field)));
+
+// True when a rule has the shape the planner reads: an id, a tree of groups and conditions, and a list of known actions.
 export function isWellFormedRule(rule) {
   const isCondition = (x) => typeof x.field === 'string' && typeof x.operator === 'string';
   const isItem = (x) => x !== null && typeof x === 'object' && (isGroup(x) ? x.rules.every(isItem) : isCondition(x));
   return typeof rule?.id === 'string' && isGroup(rule.query) && rule.query.rules.every(isItem)
-    && (rule.target === undefined || typeof rule.target === 'string') && (rule.outranks === undefined || Array.isArray(rule.outranks));
+    && Array.isArray(rule.actions) && rule.actions.every(isAction);
 }
 
 // ---- Rules in words ----
@@ -249,6 +284,13 @@ function describeGroup(group, nested) {
 // The rule's logic in one line, with nested groups in brackets and inverted groups always as "not (…)" so they read unambiguously.
 export function describeRule(rule) {
   return activeItems(rule.query).length ? describeGroup(rule.query, false) : 'No conditions yet';
+}
+
+// One action in plain words, e.g. `Move to “Other Bookmarks › Dev”` or `Replace “http:” with “https:” in URLs`.
+export function describeAction(action) {
+  if (action.type === 'move') return action.path ? `Move to “${folderLabel(action.path)}”` : 'Move to a folder not chosen yet';
+  if (action.type === 'replace') return `Replace “${action.find}” with “${action.replace}” in ${LOOK_IN[action.field] ?? LOOK_IN.both}`;
+  return ACTIONS[action.type] ?? action.type;
 }
 
 // ---- Folder paths ----
@@ -276,7 +318,7 @@ export function startsWithPath(path, prefix) {
   return prefix.length <= path.length && prefix.every((seg, i) => path[i] === seg);
 }
 
-// Rules with every destination and folder condition under the folder at `from` pointed at `to` instead; the same list comes back when none named it.
+// Rules with every move and folder condition under the folder at `from` pointed at `to` instead; the same list comes back when none named it.
 export function moveRulePaths(rules, from, to, rootFolders) {
   const moved = (value) => {
     const path = resolveTarget(value, rootFolders)?.path;
@@ -294,11 +336,47 @@ export function moveRulePaths(rules, from, to, rootFolders) {
   };
   let any = false;
   const out = rules.map((rule) => {
-    const target = rule.target && moved(rule.target);
+    let movedAction = false;
+    const actions = rule.actions.map((a) => {
+      const path = a.type === 'move' && a.path && moved(a.path);
+      if (!path) return a;
+      movedAction = true;
+      return { ...a, path };
+    });
     const query = inGroup(rule.query);
-    if (!target && !query) return rule;
+    if (!movedAction && !query) return rule;
     any = true;
-    return { ...rule, ...(target ? { target } : {}), ...(query ? { query } : {}) };
+    return { ...rule, ...(movedAction ? { actions } : {}), ...(query ? { query } : {}) };
+  });
+  return any ? out : rules;
+}
+
+// Each folder's id with its path of titles from the top-level folder down, from a flattened tree.
+export function folderPaths(flat) {
+  return new Map(flat.filter((n) => n.type === 'folder').map((n) => [n.id, [...n.path, n.title]]));
+}
+
+// Where a move action files a bookmark: its folder by id while that exists, otherwise its path, created when missing; null without a folder.
+export function resolveMove(action, folders, rootFolders) {
+  const path = action.folderId && folders.get(action.folderId);
+  if (path) return { folderId: action.folderId, path };
+  return resolveTarget(action.path, rootFolders);
+}
+
+// Rules with each move's path brought up to date from its folder id, so the path still finds the folder after a rename elsewhere; the same list comes back when none changed.
+export function refreshMovePaths(rules, folders) {
+  let any = false;
+  const out = rules.map((rule) => {
+    let changed = false;
+    const actions = rule.actions.map((a) => {
+      const path = a.type === 'move' && a.folderId && folders.get(a.folderId)?.join('/');
+      if (!path || path === a.path) return a;
+      changed = true;
+      return { ...a, path };
+    });
+    if (!changed) return rule;
+    any = true;
+    return { ...rule, actions };
   });
   return any ? out : rules;
 }

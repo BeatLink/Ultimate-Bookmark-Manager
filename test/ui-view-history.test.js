@@ -42,7 +42,7 @@ test('each recorded change is listed newest first with what it did', async () =>
     'Removed separator “”',
     'Changed title and url (was “Old name”, “https://old.test/”)',
     'Moved an item',
-    'Pointed organize rules at “Bookmarks Menu › Work”',
+    'Pointed rules at “Bookmarks Menu › Work”',
     'Created an item',
   ]);
   assert.equal(entries()[0].querySelector('.ops li').textContent, 'Removed bookmark “Alpha”');
