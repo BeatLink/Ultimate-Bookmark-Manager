@@ -225,6 +225,7 @@ test('the folder button picks a folder from the bookmark tree', async () => {
   dialog.querySelector('.folder-name[data-path="Bookmarks Menu/News"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
   await settle();
   assert.equal(ed.last().rules[2].value, 'Bookmarks Menu/News');
+  assert.equal(ed.last().rules[2].folderId, 'news', 'the folder is remembered by id');
   assert.equal(ed.byId('c-folder').querySelector('.folder-button').textContent, 'Bookmarks Menu › News');
 
   const count = ed.changes.length;
@@ -408,4 +409,12 @@ test('taking an editor down mid-drag forgets the dragged item', () => {
   assert.equal(drag(document.body, 'dragover').dataTransfer.dropEffect, 'none', 'another editor’s drag goes on');
   drag(handleOf(b.byId('c-rust')), 'dragend');
   b.unmount();
+});
+
+test('a folder condition shows its folder by id, so a renamed folder shows its new name', () => {
+  const ed = mount({ id: 'top', combinator: 'or', not: false, rules: [{ id: 'f', field: 'folder', operator: 'inFolder', value: 'Bookmarks Menu/Old name', folderId: 'dev' }] });
+  assert.equal(ed.byId('f').querySelector('.folder-button').textContent, 'Bookmarks Menu › Dev');
+  setValue(ed.byId('f').querySelector('.rule-fields'), 'title');
+  assert.ok(!('folderId' in ed.last().rules[0]), 'a condition that is no longer a folder drops the id');
+  ed.unmount();
 });

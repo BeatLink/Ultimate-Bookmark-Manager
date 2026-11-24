@@ -18,6 +18,7 @@ export function validateRules(rules, rootFolders, flat = null) {
     if (folders) {
       for (const c of active.filter((x) => FOLDER_OPS.has(x.operator))) {
         const path = folderPathOf(valueOf(c), rootFolders);
+        if (c.folderId && folderIds.has(c.folderId)) continue;
         if (path && !folders.has(path.join('\0'))) issues.push(`The folder “${path.join(' › ')}” no longer exists.`);
       }
     }
@@ -106,7 +107,7 @@ export function planRules(flat, rules, rootFolders, { ignoredIds = new Set(), tr
   // Disabled rules are still matched so the editor can say what they would match; they never act.
   const valid = rules
     .filter((rule) => !problems.has(rule.id))
-    .map((rule) => ({ rule, match: matcher(rule, rootFolders), on: rule.enabled !== false }));
+    .map((rule) => ({ rule, match: matcher(rule, rootFolders, places.folders), on: rule.enabled !== false }));
   const changes = [];
   const unmatched = [];
   const matches = new Map();

@@ -62,7 +62,7 @@ Replace text in the names, the URLs or both of every bookmark, with a preview of
 
 Rules that act on bookmarks: each has conditions that pick bookmarks and a list of actions to take on them.
 
-**Conditions.** One keyword each: the bookmark's title, URL, or one part of the URL (site name, path, query string, or the part after `#`) contains, does not contain, starts or ends with, or is a keyword; matches a regex; has its site name on a domain; or has a query parameter (`list`, or with its value, `list=PL123`). The rule's setting requires any, all, none or not all of its conditions, and conditions can be nested in groups with their own setting. Keywords match anywhere unless *Whole words* is ticked, and ignore case unless *Aa* is. A *folder* condition limits a rule to bookmarks in a folder, with or without its subfolders.
+**Conditions.** One keyword each: the bookmark's title, URL, or one part of the URL (site name, path, query string, or the part after `#`) contains, does not contain, starts or ends with, or is a keyword; matches a regex; has its site name on a domain; or has a query parameter (`list`, or with its value, `list=PL123`). The rule's setting requires any, all, none or not all of its conditions, and conditions can be nested in groups with their own setting. Keywords match anywhere unless *Whole words* is ticked, and ignore case unless *Aa* is. A *folder* condition limits a rule to bookmarks in a folder, with or without its subfolders, and follows that folder when it is renamed or moved.
 
 **Actions.** Taken in order on every bookmark the rule matches:
 
