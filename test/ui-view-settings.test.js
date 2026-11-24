@@ -165,6 +165,28 @@ test('custom rules can be added from scratch or from a preset and edited', async
   ]);
 });
 
+test('a rule can have conditions, added, edited and removed under it', async () => {
+  const [first] = rules();
+  await click('+ Condition', first);
+  await click('+ Condition', first);
+  const conditions = () => [...first.querySelectorAll('li.condition')];
+  assert.equal(conditions().length, 2);
+
+  const [only] = conditions();
+  enter(only.querySelector('select[aria-label="Condition type"]'), 'unless');
+  enter(only.querySelector('select[aria-label="Condition tests"]'), 'name');
+  enter(only.querySelector('input[aria-label="Condition pattern"]'), '^Keep/', 'input');
+  enter(only.querySelector('input[aria-label="Condition flags"]'), '', 'input');
+  await click('Remove', conditions()[1]);
+  assert.equal(conditions().length, 1);
+  await click('Save settings');
+
+  assert.deepEqual(saved().duplicateRules[0].conditions, [{ negate: true, field: 'name', pattern: '^Keep/', flags: '' }]);
+  enter(rules()[0].querySelector('select[aria-label="Condition type"]'), 'if');
+  await click('Save settings');
+  assert.equal(saved().duplicateRules[0].conditions[0].negate, false);
+});
+
 test('an invalid rule shows its error under it once saved', async () => {
   await click('+ Skip bookmarklets');
   await click('+ Skip a folder by name');

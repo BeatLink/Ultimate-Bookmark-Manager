@@ -116,6 +116,7 @@ body.busy main { opacity: .6; pointer-events: none; }
 }
 .count { margin-right: .5em; }
 .groups { display: flex; flex-direction: column; gap: 1em; }
+.folder-select { margin-bottom: .75em; }
 .group { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
 .group-title { padding: .5em .75em; border-bottom: 1px solid var(--border); font-family: var(--mono); font-weight: normal; overflow-wrap: anywhere; display: flex; justify-content: space-between; gap: .5em; align-items: center; }
 .group-title.sticky { position: sticky; top: calc(var(--sticky-top) + 3em); z-index: 1; background: var(--surface); font-family: inherit; font-weight: 600; }
@@ -198,9 +199,10 @@ dialog.menu hr { border: 0; border-top: 1px solid var(--border); margin: .3em 0;
 .field.block { flex-direction: column; align-items: stretch; }
 .field textarea { width: 100%; }
 .rules { list-style: none; padding: 0; margin: .5em 0; display: flex; flex-direction: column; gap: .5em; }
-.rule { display: flex; flex-wrap: wrap; gap: .4em; align-items: center; }
-.rule .flags { width: 4.5em; }
+.rule, .condition { display: flex; flex-wrap: wrap; gap: .4em; align-items: center; }
+:is(.rule, .condition) .flags { width: 4.5em; }
 .rule .full { flex-basis: 100%; }
+.conditions { list-style: none; margin: 0; padding: 0 0 0 1.6em; display: flex; flex-direction: column; gap: .4em; }
 
 /* ---- Rules: the ordered list of rule cards ---- */
 .rules-page .selection-bar h2 { font-size: 1.05em; }
