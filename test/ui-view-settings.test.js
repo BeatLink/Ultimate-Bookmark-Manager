@@ -93,20 +93,24 @@ test('an untouched form follows settings changed elsewhere', async () => {
 
 test('link-check numbers are kept within their allowed range', async () => {
   enter(control('Parallel requests'), '99');
+  enter(control('Wait between pages on the same site (seconds)'), '600');
   enter(control('Timeout (seconds)'), '1');
   enter(control('Undo history length'), '0');
   enter(control('Forget undo history after'), '99999');
   await click('Save settings');
   assert.equal(saved().linkCheck.concurrency, 32);
+  assert.equal(saved().linkCheck.siteDelaySeconds, 60);
   assert.equal(saved().linkCheck.timeoutSeconds, 3);
   assert.equal(saved().historyLimit, 50, 'zero is not a number the field accepts, so the default is used');
   assert.equal(saved().historyDays, 3650);
   enter(control('Parallel requests'), 'abc');
+  enter(control('Wait between pages on the same site (seconds)'), '-5');
   enter(control('Timeout (seconds)'), '500');
   enter(control('Undo history length'), '900');
   enter(control('Forget undo history after'), '');
   await click('Save settings');
   assert.equal(saved().linkCheck.concurrency, 6);
+  assert.equal(saved().linkCheck.siteDelaySeconds, 0);
   assert.equal(saved().linkCheck.timeoutSeconds, 120);
   assert.equal(saved().historyLimit, 500);
   assert.equal(saved().historyDays, 30);

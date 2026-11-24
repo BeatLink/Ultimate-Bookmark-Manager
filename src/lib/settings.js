@@ -11,6 +11,7 @@ export const DEFAULT_SETTINGS = {
   dupesFolderName: 'Dupes',
   linkCheck: {
     concurrency: 6,
+    siteDelaySeconds: 0,
     timeoutSeconds: 15,
     skipDomains: [],
     skipPrivate: true,
@@ -31,7 +32,7 @@ export const DEFAULT_SETTINGS = {
 // Lists of text; every other list in the settings holds objects.
 const TEXT_LISTS = new Set(['skipDomains', 'noCookieWords', 'loginHosts']);
 // The least and most each number setting allows, so a damaged value cannot ask for a billion parallel requests.
-export const RANGES = { concurrency: [1, 32], timeoutSeconds: [3, 120], historyLimit: [1, 500], historyDays: [1, 3650] };
+export const RANGES = { concurrency: [1, 32], siteDelaySeconds: [0, 60], timeoutSeconds: [3, 120], historyLimit: [1, 500], historyDays: [1, 3650] };
 // Settings keys older versions used, with the key this version keeps them under.
 const RENAMED_KEYS = { rules: 'duplicateRules' };
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);

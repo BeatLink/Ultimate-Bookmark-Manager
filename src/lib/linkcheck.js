@@ -3,7 +3,7 @@
 import { readTitle } from './html-title.js';
 import { readVideoLength } from './html-video.js';
 import { unhelpfulName } from './folders.js';
-import { bareDomain, onDomain } from './domains.js';
+import { bareDomain, onDomain, siteOfHost } from './domains.js';
 import { eachLimited } from './pool.js';
 
 export const CATEGORIES = {
@@ -227,7 +227,7 @@ export function loadOutcome(url, { httpStatus, statusText = '', finalUrl = null,
 }
 
 // Checks many bookmarks with limited parallelism, handing each result to `onResult` and reporting progress after each one; `titleFor(bookmark)` says whose page title to read too.
-export async function checkAll(bookmarks, { concurrency = 6, signal, onProgress, onResult, titleFor, ...options } = {}) {
+export async function checkAll(bookmarks, { concurrency = 6, siteDelay = 0, signal, onProgress, onResult, titleFor, ...options } = {}) {
   const results = [];
   await eachLimited(bookmarks, concurrency, async (b) => {
     let result;
@@ -240,14 +240,27 @@ export async function checkAll(bookmarks, { concurrency = 6, signal, onProgress,
     results.push({ ...result, id: b.id, title: b.title, path: b.path });
     onResult?.(results.at(-1));
     onProgress?.(results.length, bookmarks.length);
-  }, () => signal?.aborted);
+  }, () => signal?.aborted, pacing(siteDelay));
   return results;
 }
+
+// The site a bookmark's URL is on, so pages on one site can be spaced out.
+export function siteOfUrl(url) {
+  try {
+    return siteOfHost(new URL(url).hostname.toLowerCase());
+  } catch {
+    return '';
+  }
+}
+
+// The pool options that space out pages on the same site by `siteDelay` milliseconds.
+export const pacing = (siteDelay) => ({ gap: siteDelay, keyOf: (b) => siteOfUrl(b.url) });
 
 // The options `checkAll` and `loadTitles` take, from the link-check settings.
 export function fetchOptions(linkCheck) {
   return {
     concurrency: linkCheck.concurrency,
+    siteDelay: linkCheck.siteDelaySeconds * 1000,
     timeout: linkCheck.timeoutSeconds * 1000,
     cookies: linkCheck.useCookies,
     noCookieWords: linkCheck.noCookieWords,

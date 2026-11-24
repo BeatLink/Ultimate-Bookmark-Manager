@@ -197,6 +197,7 @@ export default {
     const defaults = DEFAULT_SETTINGS.linkCheck;
     const linkBox = h('fieldset', {}, legend('Link checking', 'How the broken-link check runs, and domains it never checks'),
       numberField(lc, 'concurrency', 'Parallel requests', defaults.concurrency),
+      numberField(lc, 'siteDelaySeconds', 'Wait between pages on the same site (seconds)', defaults.siteDelaySeconds),
       numberField(lc, 'timeoutSeconds', 'Timeout (seconds)', defaults.timeoutSeconds),
       checkLine(lc, 'skipPrivate', 'Skip addresses on your own network, such as your router, NAS or printer'),
       linesField(lc, 'skipDomains', 'Skip these domains (one per line; subdomains included)', 5),

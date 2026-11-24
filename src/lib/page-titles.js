@@ -1,6 +1,6 @@
 // Reads the title of bookmarked pages from their HTML, and loads many pages a few at a time for other readers.
 
-import { checkUrl, isCheckable, failureReason } from './linkcheck.js';
+import { checkUrl, isCheckable, failureReason, pacing } from './linkcheck.js';
 import { eachLimited } from './pool.js';
 
 // Fetches one page through the link check and returns { title } or { error }.
@@ -13,7 +13,7 @@ async function fetchTitle(url, options = {}) {
 }
 
 // Reads many pages with `read(url, options)`, a few at a time, handing each result to `onResult` and reporting progress after each one.
-export async function loadPages(bookmarks, read, { concurrency = 6, timeout = 15000, signal, onProgress, onResult, ...fetchOptions }) {
+export async function loadPages(bookmarks, read, { concurrency = 6, siteDelay = 0, timeout = 15000, signal, onProgress, onResult, ...fetchOptions }) {
   const results = new Map();
   await eachLimited(bookmarks, concurrency, async (b) => {
     let result;
@@ -25,7 +25,7 @@ export async function loadPages(bookmarks, read, { concurrency = 6, timeout = 15
     results.set(b.id, result);
     onResult?.(b, result);
     onProgress?.(results.size, bookmarks.length);
-  }, () => signal?.aborted);
+  }, () => signal?.aborted, pacing(siteDelay));
   return results;
 }
 
