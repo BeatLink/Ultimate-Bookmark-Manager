@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ruleMatches, explainMatch, occurrences, urlPart, maxScore } from '../src/lib/matching.js';
+import { matcher, ruleMatches, explainMatch, occurrences, urlPart, maxScore } from '../src/lib/matching.js';
 import { POINTS, URL_TIER } from '../src/lib/specificity.js';
 import { roots, bm, cond, group, rule, queryRule } from './helpers.js';
 
@@ -179,4 +179,16 @@ test('the most a rule can score counts every condition in its best part, and not
   assert.equal(maxScore(scoped), POINTS.keyword);
   assert.equal(maxScore(rule('n', [cond('contains', 'rust')], 'X', { match: 'none' })), 0);
   assert.equal(maxScore(rule('b', [cond('contains', '')], 'X')), 0);
+});
+
+test('a folder condition follows its folder by id, and falls back to its path when the id is gone', () => {
+  const scoped = { ...rule('s', [cond('contains', 'rust')], 'Dev', { sources: ['other/Old name'] }) };
+  scoped.query.rules[0].folderId = 'inbox';
+  const folders = new Map([['inbox', ['Other Bookmarks', 'Inbox']]]);
+  const inInbox = bm('a', 'rust book', 'https://a.test', ['Other Bookmarks', 'Inbox']);
+  const inOld = bm('b', 'rust old', 'https://b.test', ['Other Bookmarks', 'Old name']);
+  assert.ok(matcher(scoped, roots, folders).score(inInbox) !== null);
+  assert.equal(matcher(scoped, roots, folders).score(inOld), null);
+  assert.equal(matcher(scoped, roots).score(inInbox), null, 'without the folders the path is used');
+  assert.ok(matcher(scoped, roots).score(inOld) !== null);
 });

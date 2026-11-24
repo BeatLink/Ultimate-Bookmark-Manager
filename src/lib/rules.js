@@ -363,7 +363,49 @@ export function resolveMove(action, folders, rootFolders) {
   return resolveTarget(action.path, rootFolders);
 }
 
-// Rules with each move's path brought up to date from its folder id, so the path still finds the folder after a rename elsewhere; the same list comes back when none changed.
+// The folder with this path ("Other Bookmarks/Dev") in the tree, or null.
+export function findFolderId(root, key) {
+  let node = root;
+  for (const title of String(key ?? '').split('/')) {
+    node = (node?.children ?? []).find((c) => !c.url && (c.title ?? '') === title && c.type !== 'separator');
+  }
+  return node && node !== root ? node.id : null;
+}
+
+// The path ("Other Bookmarks/Dev") of the folder with this id in the tree, or null.
+export function folderPathById(root, id) {
+  const walk = (node, path) => {
+    for (const child of node.children ?? []) {
+      if (child.url || child.type === 'separator') continue;
+      const own = [...path, child.title ?? ''];
+      if (child.id === id) return own.join('/');
+      const inner = walk(child, own);
+      if (inner) return inner;
+    }
+    return null;
+  };
+  return walk(root, []);
+}
+
+// The group with each folder condition's path brought up to date from its folder id; null when none changed.
+function refreshGroupPaths(group, folders) {
+  let changed = false;
+  const items = (group?.rules ?? []).map((item) => {
+    if (isGroup(item)) {
+      const inner = refreshGroupPaths(item, folders);
+      if (!inner) return item;
+      changed = true;
+      return inner;
+    }
+    const path = FOLDER_OPS.has(item.operator) && item.folderId && folders.get(item.folderId)?.join('/');
+    if (!path || path === item.value) return item;
+    changed = true;
+    return { ...item, value: path };
+  });
+  return changed ? { ...group, rules: items } : null;
+}
+
+// Rules with each move's path and folder condition's folder brought up to date from its folder id, so the path still finds the folder after a rename elsewhere; the same list comes back when none changed.
 export function refreshMovePaths(rules, folders) {
   let any = false;
   const out = rules.map((rule) => {
@@ -374,9 +416,10 @@ export function refreshMovePaths(rules, folders) {
       changed = true;
       return { ...a, path };
     });
-    if (!changed) return rule;
+    const query = refreshGroupPaths(rule.query, folders);
+    if (!changed && !query) return rule;
     any = true;
-    return { ...rule, actions };
+    return { ...rule, ...(changed ? { actions } : {}), ...(query ? { query } : {}) };
   });
   return any ? out : rules;
 }

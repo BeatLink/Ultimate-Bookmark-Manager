@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveTarget, moveRulePaths, duplicateRule, describeRule, describeAction, migrateRule, moveToNewRule, mergeRules, reorder, newCondition, newGroup, newRule, newAction, ruleName, folderLabel, folderPaths, resolveMove, refreshMovePaths, isWellFormedRule } from '../src/lib/rules.js';
+import { resolveTarget, moveRulePaths, duplicateRule, describeRule, describeAction, migrateRule, moveToNewRule, mergeRules, reorder, newCondition, newGroup, newRule, newAction, ruleName, folderLabel, folderPaths, resolveMove, refreshMovePaths, findFolderId, folderPathById, isWellFormedRule } from '../src/lib/rules.js';
 import { ruleMatches } from '../src/lib/matching.js';
 import { roots, bm, cond, group, rule, queryRule } from './helpers.js';
 
@@ -265,4 +265,32 @@ test('reordering moves one item and keeps the rest in order', () => {
   assert.deepEqual(reorder(['a', 'b', 'c'], 2, 0), ['c', 'a', 'b']);
   assert.deepEqual(reorder(['a', 'b', 'c'], 1, 9), ['a', 'c', 'b'], 'past the end goes last');
   assert.deepEqual(reorder(['a', 'b', 'c'], 1, -1), ['b', 'a', 'c'], 'before the start goes first');
+});
+
+test('folders are found in the tree by path or id', () => {
+  const root = { children: [
+    { id: 'menu________', title: 'Bookmarks Menu', children: [{ id: 'dev', title: 'Dev', children: [{ id: 'rust', title: 'Rust', children: [] }] }, { id: 'b', title: 'Dev', url: 'https://b.test' }, { id: 's', type: 'separator' }] },
+  ] };
+  assert.equal(findFolderId(root, 'Bookmarks Menu/Dev/Rust'), 'rust');
+  assert.equal(findFolderId(root, 'Bookmarks Menu'), 'menu________');
+  assert.equal(findFolderId(root, 'Bookmarks Menu/Nope'), null);
+  assert.equal(findFolderId(root, ''), null);
+  assert.equal(folderPathById(root, 'rust'), 'Bookmarks Menu/Dev/Rust');
+  assert.equal(folderPathById(root, 'b'), null, 'a bookmark is not a folder');
+  assert.equal(folderPathById(root, 'missing'), null);
+});
+
+test('folder conditions have their path refreshed from their folder id, nested ones too', () => {
+  const folderCond = (id, value, folderId) => ({ id, field: 'folder', operator: 'inFolder', value, ...(folderId && { folderId }) });
+  const r = queryRule('q', { id: 'g', combinator: 'and', not: false, rules: [
+    folderCond('a', 'Menu/Old', 'f1'),
+    { id: 'n', combinator: 'or', not: false, rules: [folderCond('b', 'Menu/Same', 'f2'), folderCond('c', 'Menu/Typed')] },
+  ] });
+  const folders = new Map([['f1', ['Menu', 'New']], ['f2', ['Menu', 'Same']]]);
+  const [out] = refreshMovePaths([r], folders);
+  assert.equal(out.query.rules[0].value, 'Menu/New');
+  assert.equal(out.query.rules[1].rules[1].value, 'Menu/Typed', 'a condition without an id is left alone');
+  assert.equal(out.query.rules[1], r.query.rules[1], 'a group with nothing to change is kept as it was');
+  const again = [out];
+  assert.equal(refreshMovePaths(again, folders), again);
 });

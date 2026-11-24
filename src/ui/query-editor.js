@@ -1,7 +1,7 @@
 // The editor for a rule's conditions, drawn in the markup and layout of react-querybuilder, whose query format rules use.
 
 import { h } from './dom.js';
-import { OPERATORS, FIELDS, FIELD_OPERATORS, WORD_OPS, FOLDER_OPS, newCondition, newGroup, isGroup, folderLabel } from '../lib/rules.js';
+import { OPERATORS, FIELDS, FIELD_OPERATORS, WORD_OPS, FOLDER_OPS, newCondition, newGroup, isGroup, folderLabel, findFolderId, folderPathById } from '../lib/rules.js';
 import { parentOf, itemAt, withIds, moveItem, groupItems, insertItem, addItem, removeItem, canDropOnCondition, canDropOnGroup, dropPath } from '../lib/query-tree.js';
 import { pickFolder } from './components.js';
 
@@ -168,7 +168,10 @@ export function mountQueryEditor(element, query, onChange, { root, moveToNewRule
     onchange: (e) => {
       const field = e.target.value;
       if (field === c.field) return;
-      if ((field === 'folder') !== (c.field === 'folder')) c.value = '';
+      if ((field === 'folder') !== (c.field === 'folder')) {
+        c.value = '';
+        delete c.folderId;
+      }
       c.field = field;
       c.operator = FIELD_OPERATORS[field].includes('contains') ? 'contains' : FIELD_OPERATORS[field][0];
       commit();
@@ -204,18 +207,23 @@ export function mountQueryEditor(element, query, onChange, { root, moveToNewRule
     ];
   };
 
+  // A folder condition's folder as it is named now, by its id when it has one.
+  const shown = (c) => (c.folderId && folderPathById(root, c.folderId)) || c.value || '';
+
   // A folder condition's folder, chosen with the page's folder picker; any other condition's keyword.
   const valueEditor = (c, path) => {
     const control = FOLDER_OPS.has(c.operator)
       ? h('button', {
         type: 'button', class: `folder-button${c.value ? '' : ' unset'}`, 'aria-label': 'Folder',
         onclick: async () => {
-          const picked = await pickFolder(root, c.value ?? '', { heading: 'Choose a folder', verb: 'Folder', allowCreate: false });
-          if (!picked || picked === c.value) return;
+          const picked = await pickFolder(root, shown(c), { heading: 'Choose a folder', verb: 'Folder', allowCreate: false });
+          if (!picked || picked === shown(c)) return;
           c.value = picked;
+          // The folder is remembered by id too, so renaming or moving it keeps the condition on it.
+          c.folderId = findFolderId(root, picked) ?? '';
           commit();
         },
-      }, h('span', { class: 'folder-icon', 'aria-hidden': 'true' }), c.value ? folderLabel(c.value) : 'Choose folder…')
+      }, h('span', { class: 'folder-icon', 'aria-hidden': 'true' }), shown(c) ? folderLabel(shown(c)) : 'Choose folder…')
       : h('input', {
         type: 'text', class: `keyword${c.operator === 'matchesRegex' ? ' mono' : ''}`, 'aria-label': 'Keyword', value: c.value ?? '',
         placeholder: PLACEHOLDERS[c.operator] ?? 'Keyword',

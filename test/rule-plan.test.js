@@ -226,3 +226,16 @@ test('a change explains what its first acting rule matched', () => {
   assert.deepEqual(change.why, { terms: [{ value: 'men', on: ['title', 'url'] }], title: [[17, 20]], url: [[12, 15]] });
   assert.equal(change.steps[0].ruleName, 'r');
 });
+
+test('a folder condition whose folder still exists by id is not flagged, and follows the folder', () => {
+  const flat = folderTree();
+  flat[1] = { ...flat[1], id: 'inbox', title: 'Renamed' };
+  const scoped = rule('s', [cond('contains', 'rust')], 'Dev', { sources: ['other/Inbox'] });
+  scoped.query.rules[0].folderId = 'inbox';
+  assert.ok(!validateRules([scoped], roots, flat).has('s'));
+  assert.deepEqual(plan(flat, [scoped]).changes.map((c) => c.bookmark.id), [], 'bookmarks sit under the old name, which the id no longer points at');
+  flat[3] = { ...flat[3], path: ['Other Bookmarks', 'Renamed'] };
+  assert.deepEqual(plan(flat, [scoped]).changes.map((c) => c.bookmark.id), ['a']);
+  scoped.query.rules[0].folderId = 'gone';
+  assert.match(validateRules([scoped], roots, flat).get('s')[0], /no longer exists/);
+});

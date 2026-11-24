@@ -136,11 +136,12 @@ function bookmarkText(bookmark) {
 }
 
 // A condition prepared once per plan: which parts of a bookmark it reads, a quick test of one part, and where it matched.
-function compileCondition(cond, rootFolders) {
+function compileCondition(cond, rootFolders, folders) {
   const value = valueOf(cond);
   const op = cond.operator;
   if (FOLDER_OPS.has(op)) {
-    const path = folderPathOf(value, rootFolders);
+    // A folder chosen by id is followed wherever it now is; its saved path is only used when the id is gone.
+    const path = (cond.folderId && folders.get(cond.folderId)) || folderPathOf(value, rootFolders);
     const inside = (p) => !!path && startsWithPath(p, path) && (op === 'inFolder' || p.length === path.length);
     return { op, folder: true, holds: (text) => inside(text.path) };
   }
@@ -170,8 +171,8 @@ function compileCondition(cond, rootFolders) {
 }
 
 // A rule's conditions prepared once per plan, with inactive items already dropped.
-function compileGroup(group, rootFolders) {
-  const items = activeItems(group).map((item) => (isGroup(item) ? compileGroup(item, rootFolders) : compileCondition(item, rootFolders)));
+function compileGroup(group, rootFolders, folders) {
+  const items = activeItems(group).map((item) => (isGroup(item) ? compileGroup(item, rootFolders, folders) : compileCondition(item, rootFolders, folders)));
   return { combinator: group.combinator, not: !!group.not, items };
 }
 
@@ -230,8 +231,8 @@ function summarize(hits) {
 }
 
 // A rule prepared for many bookmarks: `score` is the specificity of a match or null, and `explain` says what matched.
-export function matcher(rule, rootFolders) {
-  const compiled = compileGroup(rule.query ?? {}, rootFolders);
+export function matcher(rule, rootFolders, folders = new Map()) {
+  const compiled = compileGroup(rule.query ?? {}, rootFolders, folders);
   if (!compiled.items.length) return { score: () => null, explain: () => null };
   return {
     score: (bookmark) => evalGroup(compiled, bookmarkText(bookmark), conditionScore, sum),
