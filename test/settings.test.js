@@ -8,7 +8,7 @@ import { DEFAULT_NO_COOKIE_WORDS } from '../src/lib/linkcheck.js';
 import { fakeStorage } from './fake-browser.js';
 
 const query = (value) => ({ id: 'q', combinator: 'or', not: false, rules: [{ id: 'c', field: 'either', operator: 'contains', value }] });
-const goodRule = (id) => ({ id, name: id, target: 'Dev', query: query('rust') });
+const goodRule = (id) => ({ id, name: id, autoRun: false, actions: [{ id: 'm', type: 'move', folderId: '', path: 'Dev' }], query: query('rust') });
 
 test('settings missing from storage come back as the defaults', () => {
   assert.deepEqual(readSettings(undefined), DEFAULT_SETTINGS);
@@ -30,7 +30,7 @@ test('values of the wrong type fall back to their default and numbers are kept w
   assert.equal(s.linkCheck.timeoutSeconds, 3);
   assert.deepEqual(s.linkCheck.skipDomains, ['a.test']);
   assert.equal(s.linkCheck.useCookies, false);
-  assert.deepEqual(s.organize, { rules: [], autoApply: false });
+  assert.deepEqual(s.organize, { rules: [] });
 });
 
 test('settings this version does not know are kept, except a prototype key', () => {
@@ -45,7 +45,7 @@ test('lists of objects keep only objects', () => {
   assert.deepEqual(merge([], [{ a: 1 }, 'text', [1], null], 'duplicateRules'), [{ a: 1 }]);
 });
 
-test('organize rules the converter cannot read are left out and retired ranking fields dropped', () => {
+test('rules the converter cannot read are left out and retired ranking fields dropped', () => {
   const rules = readRules([
     { ...goodRule('keep'), priority: 3, fallback: true },
     { id: 'bad-conditions', conditions: 5 },
@@ -61,9 +61,18 @@ test('loading settings saves converted rules straight back so they are converted
   await storage.set({ settings: { historyLimit: 9, organize: { autoApply: true, rules: [{ id: 'old', name: 'old', enabled: true, match: 'any', conditions: [{ field: 'either', op: 'contains', values: ['rust'] }], target: 'Dev' }] } } });
   const loaded = await loadSettings(storage);
   assert.ok(loaded.organize.rules[0].query);
-  assert.deepEqual(storage.data.settings.organize.rules, loaded.organize.rules);
+  assert.equal(loaded.organize.rules[0].autoRun, true, 'automatic organizing becomes the rule\'s own switch');
+  assert.deepEqual(storage.data.settings.organize, { rules: loaded.organize.rules }, 'the old switch is gone');
   assert.equal(storage.data.settings.historyLimit, 9);
-  assert.equal(storage.data.settings.organize.autoApply, true);
+});
+
+test('rules from before actions are put in the order that keeps their moves: below all first, above all last', () => {
+  const old = (id, rankAll) => ({ id, name: id, match: 'any', conditions: [{ field: 'either', op: 'contains', values: [id] }], target: id, ...(rankAll && { rankAll }) });
+  const rules = readRules([old('top', 'above'), old('plain'), old('bottom', 'below'), goodRule('new')]);
+  assert.deepEqual(rules.map((r) => r.id), ['bottom', 'plain', 'new', 'top']);
+  assert.equal(rules[0].autoRun, false, 'without automatic organizing, rules wait to be applied');
+  const current = [goodRule('b'), goodRule('a')];
+  assert.deepEqual(readRules(current).map((r) => r.id), ['b', 'a'], 'current rules keep their order');
 });
 
 test('loading settings with rules already in shape writes nothing', async () => {

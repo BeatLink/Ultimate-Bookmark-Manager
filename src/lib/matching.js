@@ -1,4 +1,4 @@
-// Matches bookmarks against organize rules: whether a rule holds, how specific the match is, and what matched where.
+// Matches bookmarks against rules: whether a rule holds, how specific the match is, and what matched where.
 
 import { valuePoints, URL_TIER } from './specificity.js';
 import { bareDomain, onDomain } from './domains.js';

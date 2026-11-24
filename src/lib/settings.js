@@ -6,7 +6,7 @@ import { DEFAULT_LOGIN_HOSTS, DEFAULT_NO_COOKIE_WORDS } from './linkcheck.js';
 
 export const DEFAULT_SETTINGS = {
   matching: { ...DEFAULT_MATCHING },
-  // The filter and replace rules of the duplicate check; organize rules live under `organize`.
+  // The filter and replace rules of the duplicate check; the Rules page's rules live under `organize`.
   duplicateRules: [],
   dupesFolderName: 'Dupes',
   linkCheck: {
@@ -25,7 +25,6 @@ export const DEFAULT_SETTINGS = {
   historyDays: 30,
   organize: {
     rules: [],
-    autoApply: false,
   },
 };
 
@@ -68,12 +67,15 @@ function withCurrentKeys(stored) {
   return out;
 }
 
-// Organize rules in their current shape, leaving out any too damaged to read.
-export function readRules(rules) {
+// Rules in their current shape, leaving out any too damaged to read; `autoRun` is what rules from before actions get.
+export function readRules(rules, { autoRun = false } = {}) {
+  // Rules from before actions run in list order with later moves winning, so ones ranked below all others go first and above all others last.
+  const tier = (rule) => (rule?.actions ? 1 : rule?.rankAll === 'below' ? 0 : rule?.rankAll === 'above' ? 2 : 1);
+  const ordered = rules.some((rule) => !rule?.actions) ? [...rules].sort((a, b) => tier(a) - tier(b)) : rules;
   const out = [];
-  for (const rule of rules) {
+  for (const rule of ordered) {
     try {
-      const current = migrateRule(rule);
+      const current = migrateRule(rule, { autoRun });
       if (isWellFormedRule(current)) out.push(current);
     } catch {
       // A rule the converter cannot read is left out.
@@ -85,7 +87,9 @@ export function readRules(rules) {
 // Settings from storage, sync or a file, with anything damaged replaced by its default or left out.
 export function readSettings(stored) {
   const settings = merge(DEFAULT_SETTINGS, withCurrentKeys(stored));
-  settings.organize.rules = readRules(settings.organize.rules);
+  // The one switch that ran every rule on new bookmarks becomes each older rule's own.
+  settings.organize.rules = readRules(settings.organize.rules, { autoRun: settings.organize.autoApply === true });
+  delete settings.organize.autoApply;
   return settings;
 }
 
@@ -97,7 +101,7 @@ export async function loadSettings(storage = browser.storage.local) {
   const renamed = isObject(settings) && Object.keys(RENAMED_KEYS).some((old) => old in settings);
   if (renamed || rules.length !== stored.length || rules.some((r, i) => r !== stored[i])) {
     // Converted rules and renamed keys are saved straight back, so the conversion happens once and syncs in the new shape.
-    await storage.set({ settings: { ...withCurrentKeys(settings), organize: { ...settings.organize, rules } } });
+    await storage.set({ settings: { ...withCurrentKeys(settings), organize: { ...loaded.organize, rules } } });
   }
   return loaded;
 }

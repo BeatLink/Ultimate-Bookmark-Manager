@@ -51,7 +51,7 @@ export function formatPath(path) {
   return path.length ? path.join(' › ') : '(root)';
 }
 
-// The top-level folders as organize rules see them: id and title.
+// The top-level folders as rules see them: id and title.
 export function rootFoldersOf(root) {
   return root.children.map((c) => ({ id: c.id, title: c.title }));
 }
@@ -81,7 +81,7 @@ export function sortedByName(children) {
   return out;
 }
 
-// The folder titles from the top-level folder down to the given node, as organize rules store paths.
+// The folder titles from the top-level folder down to the given node, as rules store paths.
 export function pathTo(byId, id) {
   const out = [];
   for (let node = byId.get(id); node && node.parentId; node = byId.get(node.parentId)) out.unshift(node.title ?? '');

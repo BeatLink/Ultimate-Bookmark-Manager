@@ -114,7 +114,7 @@ function syncAndBackup(ctx) {
       return;
     }
     const ignored = Object.keys(parsed.whitelist).length;
-    if (!(await confirmDialog(`Replace your settings with the ones in “${chosen.name}” (${parsed.rules} organize rule(s))?${ignored ? ` Its ${ignored} ignored item(s) are added to yours.` : ''}`, 'Import', false))) return;
+    if (!(await confirmDialog(`Replace your settings with the ones in “${chosen.name}” (${parsed.rules} rule(s))?${ignored ? ` Its ${ignored} ignored item(s) are added to yours.` : ''}`, 'Import', false))) return;
     await ctx.run(async () => {
       await applyImport(parsed);
       draft = null;
@@ -130,10 +130,10 @@ function syncAndBackup(ctx) {
   };
   browser.storage.onChanged.addListener(onChange);
   return h('fieldset', {}, legend('Sync & backup', 'Needs Firefox signed in to a Mozilla account, with Add-ons ticked in Firefox’s Sync settings'),
-    h('label', { class: 'check-line' }, toggle, 'Sync settings, organize rules and ignored items with Firefox Sync'),
+    h('label', { class: 'check-line' }, toggle, 'Sync settings, rules and ignored items with Firefox Sync'),
     status,
     h('div', { class: 'row wrap' },
-      h('button', { text: 'Export settings…', title: 'Saves settings, organize rules and ignored items to a file; undo history stays on this device', onclick: async () => {
+      h('button', { text: 'Export settings…', title: 'Saves settings, rules and ignored items to a file; undo history stays on this device', onclick: async () => {
         downloadFile(JSON.stringify(await buildExport(), null, 2), datedName('ultimate-bookmark-manager-settings', 'json'));
         toast('Settings exported.', 'success');
       } }),
@@ -173,7 +173,7 @@ export default {
     }
     const s = draft;
     const save = () => ctx.run(async () => {
-      // Organize rules are edited in their own view, so keep whatever is saved for them.
+      // Rules are edited on their own page, so keep whatever is saved for them.
       await saveSettings({ ...s, organize: ctx.state.settings.organize });
       draft = null;
       toast('Settings saved.', 'success');

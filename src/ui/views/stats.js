@@ -33,7 +33,7 @@ export default {
     const links = scans.linkResults(ctx);
     const broken = scans.broken(ctx)?.length;
     const redirects = scans.redirects(ctx)?.length;
-    const organize = scans.organizePlan(ctx).moves.length;
+    const ruleChanges = scans.rulesPlan(ctx).changes.length;
     const ignored = Object.keys(ctx.state.whitelist).length;
     const untitled = scans.untitled(ctx).length;
     const empty = scans.emptyFolders(ctx).length;
@@ -47,7 +47,7 @@ export default {
       statTile({ label: 'Same-name folders', value: sameName, href: '#same-name', tip: 'Sets of sibling folders that could be merged', muted: !sameName }),
       statTile({ label: 'Broken links', value: broken ?? '–', href: '#broken', note: checkNote, muted: !broken }),
       statTile({ label: 'Redirects', value: redirects ?? '–', href: '#redirects', note: checkNote, muted: !redirects }),
-      statTile({ label: 'Waiting to be organized', value: organize, href: '#organize', tip: 'Bookmarks your rules would move', muted: !organize }),
+      statTile({ label: 'Waiting for rules', value: ruleChanges, href: '#rules', tip: 'Bookmarks your rules would change', muted: !ruleChanges }),
       statTile({ label: 'Ignored', value: ignored, href: '#settings', tip: 'Skipped by every check', muted: !ignored }));
 
     const topSites = s.sites.slice(0, TOP_SITES);

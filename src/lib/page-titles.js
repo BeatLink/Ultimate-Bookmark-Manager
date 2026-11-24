@@ -29,5 +29,17 @@ export async function loadPages(bookmarks, read, { concurrency = 6, timeout = 15
   return results;
 }
 
+// Fetches one page and returns its { title, finalUrl } as far as found, or { error }.
+async function fetchDetails(url, options = {}) {
+  if (!isCheckable(url)) return { error: 'Not a web page' };
+  const check = await checkUrl(url, { ...options, wantTitle: true });
+  const failed = failureReason(check);
+  if (failed) return { error: failed };
+  return { ...(check.pageTitle && { title: check.pageTitle }), ...(check.status === 'redirect' && { finalUrl: check.finalUrl }) };
+}
+
 // Names many pages from their HTML.
 export const loadTitles = (bookmarks, options) => loadPages(bookmarks, fetchTitle, options);
+
+// Reads many pages' titles and where they redirect to.
+export const loadPageDetails = (bookmarks, options) => loadPages(bookmarks, fetchDetails, options);

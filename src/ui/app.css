@@ -149,7 +149,6 @@ section > .items, section > div > .items { background: var(--surface); border: 1
 .edit-form input { width: 100%; }
 .folder-icon::before { content: "📁"; margin-right: .3em; }
 .rule-icon::before { content: "≣"; margin-right: .4em; color: var(--accent); font-weight: 700; }
-.rank-all-icon::before { content: "⇅"; margin-right: .4em; color: var(--accent); font-weight: 700; }
 .history .ops { margin: .3em 0 0; padding-left: 1.2em; font-size: .9em; }
 .redo-row { margin-bottom: .75em; }
 
@@ -171,9 +170,7 @@ dialog.folder-picker:not([open]) { display: none; }
 .folder-name { border: 0; background: none; padding: .15em .4em; text-align: left; width: calc(100% - 1em); }
 .folder-name.selected { background: var(--accent); color: var(--accent-text); }
 .folder-name.selected:hover { background: var(--accent); }
-.folder-name.selected .rule-icon::before, .folder-name.selected .rank-all-icon::before { color: inherit; }
-.rule-tree-picker summary { cursor: default; }
-.rule-tree-picker .folder-label { display: inline-flex; align-items: center; padding: .15em .4em; }
+.folder-name.selected .rule-icon::before { color: inherit; }
 .picked { font-weight: 500; overflow-wrap: anywhere; }
 dialog.menu { position: fixed; inset: auto; margin: 0; padding: .3em 0; min-width: 14em; box-shadow: var(--shadow-menu); }
 dialog.menu::backdrop { background: transparent; }
@@ -205,24 +202,13 @@ dialog.menu hr { border: 0; border-top: 1px solid var(--border); margin: .3em 0;
 .rule .flags { width: 4.5em; }
 .rule .full { flex-basis: 100%; }
 
-/* ---- Organize: the folder tree with its rule cards ---- */
-.organize > .check-line { margin: 0 0 1em; }
-.organize .selection-bar h2 { font-size: 1.05em; }
-.rule-tree { display: flex; flex-direction: column; gap: 1em; margin-bottom: 1em; }
-.folder-tree-list, .folder-children { list-style: none; margin: 0; display: flex; flex-direction: column; gap: .35em; }
-.folder-tree-list { padding: 0; }
-.folder-children { padding: .35em 0 0 1.4em; }
-.folder-head { display: flex; align-items: center; gap: .5em; flex-wrap: wrap; padding: .25em .5em; border-radius: var(--radius); }
-.folder-head:hover { background: var(--hover); }
-.folder-head[draggable=true] { cursor: grab; }
-.folder-head.drop-into { background: var(--hover); outline: 2px dashed var(--accent); outline-offset: -2px; }
-.folder-title { font-weight: 600; }
-.folder-head .rule-actions { margin-left: auto; opacity: .35; }
-.folder-head:hover .rule-actions, .folder-head:focus-within .rule-actions { opacity: 1; }
-.folder-toggle { border: 0; background: none; padding: .1em .2em; }
-.folder-toggle[hidden] { display: inline-block !important; visibility: hidden; }
-.orphan-rules { border: 1px dashed var(--warn); border-radius: var(--radius); padding: .5em .75em; }
-.orphan-rules h2 { font-size: 1em; }
+/* ---- Rules: the ordered list of rule cards ---- */
+.rules-page .selection-bar h2 { font-size: 1.05em; }
+.rule-list-box { margin-bottom: 1em; }
+.rule-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .35em; }
+.rule-card.drop-before { box-shadow: 0 -3px 0 var(--accent); }
+.rule-card.drop-after { box-shadow: 0 3px 0 var(--accent); }
+.rule-number { flex: none; font-variant-numeric: tabular-nums; }
 
 .rule-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .4em .6em; display: flex; flex-direction: column; align-items: flex-start; }
 .rule-card.open { padding-bottom: .75em; }
@@ -242,7 +228,6 @@ dialog.menu hr { border: 0; border-top: 1px solid var(--border); margin: .3em 0;
 .rule-badge.error { background: var(--danger); color: var(--bg); }
 .rule-actions { flex: none; display: flex; gap: .3em; }
 .score-chip { flex: none; font-size: .8em; font-family: var(--mono); padding: .1em .5em; border-radius: 1em; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
-.score-chip.prioritised { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 /* Labels in the first column, sized to the longest, and each row's controls in the second. */
 .rule-body { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .5em .75em; align-items: start; padding: .5em 0 0 3.2em; width: 100%; }
 .field-row { display: contents; }
@@ -256,11 +241,12 @@ dialog.menu hr { border: 0; border-top: 1px solid var(--border); margin: .3em 0;
 .rule-button.unset { color: var(--muted); border-style: dashed; }
 .folder-button { display: inline-flex; align-items: center; max-width: 100%; text-align: left; overflow-wrap: anywhere; }
 .folder-button.unset { color: var(--muted); border-style: dashed; }
-.rank-rows { flex-basis: 100%; display: flex; flex-direction: column; gap: .4em; }
-.rank-rows:empty { display: none; }
-.rank-row { display: flex; gap: .4em; align-items: center; }
-.rank-row .rank-relation { width: 9.5em; flex: none; }
-.rank-row .rank-target { flex: 1; min-width: 0; max-width: 32em; }
+.action-rows { flex-basis: 100%; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .4em; }
+.action-rows:empty { display: none; }
+.action-row { display: flex; gap: .4em; align-items: flex-start; flex-wrap: wrap; }
+.action-row .action-type { width: 13em; flex: none; }
+.action-settings { flex: 1 1 22em; min-width: 0; display: flex; flex-direction: column; gap: .4em; justify-content: center; min-height: 2rem; }
+.action-settings .row { gap: .4em; }
 
 /* ---- The condition editor, in react-querybuilder's layout and the page's colours ---- */
 .query-box, .query-editor { width: 100%; }
@@ -296,15 +282,8 @@ dialog.menu hr { border: 0; border-top: 1px solid var(--border); margin: .3em 0;
 .keyword-with-remove .keyword-remove { border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 0 .55em; }
 .keyword-with-remove .keyword-remove:hover { color: var(--danger); }
 
-/* ---- Organize: the preview ---- */
-.ranking { flex-basis: 100%; margin-top: .2em; }
-.ranking ol { margin: .3em 0 0; padding-left: 1.6em; display: flex; flex-direction: column; gap: .35em; }
-.ranking li.won::marker { font-weight: 600; }
-.ranking .won-label { color: var(--ok); }
-.ranking li.lost { opacity: .85; }
-.ranking-pick { border: 1px solid transparent; background: none; padding: .1em .4em; border-radius: var(--radius); text-align: left; font: inherit; color: inherit; margin-left: -.4em; }
-.ranking-pick:hover { background: var(--hover); }
-.ranking-pick[aria-pressed="true"] { border-color: var(--accent); background: var(--hover); }
+/* ---- Rules: the preview ---- */
+.rule-steps { margin: .4em 0 0; padding-left: 1.6em; }
 .unmatched { margin-top: 1.5em; }
 .unmatched > summary { color: inherit; font-size: inherit; }
 .unmatched > summary h2 { display: inline; }

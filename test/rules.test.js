@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveTarget, moveRulePaths, duplicateRule, describeRule, migrateRule, moveToNewRule, mergeRules, newCondition, newGroup, ruleName, folderLabel } from '../src/lib/rules.js';
+import { resolveTarget, moveRulePaths, duplicateRule, describeRule, describeAction, migrateRule, moveToNewRule, mergeRules, reorder, newCondition, newGroup, newRule, newAction, ruleName, folderLabel, folderPaths, resolveMove, refreshMovePaths, isWellFormedRule } from '../src/lib/rules.js';
 import { ruleMatches } from '../src/lib/matching.js';
 import { roots, bm, cond, group, rule, queryRule } from './helpers.js';
 
@@ -30,7 +30,10 @@ test('a duplicated rule is an independent copy with its own id', () => {
   const copy = duplicateRule(original);
   assert.notEqual(copy.id, original.id);
   assert.equal(copy.name, 'Rust (copy)');
-  assert.equal(copy.target, 'Dev');
+  assert.equal(copy.actions[0].path, 'Dev');
+  assert.notEqual(copy.actions[0].id, original.actions[0].id, 'actions get new ids');
+  copy.actions[0].path = 'Go';
+  assert.equal(original.actions[0].path, 'Dev');
   copy.query.rules[0].value = 'go';
   assert.equal(original.query.rules[0].value, 'rust', 'editing the copy leaves the original alone');
   assert.notEqual(copy.query.id, original.query.id, 'groups get new ids too');
@@ -84,7 +87,11 @@ test('rules saved in the old shape convert to react-querybuilder groups, one key
     ],
   };
   const r = migrateRule(old);
-  assert.deepEqual({ ...r, query: undefined }, { id: 'r', name: 'Rust', enabled: true, target: 'Dev', outranks: ['x'], createdAt: 5, query: undefined }, 'everything else is kept');
+  const { id: actionId, ...move } = r.actions[0];
+  assert.equal(typeof actionId, 'string');
+  assert.deepEqual(move, { type: 'move', folderId: '', path: 'Dev' }, 'the target becomes a move');
+  assert.deepEqual({ ...r, query: undefined, actions: undefined }, { id: 'r', name: 'Rust', enabled: true, autoRun: false, createdAt: 5, query: undefined, actions: undefined }, 'ranking goes and everything else is kept');
+  assert.equal(migrateRule(old, { autoRun: true }).autoRun, true, 'it runs on new bookmarks when automatic organizing was on');
   const strip = (item) => {
     const { id, ...rest } = item;
     assert.equal(typeof id, 'string');
@@ -135,20 +142,20 @@ test('an old "any" rule with a source folder is wrapped so its folder still has 
   ] });
 });
 
-test('a condition or group can move into a new rule that keeps the destination, folders and ranking', () => {
-  const src = rule('src', [cond('contains', 'music', { field: 'title' }), cond('domain', 'youtube.com')], 'Bookmarks Menu/YouTube',
-    { match: 'all', sources: ['Other Bookmarks'], outranks: ['z'], rankAll: 'below', name: 'YouTube' });
-  const fan = rule('fan', [cond('contains', 'x')], 'X', { outranks: ['src'] });
+test('a condition or group can move into a new rule that keeps the actions and folders', () => {
+  const src = { ...rule('src', [cond('contains', 'music', { field: 'title' }), cond('domain', 'youtube.com')], 'Bookmarks Menu/YouTube',
+    { match: 'all', sources: ['Other Bookmarks'], name: 'YouTube' }), autoRun: true };
+  const fan = rule('fan', [cond('contains', 'x')], 'X');
   const music = src.query.rules.find((c) => c.value === 'music');
   const { rules, part } = moveToNewRule([src, fan], 'src', music.id);
   assert.deepEqual(rules.map((r) => r.id), ['src', part.id, 'fan'], 'the new rule comes right after the old one');
   const old = rules[0];
   assert.ok(!old.query.rules.some((c) => c.value === 'music'), 'it leaves the old rule');
   assert.equal(part.name, 'YouTube (part)');
-  assert.equal(part.target, 'Bookmarks Menu/YouTube');
-  assert.equal(part.rankAll, 'below');
-  assert.deepEqual(part.outranks, ['z']);
-  assert.deepEqual(rules[2].outranks, ['src', part.id], 'rules ranked above the old rule rank above the new one');
+  assert.equal(part.actions[0].path, 'Bookmarks Menu/YouTube');
+  assert.notEqual(part.actions[0].id, src.actions[0].id);
+  assert.equal(part.autoRun, true);
+  assert.equal(rules[2], fan, 'other rules are left alone');
   assert.equal(part.query.combinator, 'and');
   assert.deepEqual(part.query.rules.map((c) => [c.field, c.value]), [['folder', 'Other Bookmarks'], ['title', 'music']], 'folder scope goes with it');
   assert.notEqual(part.query.rules[1].id, music.id, 'with new ids');
@@ -158,17 +165,16 @@ test('a condition or group can move into a new rule that keeps the destination, 
   assert.equal(moveToNewRule([src], 'src', 'nope'), null);
 });
 
-test('merging rules joins their conditions with "any" and hands over the ranking', () => {
-  const a = rule('a', [cond('contains', 'rust')], 'Dev', { outranks: ['c'] });
-  const b = rule('b', [cond('contains', 'go'), cond('contains', 'zig')], 'Other', { outranks: ['d', 'a'], match: 'all' });
-  const c = rule('c', [cond('contains', 'c')], 'C', { outranks: ['b'] });
-  const d = rule('d', [cond('contains', 'd')], 'D');
-  const out = mergeRules([a, b, c, d], 'a', 'b');
-  assert.deepEqual(out.map((r) => r.id), ['a', 'c', 'd']);
+test('merging rules joins their conditions with "any" and keeps the first rule\'s actions', () => {
+  const a = rule('a', [cond('contains', 'rust')], 'Dev');
+  const b = rule('b', [cond('contains', 'go'), cond('contains', 'zig')], 'Other', { match: 'all' });
+  const c = rule('c', [cond('contains', 'c')], 'C');
+  const out = mergeRules([a, b, c], 'a', 'b');
+  assert.deepEqual(out.map((r) => r.id), ['a', 'c']);
   const merged = out[0];
-  assert.equal(merged.target, 'Dev', 'the kept rule keeps its destination');
-  assert.deepEqual(merged.outranks, ['c', 'd'], 'it takes on the other rule\'s links, but never lists itself');
-  assert.deepEqual(out[1].outranks, ['a'], 'links to the other rule now point at the kept one');
+  assert.equal(merged.actions, a.actions, 'the kept rule keeps its actions');
+  assert.equal(out[1], c);
+  assert.equal(mergeRules(out, 'a', 'a'), out, 'a rule is not merged into itself');
   assert.equal(merged.query.combinator, 'or');
   assert.equal(merged.query.rules.length, 2, 'the "any" query is joined directly, the "all" one kept as a group');
   const has = (title) => ruleMatches(merged, bm('1', title, 'https://a.test'));
@@ -186,10 +192,77 @@ test('moving a folder points destinations and folder conditions inside it at the
   const other = rule('b', [cond('contains', 'x')], 'Bookmarks Menu/Developer');
   const rules = [inDev, other];
   const out = moveRulePaths(rules, ['Bookmarks Menu', 'Dev'], ['Other Bookmarks', 'Work', 'Dev'], roots);
-  assert.equal(out[0].target, 'Other Bookmarks/Work/Dev/Rust');
+  assert.equal(out[0].actions[0].path, 'Other Bookmarks/Work/Dev/Rust');
   assert.equal(out[0].query.rules[0].value, 'Other Bookmarks/Work/Dev');
   assert.equal(out[0].query.rules[1].rules[0].value, 'Other Bookmarks/Work/Dev/Old');
   assert.equal(out[0].query.rules[2].value, 'Dev', 'keywords are left alone');
   assert.equal(out[1], other, 'a folder that only starts with the same letters is not inside it');
   assert.equal(moveRulePaths(rules, ['Bookmarks Toolbar', 'X'], ['Other Bookmarks', 'X'], roots), rules, 'untouched rules come back as the same list');
+});
+
+test('a new rule starts enabled, off for new bookmarks, with one move action', () => {
+  const r = newRule();
+  assert.equal(r.enabled, true);
+  assert.equal(r.autoRun, false);
+  assert.deepEqual(r.actions.map((a) => a.type), ['move']);
+  assert.ok(isWellFormedRule(r));
+  assert.deepEqual({ ...newAction('replace'), id: 0 }, { id: 0, type: 'replace', find: '', replace: '', field: 'both', caseSensitive: false, regex: false });
+  assert.deepEqual({ ...newAction('delete'), id: 0 }, { id: 0, type: 'delete' });
+});
+
+test('a rule needs a list of known, complete actions to be read', () => {
+  const r = rule('r', [cond('contains', 'x')], 'Dev');
+  assert.ok(isWellFormedRule(r));
+  assert.ok(!isWellFormedRule({ ...r, actions: undefined }));
+  assert.ok(!isWellFormedRule({ ...r, actions: [{ id: 'a', type: 'explode' }] }));
+  assert.ok(!isWellFormedRule({ ...r, actions: [{ id: 'a', type: 'move', path: 5, folderId: '' }] }));
+  assert.ok(!isWellFormedRule({ ...r, actions: [{ id: 'a', type: 'replace', find: 'a', replace: 'b', field: 'everywhere' }] }));
+  assert.ok(!isWellFormedRule({ ...r, actions: [null] }));
+  assert.ok(isWellFormedRule({ ...r, actions: [{ id: 'a', type: 'ignore' }] }));
+});
+
+test('a current rule with leftover ranking loses it and keeps its actions', () => {
+  const current = { ...newRule(), outranks: ['x'], rankAll: 'above' };
+  const out = migrateRule(current);
+  assert.ok(!('outranks' in out) && !('rankAll' in out));
+  assert.equal(out.actions, current.actions);
+  const clean = newRule();
+  assert.equal(migrateRule(clean), clean);
+  assert.deepEqual(migrateRule({ id: 'n', query: newGroup() }).actions[0].path, '', 'a rule without a target gets a move still to choose');
+});
+
+test('actions are summed up in plain words', () => {
+  assert.equal(describeAction({ type: 'move', path: 'Other Bookmarks/Dev' }), 'Move to “Other Bookmarks › Dev”');
+  assert.equal(describeAction({ type: 'move', path: '' }), 'Move to a folder not chosen yet');
+  assert.equal(describeAction({ type: 'replace', find: 'http:', replace: 'https:', field: 'url' }), 'Replace “http:” with “https:” in URLs');
+  assert.equal(describeAction({ type: 'replace', find: 'a', replace: '', field: 'odd' }), 'Replace “a” with “” in names and URLs');
+  assert.equal(describeAction({ type: 'delete' }), 'Delete');
+  assert.equal(describeAction({ type: 'mystery' }), 'mystery');
+});
+
+test('a move finds its folder by id wherever it now is, and falls back to its path', () => {
+  const flat = [
+    { id: 'menu________', type: 'folder', title: 'Bookmarks Menu', path: [] },
+    { id: 'f1', type: 'folder', title: 'Renamed', path: ['Bookmarks Menu'] },
+    { id: 'b1', type: 'bookmark', title: 'x', path: ['Bookmarks Menu'] },
+  ];
+  const folders = folderPaths(flat);
+  assert.deepEqual([...folders.keys()], ['menu________', 'f1']);
+  assert.deepEqual(resolveMove({ folderId: 'f1', path: 'Bookmarks Menu/Old' }, folders, roots), { folderId: 'f1', path: ['Bookmarks Menu', 'Renamed'] });
+  assert.deepEqual(resolveMove({ folderId: 'gone', path: 'Bookmarks Menu/Old' }, folders, roots).segments, ['Old']);
+  assert.equal(resolveMove({ folderId: '', path: '' }, folders, roots), null);
+
+  const rules = [{ ...newRule(), actions: [{ id: 'a', type: 'move', folderId: 'f1', path: 'Bookmarks Menu/Old' }, { id: 'b', type: 'delete' }] }, newRule()];
+  const out = refreshMovePaths(rules, folders);
+  assert.equal(out[0].actions[0].path, 'Bookmarks Menu/Renamed');
+  assert.equal(out[0].actions[1], rules[0].actions[1]);
+  assert.equal(out[1], rules[1]);
+  assert.equal(refreshMovePaths(out, folders), out, 'paths already up to date leave the list as it was');
+});
+
+test('reordering moves one item and keeps the rest in order', () => {
+  assert.deepEqual(reorder(['a', 'b', 'c'], 0, 2), ['b', 'c', 'a']);
+  assert.deepEqual(reorder(['a', 'b', 'c'], 2, 0), ['c', 'a', 'b']);
+  assert.deepEqual(reorder(['a', 'b', 'c'], 1, 9), ['a', 'c', 'b'], 'past the end goes last');
+  assert.deepEqual(reorder(['a', 'b', 'c'], 1, -1), ['b', 'a', 'c'], 'before the start goes first');
 });

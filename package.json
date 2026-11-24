@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.js",
-    "coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-include=\"src/**/*.js\" --test-coverage-lines=99 --test-coverage-branches=93 --test-coverage-functions=98 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info test/*.test.js",
+    "coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-include=\"src/**/*.js\" --test-coverage-lines=99 --test-coverage-branches=95 --test-coverage-functions=98 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info test/*.test.js",
     "lint": "npx --yes web-ext@10.7.0 lint",
     "start": "npx --yes web-ext@10.7.0 run",
     "build": "npx --yes web-ext@10.7.0 build",

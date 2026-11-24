@@ -58,7 +58,7 @@ export function foldersOf(lib) {
   // Nothing can go straight into the root, or into itself.
   const canPlace = (ids, parentId) => parentId !== ROOT && !ids.some((id) => lib.inside(parentId, id));
 
-  // A moved folder carries the paths it moves between, so organize rules naming it follow.
+  // A moved folder carries the paths it moves between, so rules naming it follow.
   const folderMove = (id, parentId) => {
     const n = get(id);
     return isFolder(n) ? { id, from: pathTo(byId, id), to: [...pathTo(byId, parentId), n.title ?? ''] } : { id };

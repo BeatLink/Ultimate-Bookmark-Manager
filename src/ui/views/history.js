@@ -8,7 +8,7 @@ function describe(op) {
   if (op.kind === 'remove') return `Removed ${op.snapshot.type} “${op.snapshot.title || op.snapshot.url || ''}”`;
   if (op.kind === 'update') return `Changed ${Object.keys(op.before).join(' and ')} (was “${Object.values(op.before).join('”, “')}”)`;
   if (op.kind === 'move') return 'Moved an item';
-  if (op.kind === 'rulePaths') return `Pointed organize rules at “${op.to.join(' › ')}”`;
+  if (op.kind === 'rulePaths') return `Pointed rules at “${op.to.join(' › ')}”`;
   return 'Created an item';
 }
 

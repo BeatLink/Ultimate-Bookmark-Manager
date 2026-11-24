@@ -2,6 +2,7 @@ import { test, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { fakeBrowser, fakeEvent } from './browser-env.js';
 import { fingerprint } from '../src/lib/sync.js';
+import { fakeFetch } from './fake-fetch.js';
 
 // One set of fake timers for the whole file, since clearing a timer left from another set cancels the wrong one.
 mock.timers.enable({ apis: ['setTimeout'] });
@@ -172,7 +173,7 @@ test('the address-bar keyword opens an exact view, else the first view it begins
   assert.deepEqual(openedUrls(), ['history', 'redirects', 'empty-folders', 'stats'].map(dashboard));
 });
 
-test('a new bookmark is organized by rule four seconds after it is added', async () => {
+test('a new bookmark is organized by rule four seconds after it is added, as rules from before actions ran on new bookmarks', async () => {
   await local.set({ settings: autoSettings() });
   const node = await browser.bookmarks.create({ parentId: 'menu________', title: 'Rust book', url: 'https://rust.test/' });
   mock.timers.tick(3999);
@@ -182,7 +183,7 @@ test('a new bookmark is organized by rule four seconds after it is added', async
   await flush();
   const [dev] = (await browser.bookmarks.getChildren('unfiled_____')).filter((n) => n.title === 'Dev');
   assert.equal(await parentOf(node.id), dev.id);
-  assert.equal(local.data.history.entries[0].label, 'Auto-organized “Rust book”');
+  assert.equal(local.data.history.entries[0].label, 'Ran rules on “Rust book”');
 });
 
 test('a bookmark without a title is named by its URL in the undo history', async () => {
@@ -190,7 +191,7 @@ test('a bookmark without a title is named by its URL in the undo history', async
   await browser.bookmarks.create({ parentId: 'menu________', title: '', url: 'https://rust.test/untitled' });
   mock.timers.tick(4000);
   await flush();
-  assert.equal(local.data.history.entries[0].label, 'Auto-organized “https://rust.test/untitled”');
+  assert.equal(local.data.history.entries[0].label, 'Ran rules on “https://rust.test/untitled”');
 });
 
 test('bookmarks added close together are organized as one undoable step once the last has waited', async () => {
@@ -206,7 +207,7 @@ test('bookmarks added close together are organized as one undoable step once the
   assert.notEqual(await parentOf(first.id), 'toolbar_____');
   assert.equal(await parentOf(first.id), await parentOf(second.id));
   assert.equal(local.data.history.entries.length, 1);
-  assert.equal(local.data.history.entries[0].label, 'Auto-organized 2 new bookmarks');
+  assert.equal(local.data.history.entries[0].label, 'Ran rules on 2 new bookmarks');
 });
 
 test('a new folder neither waits to be organized nor delays the bookmarks before it', async () => {
@@ -230,7 +231,7 @@ test('a bookmark moved elsewhere before the wait ends, as by the star panel, sta
   assert.equal(local.data.history, undefined);
 });
 
-test('nothing is organized when automatic organizing is off or there are no rules', async () => {
+test('nothing is organized when no rule runs on new bookmarks', async () => {
   for (const organize of [{ autoApply: false, rules: [rule('dev', 'rust', 'Dev')] }, { autoApply: true, rules: [] }]) {
     await local.set({ settings: { organize } });
     const node = await browser.bookmarks.create({ parentId: 'menu________', title: 'Rust off', url: 'https://rust.test/off' });
@@ -291,7 +292,44 @@ test('a failure while organizing new bookmarks is logged instead of thrown', asy
   } finally {
     browser.bookmarks.getTree = getTree;
   }
-  assert.equal(error.mock.calls[0].arguments[0], 'Auto-organize failed');
+  assert.equal(error.mock.calls[0].arguments[0], 'Running rules on new bookmarks failed');
+});
+
+const pageRule = (id, word, ...actions) => ({
+  id, name: id, enabled: true, autoRun: true, createdAt: 1, actions: actions.map((type, i) => ({ id: `${id}-${i}`, type })),
+  query: { id: `${id}-q`, combinator: 'or', not: false, rules: [{ id: `${id}-c`, field: 'either', operator: 'contains', value: word, caseSensitive: false, wholeWords: false }] },
+});
+
+test('rules not set to run on new bookmarks leave them alone, while ones that are rename and fix them from the page', async () => {
+  const { fetch } = globalThis;
+  globalThis.fetch = fakeFetch({ 'https://page.test/': { html: '<title>The real title</title>', finalUrl: 'https://page.test/moved' } });
+  await local.set({ settings: { organize: { rules: [{ ...pageRule('quiet', 'page', 'delete'), autoRun: false }, pageRule('named', 'page', 'pageTitle', 'redirect')] } } });
+  try {
+    const node = await browser.bookmarks.create({ parentId: 'menu________', title: 'page', url: 'https://page.test/' });
+    mock.timers.tick(4000);
+    await flush();
+    await flush();
+    const [after] = await browser.bookmarks.get(node.id);
+    assert.deepEqual([after.title, after.url], ['The real title', 'https://page.test/moved']);
+    assert.deepEqual(callsOf('permissions.contains'), [[{ origins: ['<all_urls>'] }]]);
+  } finally {
+    globalThis.fetch = fetch;
+  }
+});
+
+test('pages are not read for new bookmarks without permission to access websites', async () => {
+  const contains = browser.permissions.contains;
+  browser.permissions.contains = async () => false;
+  await local.set({ settings: { organize: { rules: [pageRule('named', 'page', 'pageTitle', 'ignore')] } } });
+  try {
+    const node = await browser.bookmarks.create({ parentId: 'menu________', title: 'page', url: 'https://page.test/' });
+    mock.timers.tick(4000);
+    await flush();
+    assert.equal((await browser.bookmarks.get(node.id))[0].title, 'page');
+    assert.ok(local.data.whitelist[node.id], 'the other actions still run');
+  } finally {
+    browser.permissions.contains = contains;
+  }
 });
 
 test('a settings or ignore-list change is uploaded to sync after a one-second pause', async () => {

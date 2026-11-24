@@ -22,9 +22,9 @@ const key = (el, k) => {
 const buttonNamed = (root, text) => [...root.querySelectorAll('button')].find((b) => b.textContent === text);
 
 test('a help link opens the current page\'s help section and shows its tip', () => {
-  location.hash = '#organize';
+  location.hash = '#rules';
   const link = c.helpLink('Sort bookmarks');
-  assert.equal(link.getAttribute('href'), '#help:organize');
+  assert.equal(link.getAttribute('href'), '#help:rules');
   assert.equal(link.title, 'Sort bookmarks — select for help');
   assert.equal(link.getAttribute('aria-label'), 'Help: Sort bookmarks');
   assert.equal(link.textContent, '?');
@@ -245,93 +245,56 @@ test('a row holds a checkbox, the content and the extra actions', () => {
   assert.equal(li.querySelector('.item-actions').textContent, 'act');
 });
 
-const ruleRoot = {
-  children: [
-    { id: 'menu', title: 'Menu', children: [
-      { id: 'work', title: 'Work', children: [{ id: 'deep', title: 'Deep', children: [] }] },
-      { id: 'x', title: 'Link', url: 'https://x.test/' },
-      { id: 'nt', type: 'folder' },
-    ] },
-    { id: 'toolbar', children: [] },
-    { id: 'other', title: 'Other', children: [] },
-  ],
-};
 const ruleEntries = [
-  { id: 'r1', label: 'News sites', folder: 'Menu' },
-  { id: 'r2', label: 'Docs', folder: 'Menu/Work/Deep' },
-  { id: 'r3', label: 'Locked', folder: 'Menu/Work', disabled: true, reason: 'In use' },
-  { id: 'r4', label: 'Future', folder: 'Menu/Missing' },
-  { id: 'r5', label: 'Unnamed root rule', folder: '' },
+  { id: 'r1', label: 'News sites', detail: 'title contains “news”' },
+  { id: 'r2', label: 'Docs', detail: 'URL contains “docs”' },
+  { id: 'r3', label: 'Unnamed rule' },
 ];
 
-test('the rule picker lists rules under their folders, extras first and missing folders last', async () => {
-  const answer = c.pickRule(ruleRoot, ruleEntries, { extras: [{ id: '*', label: 'All other rules', folder: '' }], current: 'r2' });
+test('the rule picker lists rules in order and returns the one chosen', async () => {
+  const answer = c.pickRule(ruleEntries);
   const dialog = document.querySelector('dialog.folder-picker');
   assert.equal(dialog.querySelector('h2').textContent, 'Choose a rule');
-  const tree = dialog.querySelector('.rule-tree-picker');
-  const top = [...tree.children];
-  assert.equal(top[0].querySelector('.rank-all-icon') !== null, true);
-  assert.equal(top[0].textContent, 'All other rules');
-  assert.equal(top[1].querySelector('summary').textContent, 'Menu');
-  const menuItems = [...top[1].querySelector('ul').children].map((li) => li.querySelector('.rule-choice, summary').textContent);
-  assert.deepEqual(menuItems, ['News sites', 'Work']);
-  assert.equal(tree.querySelector('[data-id=r3]').disabled, true);
-  assert.equal(tree.querySelector('[data-id=r3]').title, 'In use');
-  assert.equal(tree.querySelector('[data-id=r2]').title, 'Docs');
-  assert.equal(top.at(-1).querySelector('summary').textContent, 'Folders that do not exist yet');
-  assert.deepEqual([...top.at(-1).querySelectorAll('.rule-choice')].map((b) => b.dataset.id), ['r4']);
-  assert.equal(top[2].querySelector('summary').textContent, '(no name)');
-  assert.equal(top[2].querySelector('.rule-choice').dataset.id, 'r5');
-  assert.ok(tree.querySelector('[data-id=r2]').classList.contains('selected'));
-  assert.equal(dialog.querySelector('button[value=ok]').disabled, false);
+  const list = dialog.querySelector('.rule-picker');
+  assert.deepEqual([...list.querySelectorAll('.rule-choice')].map((b) => b.textContent), ['News sites', 'Docs', 'Unnamed rule']);
+  assert.equal(list.querySelector('[data-id=r2]').title, 'URL contains “docs”');
+  assert.equal(list.querySelector('[data-id=r3]').title, 'Unnamed rule');
+  assert.equal(dialog.querySelector('button[value=ok]').disabled, true);
   assert.equal(document.activeElement, dialog.querySelector('input[type=search]'));
 
-  tree.querySelector('[data-id=r1]').click();
-  assert.ok(tree.querySelector('[data-id=r1]').classList.contains('selected'));
-  assert.ok(!tree.querySelector('[data-id=r2]').classList.contains('selected'));
+  list.querySelector('[data-id=r1]').click();
+  assert.ok(list.querySelector('[data-id=r1]').classList.contains('selected'));
+  assert.equal(dialog.querySelector('button[value=ok]').disabled, false);
   dialog.querySelector('button[value=ok]').click();
   assert.equal(await outcome(answer), 'r1');
   assert.equal(dialog.isConnected, false);
 });
 
-test('the rule picker filters by rule or folder name and says when nothing matches', async () => {
-  const answer = c.pickRule(ruleRoot, ruleEntries, { heading: 'Rank', confirm: 'Pick', extras: [{ id: '*', label: 'All other rules' }] });
+test('the rule picker filters by name or description and says when nothing matches', async () => {
+  const answer = c.pickRule(ruleEntries, { heading: 'Merge', confirm: 'Pick' });
   const dialog = document.querySelector('dialog.folder-picker');
   const search = dialog.querySelector('input[type=search]');
-  const ok = buttonNamed(dialog, 'Pick');
-  assert.equal(ok.disabled, true);
+  assert.equal(dialog.querySelector('h2').textContent, 'Merge');
   const ids = () => [...dialog.querySelectorAll('.rule-choice')].map((b) => b.dataset.id);
 
-  search.value = 'deep';
+  search.value = 'DOCS';
   search.dispatchEvent(new Event('input'));
   assert.deepEqual(ids(), ['r2']);
-  search.value = 'OTHER';
+  search.value = 'news';
   search.dispatchEvent(new Event('input'));
-  assert.deepEqual(ids(), ['*']);
+  assert.deepEqual(ids(), ['r1']);
   search.value = 'nothing here';
   search.dispatchEvent(new Event('input'));
-  assert.equal(dialog.querySelector('.rule-tree-picker li.muted').textContent, 'No matching rules.');
+  assert.equal(dialog.querySelector('.rule-picker li.muted').textContent, 'No matching rules.');
 
-  dialog.querySelector('button[value=cancel]').click();
-  assert.equal(await outcome(answer), null);
-});
-
-test('the rule picker leaves out the missing-folders branch when every folder exists', async () => {
-  const answer = c.pickRule(ruleRoot, ruleEntries.filter((e) => e.id !== 'r4'));
-  const tree = document.querySelector('dialog.folder-picker .rule-tree-picker');
-  assert.doesNotMatch(tree.textContent, /false|do not exist yet/);
-  const search = document.querySelector('dialog.folder-picker input[type=search]');
-  search.value = 'nothing here';
-  search.dispatchEvent(new Event('input'));
-  assert.equal(tree.textContent, 'No matching rules.');
-  document.querySelector('dialog.folder-picker button[value=cancel]').click();
+  buttonNamed(dialog, 'Cancel').click();
   assert.equal(await outcome(answer), null);
 });
 
 test('double-clicking a rule picks it at once', async () => {
-  const answer = c.pickRule(ruleRoot, ruleEntries);
-  document.querySelector('.rule-choice[data-id=r4]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
-  assert.equal(await outcome(answer), 'r4');
+  const answer = c.pickRule(ruleEntries);
+  document.querySelector('.rule-choice[data-id=r2]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  assert.equal(await outcome(answer), 'r2');
 });
 
 const folderRoot = {

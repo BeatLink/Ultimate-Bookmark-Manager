@@ -13,14 +13,14 @@ import sameName from './views/same-name.js';
 import untitled from './views/untitled.js';
 import broken from './views/broken.js';
 import redirects from './views/redirects.js';
-import organize from './views/organize.js';
+import rules from './views/rules.js';
 import findReplace from './views/find-replace.js';
 import all from './views/all/index.js';
 import history from './views/history.js';
 import settings from './views/settings.js';
 import help from './views/help.js';
 
-const VIEWS = [stats, duplicates, emptyFolders, sameName, untitled, broken, redirects, organize, findReplace, all, history, settings, help];
+const VIEWS = [stats, duplicates, emptyFolders, sameName, untitled, broken, redirects, rules, findReplace, all, history, settings, help];
 // Changes made elsewhere are picked up once a burst of them has settled.
 const REFRESH_DELAY_MS = 500;
 const isSidebar = new URLSearchParams(location.search).has('sidebar');
@@ -139,9 +139,14 @@ function render() {
   document.title = `${current.label} — Ultimate Bookmark Manager`;
 }
 
-// "#organize" shows a page; "#help:organize" shows the Help page at that page's section.
+// Page ids links saved before a page was renamed may still use.
+const OLD_IDS = { organize: 'rules' };
+
+// "#rules" shows a page; "#help:rules" shows the Help page at that page's section.
 function route() {
-  const [id, section = ''] = location.hash.slice(1).split(':');
+  const [hashId, hashSection = ''] = location.hash.slice(1).split(':');
+  const id = OLD_IDS[hashId] ?? hashId;
+  const section = OLD_IDS[hashSection] ?? hashSection;
   current = VIEWS.find((v) => v.id === id) ?? VIEWS[0];
   ctx.section = section;
   render();

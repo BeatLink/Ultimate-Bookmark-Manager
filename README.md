@@ -58,26 +58,25 @@ One network check serves both pages. It loads each bookmarked page once, from th
 
 Replace text in the names, the URLs or both of every bookmark, with a preview of each change before anything is touched. Matching ignores case unless *Match case* is ticked, and *Regex* allows regular expressions with `$1`, `$&` and `$<name>` in the replacement. Changes that would leave an invalid URL are left out, and the replacement is one step you can undo.
 
-### Organize
+### Rules
 
-Rules that file bookmarks into folders. The page shows your whole folder tree, with each folder's rules listed under it.
+Rules that act on bookmarks: each has conditions that pick bookmarks and a list of actions to take on them.
 
-**Rules.** A rule is a set of conditions, one keyword each: the bookmark's title, URL, or one part of the URL (site name, path, query string, or the part after `#`) contains, does not contain, starts or ends with, or is a keyword; matches a regex; has its site name on a domain; or has a query parameter (`list`, or with its value, `list=PL123`). The rule's setting requires any, all, none or not all of its conditions, and conditions can be nested in groups with their own setting. Keywords match anywhere unless *Whole words* is ticked, and ignore case unless *Aa* is. A *folder* condition limits a rule to bookmarks in a folder, with or without its subfolders.
+**Conditions.** One keyword each: the bookmark's title, URL, or one part of the URL (site name, path, query string, or the part after `#`) contains, does not contain, starts or ends with, or is a keyword; matches a regex; has its site name on a domain; or has a query parameter (`list`, or with its value, `list=PL123`). The rule's setting requires any, all, none or not all of its conditions, and conditions can be nested in groups with their own setting. Keywords match anywhere unless *Whole words* is ticked, and ignore case unless *Aa* is. A *folder* condition limits a rule to bookmarks in a folder, with or without its subfolders.
 
-**Editing.** Add a rule with *+ Rule* on a folder's row, or create a subfolder with *+ Folder*. Drag a rule onto a folder, or use *Move…* in its ☰ menu (beside *Rename…*, *Duplicate*, *Merge…* and *Delete*), to change where it files. Drag a folder onto another to move it, and the rules that name it follow. Conditions and groups can be dragged between groups, copied, or moved into a new rule with the same destination, folder conditions and ranking. A search box and an *only folders with rules* switch help with large trees.
+**Actions.** Taken in order on every bookmark the rule matches:
 
-**Which rule wins** when several match a bookmark:
+- *Move to folder*: files it into a folder, created if missing. The folder is remembered by id, so renaming or moving it, here or in Firefox, keeps the rule pointing at it.
+- *Find and replace*: replaces text in the name, the URL or both, with *Match case* and *Regex* as on the Find and replace page.
+- *Rename to page title* and *Use redirect target*: use what the last link check found, or read the page when applied.
+- *Ignore*: adds it to the ignore list.
+- *Delete*: removes it; nothing after it runs.
 
-1. A rule set to rank above or below *all other rules* sits in a top or bottom tier, decided first.
-2. Within a tier, a rule's **Ranking** rows decide: a rule wins over any rule it ranks above, and rankings follow through other rules (if A ranks above B and B above C, A beats C). Rules that would make a loop or go against a tier cannot be chosen; one that arrives by import or sync is flagged and ignored.
-3. Between rules no ranking relates, the more specific match wins. Conditions on the URL always outrank keyword conditions; within each, more points win (exact URL 1000; path 100 + 10 per segment; exact query 80; subdomain or parameter with value 60; domain 50; parameter 30; other URL text 20; exact title 40; keyword 20; regex 15). Only the conditions that matched count.
-4. Finally, the newer rule wins.
+**Order.** Rules run from the top of the list down, and every rule that matches takes its actions, so later rules build on what earlier ones did; when several rules move a bookmark, the last move wins. Drag a rule by its handle, or use *Move up* and *Move down* in its ☰ menu (beside *Rename…*, *Duplicate*, *Merge…* and *Delete*), to reorder. Conditions and groups can be dragged between groups, copied, or moved into a new rule with the same actions and folder conditions.
 
-Bookmarks already inside the winning rule's folder stay where they are.
+**Preview and apply.** The preview lists every bookmark the rules would change, grouped by the first rule that acts on it, with the matched text highlighted, each step and the rule it comes from, and what the name and URL become. Untick anything you do not want, then apply the rest as one undoable step. *Not matched by any rule* lists what the rules leave alone.
 
-**Preview and apply.** The preview lists every bookmark the rules would move, grouped by destination, with the matched text highlighted. *All N matching rules* shows every rule that matched, strongest first, and why each loser lost. Untick anything you do not want, then move the rest; the move is one undoable step. Rules for folders that do not exist yet are listed separately, and the folder is created when the rule first moves something. *Not matched by any rule* lists what the rules leave alone.
-
-New bookmarks can be organized automatically a few seconds after they are added. This is skipped when you pick a folder yourself in the star panel, or when many arrive at once, as during an import or sync.
+A rule with *Run on new bookmarks* ticked also runs a few seconds after each bookmark is added. This is skipped when you pick a folder yourself in the star panel, or when many arrive at once, as during an import or sync.
 
 Conditions are stored in [react-querybuilder](https://react-querybuilder.js.org/)'s query format, and the editor uses its layout. Rules saved in an older format are converted when they are first loaded or imported.
 
@@ -87,13 +86,13 @@ Every folder, bookmark and separator as a tree, managed like Firefox's Library:
 
 - Open and close folders, select with click, Ctrl-click, Shift-click and the arrow keys.
 - The right-click menu opens bookmarks in a new tab, window, private window or container tab; opens all of a folder in tabs (or middle-click the folder); adds a bookmark, folder or separator; bookmarks all tabs; undoes and redoes; cuts, copies, pastes and deletes; sorts a folder by name; and edits properties. A details pane edits the selected item in place.
-- Drag to move before, after or into folders (Ctrl-drag copies), and drop links from pages to bookmark them. Moving or renaming a folder takes the organize rules that name it along.
+- Drag to move before, after or into folders (Ctrl-drag copies), and drop links from pages to bookmark them. Moving or renaming a folder takes the rules that name it along.
 - Sort the view by column and choose columns, including most recent visit and visit count from your history, and the length of the main video on each page (found for the bookmarks you select, by reading each page's HTML or, for players built by scripts, by opening the page in a hidden window; optionally written at the start of their names). Search lists matches with their folder, with filters for only duplicates, only non-duplicates, or recently added.
 - Export or import an HTML bookmarks file, and back up to or restore from JSON — this add-on's backups or Firefox's own.
 
 ### Shared by every page
 
-- **Ignore list**: ignored bookmarks and folders are skipped by every check and by Organize. A folder can be ignored with everything inside it, including bookmarks added to it later.
+- **Ignore list**: ignored bookmarks and folders are skipped by every check and by Rules. A folder can be ignored with everything inside it, including bookmarks added to it later.
 - **Skip list**: domains the link check leaves alone.
 - **Undo and redo history**, forgotten after 30 days by default, plus a full JSON backup and restore.
 - **Settings sync** through Firefox Sync (Add-ons must be ticked in Firefox's Sync settings). The most recent change wins, and a new device adopts the synced settings instead of overwriting them. It can be turned off.
@@ -145,7 +144,7 @@ To load it by hand, open `about:debugging#/runtime/this-firefox`, choose **Load 
 
 | Path | Contents |
 | --- | --- |
-| `src/lib/` | Pure logic: tree helpers, duplicate matching, folder checks, link checking, organize rules, settings and sync, undoable actions |
+| `src/lib/` | Pure logic: tree helpers, duplicate matching, folder checks, link checking, rules, settings and sync, undoable actions |
 | `src/ui/` | The dashboard/sidebar page, its views and shared components |
 | `src/background.js` | Toolbar button, shortcut, Tools menu, address-bar keyword, automatic organizing and settings sync |
 | `test/` | Unit tests, with in-memory stand-ins for the bookmarks API and storage, and happy-dom for the UI |

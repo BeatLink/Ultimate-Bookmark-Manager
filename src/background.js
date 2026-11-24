@@ -1,7 +1,9 @@
-// Entry points (toolbar button, keyboard shortcut, Tools menu, "bm" address-bar keyword) and automatic organizing.
+// Entry points (toolbar button, keyboard shortcut, Tools menu, "bm" address-bar keyword) and rules run on new bookmarks.
 
-import { loadSettings, loadWhitelist, addNewCookieWords } from './lib/settings.js';
-import { planMoves } from './lib/organize.js';
+import { loadSettings, loadWhitelist, loadLinkResults, addNewCookieWords } from './lib/settings.js';
+import { planRules, knownPages, hasEffect } from './lib/rule-plan.js';
+import { loadPageDetails } from './lib/page-titles.js';
+import { fetchOptions } from './lib/linkcheck.js';
 import { ignoredIdSet } from './lib/folders.js';
 import { flatten, rootFoldersOf } from './lib/tree.js';
 import { Actions } from './lib/actions.js';
@@ -16,7 +18,7 @@ const VIEWS = {
   untitled: 'Bookmarks without a useful name',
   broken: 'Broken links',
   redirects: 'Redirects',
-  organize: 'Organize',
+  rules: 'Rules',
   'find-replace': 'Find and replace',
   all: 'All bookmarks',
   history: 'Undo history & backup',
@@ -24,7 +26,7 @@ const VIEWS = {
   help: 'Help',
 };
 
-// New bookmarks wait this long before being organized, so a folder picked in the star panel wins.
+// New bookmarks wait this long before rules run on them, so a folder picked in the star panel wins.
 const AUTO_DELAY_MS = 4000;
 // More new bookmarks than this at once means an import, sync or "bookmark all tabs", which is left alone.
 const BURST_LIMIT = 20;
@@ -91,15 +93,16 @@ browser.bookmarks.onCreated.addListener((id, node) => {
   if (!node.url) return;
   pending.set(id, node.parentId);
   clearTimeout(autoTimer);
-  autoTimer = setTimeout(() => autoOrganize().catch((err) => console.error('Auto-organize failed', err)), AUTO_DELAY_MS);
+  autoTimer = setTimeout(() => runRulesOnNew().catch((err) => console.error('Running rules on new bookmarks failed', err)), AUTO_DELAY_MS);
 });
 
-async function autoOrganize() {
+async function runRulesOnNew() {
   const batch = new Map(pending);
   pending.clear();
   if (batch.size > BURST_LIMIT) return;
   const settings = await loadSettings();
-  if (!settings.organize.autoApply || !settings.organize.rules.length) return;
+  const rules = settings.organize.rules.filter((r) => r.autoRun);
+  if (!rules.length) return;
 
   // Bookmarks brought back by an undo appear in the history's id map and must not be moved again.
   const { history } = await browser.storage.local.get('history');
@@ -108,11 +111,21 @@ async function autoOrganize() {
   const all = flatten(root);
   const fresh = all.filter((b) => batch.get(b.id) === b.parentId && !restored.has(b.id));
   const ignored = ignoredIdSet(root, await loadWhitelist());
-  const { moves } = planMoves(fresh, settings.organize.rules, rootFoldersOf(root), ignored, all);
-  if (!moves.length) return;
+  const pages = knownPages(await loadLinkResults());
+  const plan = (pageInfo) => planRules(fresh, rules, rootFoldersOf(root), { ignoredIds: ignored, tree: all, pages: pageInfo }).changes;
+  let changes = plan(pages);
+  // Pages are read only when the add-on may already load websites, as a background task cannot ask.
+  const waiting = changes.filter((c) => c.waiting).map((c) => c.bookmark);
+  if (waiting.length && await browser.permissions.contains({ origins: ['<all_urls>'] })) {
+    const read = await loadPageDetails(waiting, fetchOptions(settings.linkCheck));
+    for (const b of waiting) pages.set(b.id, { ...read.get(b.id), url: b.url, read: true });
+    changes = plan(pages);
+  }
+  changes = changes.filter((c) => hasEffect(c) && !c.problem);
+  if (!changes.length) return;
 
-  const label = moves.length === 1 ? `Auto-organized “${moves[0].bookmark.title || moves[0].bookmark.url}”` : `Auto-organized ${moves.length} new bookmarks`;
-  await new Actions({ limit: settings.historyLimit, days: settings.historyDays }).organize(moves.map((m) => ({ id: m.bookmark.id, target: m.target })), label);
+  const label = changes.length === 1 ? `Ran rules on “${changes[0].bookmark.title || changes[0].bookmark.url}”` : `Ran rules on ${changes.length} new bookmarks`;
+  await new Actions({ limit: settings.historyLimit, days: settings.historyDays }).applyRules(changes.map((c) => ({ ...c, id: c.bookmark.id })), label);
 }
 
 // Settings sync: local edits are uploaded and changes from other devices applied, each after a short pause.

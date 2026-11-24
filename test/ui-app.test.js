@@ -93,10 +93,20 @@ test('an unknown page falls back to the first one', async () => {
 test('a help address opens the Help page at the named section', async (t) => {
   const scrolled = [];
   t.mock.method(Element.prototype, 'scrollIntoView', function () { scrolled.push(this.id); });
-  await visit('help:organize');
+  await visit('help:rules');
   await settle(5);
   assert.equal(main().dataset.view, 'help');
-  assert.deepEqual(scrolled, ['help-organize']);
+  assert.deepEqual(scrolled, ['help-rules']);
+});
+
+test('addresses saved before the Organize page became Rules still open it', async (t) => {
+  const scrolled = [];
+  t.mock.method(Element.prototype, 'scrollIntoView', function () { scrolled.push(this.id); });
+  await visit('organize');
+  assert.equal(main().dataset.view, 'rules');
+  await visit('help:organize');
+  await settle(5);
+  assert.deepEqual(scrolled, ['help-rules']);
 });
 
 test('picking a page from the compact menu goes there', async () => {
@@ -256,14 +266,14 @@ test('a focus-dashboard message opens the asked-for page and brings this tab to 
   ]);
 });
 
-test('a page can ask to be drawn again, as Organize does when discarding unsaved changes', async () => {
-  await visit('organize');
-  const autoApply = () => main().querySelector('.check-line input[type=checkbox]');
-  autoApply().click();
-  assert.equal(autoApply().checked, true);
+test('a page can ask to be drawn again, as Rules does when discarding unsaved changes', async () => {
+  await visit('rules');
+  const cards = () => main().querySelectorAll('.rule-card').length;
+  buttonNamed(main(), '+ Rule').click();
+  assert.equal(cards(), 1);
   const before = treeReads;
   buttonNamed(main(), 'Discard changes').click();
-  assert.equal(autoApply().checked, false);
+  assert.equal(cards(), 0);
   assert.equal(treeReads, before);
 });
 
