@@ -141,10 +141,38 @@ function syncAndBackup(ctx) {
       file));
 }
 
+const FIELD_LABELS = { url: 'URL', title: 'name', name: 'folder path/name' };
+
+// A select of the texts a rule or condition can test.
+const fieldSelect = (obj, label, attrs = {}) => h('select', { 'aria-label': label, ...attrs, onchange: (e) => { obj.field = e.target.value; } },
+  Object.entries(FIELD_LABELS).map(([value, text]) => h('option', { value, text, selected: (obj.field ?? 'url') === value })));
+
+// One condition of a custom rule: only if, or unless, a pattern matches a text.
+function conditionRow(condition, onRemove) {
+  return h('li', { class: 'condition' },
+    h('select', { 'aria-label': 'Condition type', onchange: (e) => { condition.negate = e.target.value === 'unless'; } },
+      h('option', { value: 'if', text: 'only if', selected: !condition.negate }),
+      h('option', { value: 'unless', text: 'unless', selected: !!condition.negate })),
+    fieldSelect(condition, 'Condition tests'),
+    h('span', { text: 'matches' }),
+    h('input', { type: 'text', class: 'mono grow', placeholder: 'regular expression', value: condition.pattern ?? '', 'aria-label': 'Condition pattern', oninput: (e) => { condition.pattern = e.target.value; } }),
+    h('input', { type: 'text', class: 'mono flags', placeholder: 'flags', value: condition.flags ?? '', 'aria-label': 'Condition flags', oninput: (e) => { condition.flags = e.target.value; } }),
+    h('button', { class: 'small', text: 'Remove', 'aria-label': 'Remove condition', onclick: onRemove }));
+}
+
 function ruleRow(rule, onRemove, error) {
-  const field = h('select', { 'aria-label': 'Match against', hidden: rule.kind !== 'filter', onchange: (e) => { rule.field = e.target.value; } },
-    ['url', 'title', 'name'].map((v) => h('option', { value: v, text: { url: 'URL', title: 'name', name: 'folder path/name' }[v], selected: (rule.field ?? 'url') === v })));
+  const field = fieldSelect(rule, 'Match against', { hidden: rule.kind !== 'filter' });
   const replacement = h('input', { type: 'text', placeholder: 'replace with', title: 'May use $& (the match), $1… (groups), $URL, $NAME (folder path and name) and $TITLE; start with \\L or \\U to lower- or upper-case the result', value: rule.replacement ?? '', hidden: rule.kind !== 'replace', 'aria-label': 'Replacement', oninput: (e) => { rule.replacement = e.target.value; } });
+  const conditions = h('ul', { class: 'conditions full' });
+  const drawConditions = () => conditions.replaceChildren(...(rule.conditions ?? []).map((c, i) => conditionRow(c, () => {
+    rule.conditions.splice(i, 1);
+    drawConditions();
+  })));
+  drawConditions();
+  const addCondition = () => {
+    rule.conditions = [...(rule.conditions ?? []), { negate: false, field: 'url', pattern: '', flags: 'i' }];
+    drawConditions();
+  };
   return h('li', { class: 'rule' },
     h('input', { type: 'checkbox', checked: rule.enabled !== false, 'aria-label': 'Enabled', onchange: (e) => { rule.enabled = e.target.checked; } }),
     h('select', { 'aria-label': 'Rule type', onchange: (e) => {
@@ -156,7 +184,9 @@ function ruleRow(rule, onRemove, error) {
     h('input', { type: 'text', class: 'mono grow', placeholder: 'regular expression', value: rule.pattern ?? '', 'aria-label': 'Pattern', oninput: (e) => { rule.pattern = e.target.value; } }),
     h('input', { type: 'text', class: 'mono flags', placeholder: 'flags', value: rule.flags ?? '', 'aria-label': 'Flags', oninput: (e) => { rule.flags = e.target.value; } }),
     replacement,
+    h('button', { class: 'small', text: '+ Condition', title: 'Apply this rule only when another pattern matches, or does not', onclick: addCondition }),
     h('button', { class: 'small', text: 'Remove', onclick: onRemove }),
+    conditions,
     error && h('p', { class: 'error full', text: error }));
 }
 

@@ -24,12 +24,12 @@ The page the add-on opens on. It shows:
 
 ### Duplicates
 
-Bookmarks that point to the same URL, grouped and numbered by the order they were added. Select every copy except the oldest or the newest, then remove them or move them to a “Dupes” folder.
+Bookmarks that point to the same URL, grouped and numbered by the order they were added. Select every copy except the oldest, the newest, the topmost or the bottommost in your bookmarks, or the copies that share a folder with an older one. Or choose a folder, with or without its subfolders, and select the copies in it, or every copy except the one there. Then remove them or move them to a “Dupes” folder.
 
 What counts as the same URL is set in **Settings**:
 
 - **Matching options** treat `http`/`https`, `www.`, trailing slashes, fragments, query strings or letter case as the same.
-- **Custom rules** go further. *Exclude* rules leave bookmarks out of the check when their URL, name or folder path matches a regex. *Replace* rules rewrite the URL before comparing, with `$&`, `$1`…, `$URL`, `$NAME`, `$TITLE` and a leading `\L` or `\U` to change case.
+- **Custom rules** go further. *Exclude* rules leave bookmarks out of the check when their URL, name or folder path matches a regex. *Replace* rules rewrite the URL before comparing, with `$&`, `$1`…, `$URL`, `$NAME`, `$TITLE` and a leading `\L` or `\U` to change case. Any rule can have conditions, so it applies only if, or unless, another pattern matches the URL, name or folder path.
 
 ### Empty and same-name folders
 
