@@ -48,7 +48,7 @@ You can also edit the names by hand or remove the bookmarks.
 
 ### Broken links and redirects
 
-One network check serves both pages. It loads each bookmarked page once, from the page's own site, as a logged-out visitor unless you turn on sending your cookies — which is never done for URLs such as logout, delete or confirm links. Addresses on your own network are skipped.
+One network check serves both pages. It loads each bookmarked page once, from the page's own site, a few at a time — with an optional pause between pages on the same site, for sites that refuse quick repeated requests — as a logged-out visitor unless you turn on sending your cookies — which is never done for URLs such as logout, delete or confirm links. Addresses on your own network are skipped.
 
 - **Broken links** groups the failures by kind: not found, server error, unreachable, timed out, access denied, login required, and so on.
 - **Redirects** lists bookmarks that now lead somewhere else, which you can fix one at a time or all at once. A redirect to a different site is flagged, since an expired domain can be taken over. Redirects to a login page are listed under Broken links instead.

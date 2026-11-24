@@ -171,6 +171,6 @@ test('duplicate rules saved under the old key are read and saved under the new o
 });
 
 test('the number settings have the limits the settings page enforces', () => {
-  assert.deepEqual(Object.keys(RANGES), ['concurrency', 'timeoutSeconds', 'historyLimit', 'historyDays']);
+  assert.deepEqual(Object.keys(RANGES), ['concurrency', 'siteDelaySeconds', 'timeoutSeconds', 'historyLimit', 'historyDays']);
   assert.equal(readSettings({ historyLimit: 1e9 }).historyLimit, RANGES.historyLimit[1]);
 });

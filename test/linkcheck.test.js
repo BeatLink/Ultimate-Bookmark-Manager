@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkUrl, checkAll, isSkipped, isCheckable, isLoginRedirect, isPrivateAddress, credentialsFor, checkTargets, mergeLinkResults, fetchOptions } from '../src/lib/linkcheck.js';
+import { checkUrl, checkAll, isSkipped, isCheckable, isLoginRedirect, isPrivateAddress, credentialsFor, checkTargets, mergeLinkResults, fetchOptions, siteOfUrl } from '../src/lib/linkcheck.js';
 import { fakeFetch } from './fake-fetch.js';
 
 const items = (pages) => Object.keys(pages).map((url) => ({ id: url, url, title: '', path: [] }));
@@ -144,8 +144,22 @@ test('a re-check replaces only its own entries and keeps the other titles', () =
 });
 
 test('the fetch options come from the link-check settings, with the timeout in milliseconds', () => {
-  const options = fetchOptions({ concurrency: 4, timeoutSeconds: 10, useCookies: true, noCookieWords: ['x'], detectLogin: false, loginHosts: ['h'] });
-  assert.deepEqual(options, { concurrency: 4, timeout: 10000, cookies: true, noCookieWords: ['x'], detectLogin: false, loginHosts: ['h'] });
+  const options = fetchOptions({ concurrency: 4, siteDelaySeconds: 2, timeoutSeconds: 10, useCookies: true, noCookieWords: ['x'], detectLogin: false, loginHosts: ['h'] });
+  assert.deepEqual(options, { concurrency: 4, siteDelay: 2000, timeout: 10000, cookies: true, noCookieWords: ['x'], detectLogin: false, loginHosts: ['h'] });
+});
+
+test('pages are paced by site, so subdomains share one wait', () => {
+  assert.equal(siteOfUrl('https://docs.python.org/3/'), 'python.org');
+  assert.equal(siteOfUrl('https://news.bbc.co.uk/x'), 'bbc.co.uk');
+  assert.equal(siteOfUrl('not a url'), '');
+});
+
+test('a wait between pages on one site spaces out the checks', async () => {
+  const pages = { 'https://a.test/1': {}, 'https://a.test/2': {} };
+  const begun = Date.now();
+  const results = await checkAll(items(pages), { fetchImpl: fakeFetch(pages), siteDelay: 50 });
+  assert.equal(results.length, 2);
+  assert.ok(Date.now() - begun >= 50);
 });
 
 test('text that is not a URL is never skipped, risky or a login redirect', () => {
