@@ -58,8 +58,9 @@ function runAction(action, state, bookmark, page, places) {
   const step = (text, extra = {}) => ({ action: action.type, text, ...extra });
   if (action.type === 'move') {
     const target = resolveMove(action, places.folders, places.rootFolders);
-    if (!target) return null;
-    // A later move overrides an earlier one, and a bookmark already in the folder or below it stays where it is.
+    if (!target || state.moved) return null;
+    // The first move wins, and a bookmark already in the folder or below it stays where it is.
+    state.moved = true;
     state.target = startsWithPath(bookmark.path, target.path) ? null : target;
     return state.target && step(`Move to “${folderLabel(target.path.join('/'))}”`);
   }
@@ -115,7 +116,7 @@ export function planRules(flat, rules, rootFolders, { ignoredIds = new Set(), tr
   const count = (map, id) => map.set(id, (map.get(id) ?? 0) + 1);
   for (const b of flat) {
     if (b.type !== 'bookmark' || ignoredIds.has(b.id)) continue;
-    const state = { title: b.title, url: b.url, target: null, remove: false, ignore: false, waiting: false };
+    const state = { title: b.title, url: b.url, target: null, moved: false, remove: false, ignore: false, waiting: false };
     const steps = [];
     let why = null;
     let matched = false;
@@ -127,8 +128,6 @@ export function planRules(flat, rules, rootFolders, { ignoredIds = new Set(), tr
       matched = true;
       for (const action of u.rule.actions) {
         const step = runAction(action, state, b, pages.get(b.id), places);
-        // Only the last move counts, so earlier ones leave the list.
-        if (action.type === 'move') steps.splice(0, steps.length, ...steps.filter((s) => s.action !== 'move'));
         if (step) {
           steps.push({ ...step, ruleId: u.rule.id, ruleName: u.rule.name });
           why ??= u.match.explain(b);

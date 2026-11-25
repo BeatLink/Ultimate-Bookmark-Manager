@@ -72,9 +72,9 @@ Rules that act on bookmarks: each has conditions that pick bookmarks and a list 
 - *Ignore*: adds it to the ignore list.
 - *Delete*: removes it; nothing after it runs.
 
-**Order.** Rules run from the top of the list down, and every rule that matches takes its actions, so later rules build on what earlier ones did; when several rules move a bookmark, the last move wins. Drag a rule by its handle, or use *Move up* and *Move down* in its ☰ menu (beside *Rename…*, *Duplicate*, *Merge…* and *Delete*), to reorder. Conditions and groups can be dragged between groups, copied, or moved into a new rule with the same actions and folder conditions.
+**Order.** Rules run from the top of the list down, and every rule that matches takes its actions, so later rules build on what earlier ones did; when several rules move a bookmark, the highest rule's move wins and the moves below it are skipped. Drag a rule by its handle, or use *Move up* and *Move down* in its ☰ menu (beside *Rename…*, *Duplicate*, *Merge…* and *Delete*), to reorder. Conditions and groups can be dragged between groups, copied, or moved into a new rule with the same actions and folder conditions, and a group's ▸ closes it to keep a long rule readable.
 
-**Preview and apply.** The preview lists every bookmark the rules would change, grouped by the first rule that acts on it, with the matched text highlighted, each step and the rule it comes from, and what the name and URL become. Untick anything you do not want, then apply the rest as one undoable step. *Not matched by any rule* lists what the rules leave alone.
+**Preview and apply.** The preview lists every bookmark the rules would change, grouped by the first rule that acts on it, with the matched text highlighted, each step and the rule it comes from, and what the name and URL become. Each group's ▸ closes it. Untick anything you do not want, then apply the rest as one undoable step. *Not matched by any rule* lists what the rules leave alone.
 
 A rule with *Run on new bookmarks* ticked also runs a few seconds after each bookmark is added. This is skipped when you pick a folder yourself in the star panel, or when many arrive at once, as during an import or sync.
 

@@ -82,22 +82,32 @@ test('a scoped rule moves only the bookmarks in its folders', () => {
   assert.deepEqual(plan(flat, [shallow]).changes.map((c) => c.bookmark.id), ['a']);
 });
 
-test('every matching rule acts in list order, so the last move wins', () => {
+test('every matching rule acts in list order, and the highest rule’s move wins', () => {
   const flat = [bm('a', 'Rust news', 'https://a.test'), bm('b', 'Rust guide', 'https://b.test', ['Other Bookmarks', 'Dev', 'Rust'])];
   const news = rule('news', [cond('contains', 'news')], 'Reading');
   const dev = rule('dev', [cond('contains', 'rust')], 'Other Bookmarks/Dev');
   const first = plan(flat, [news, dev]).changes;
-  assert.deepEqual(first.map((c) => [c.bookmark.id, c.target.path.join('/')]), [['a', 'Other Bookmarks/Dev']], 'b is already inside Dev');
-  assert.deepEqual(first[0].steps.map((s) => s.ruleId), ['dev'], 'the overridden move leaves the steps');
+  assert.deepEqual(first.map((c) => [c.bookmark.id, c.target.path.join('/')]), [['a', 'Other Bookmarks/Reading']], 'b is already inside Dev');
+  assert.deepEqual(first[0].steps.map((s) => s.ruleId), ['news'], 'the skipped move leaves no step');
   const second = plan(flat, [dev, news]).changes;
-  assert.deepEqual(second.map((c) => [c.bookmark.id, c.target.path.join('/')]), [['a', 'Other Bookmarks/Reading']]);
+  assert.deepEqual(second.map((c) => [c.bookmark.id, c.target.path.join('/')]), [['a', 'Other Bookmarks/Dev']]);
 });
 
-test('a later move to where the bookmark already is cancels an earlier one', () => {
+test('a higher move to where the bookmark already is keeps it there, skipping lower moves', () => {
   const flat = [bm('a', 'Rust', 'https://a.test', ['Bookmarks Menu'])];
-  const away = rule('away', [cond('contains', 'rust')], 'Other Bookmarks/Dev');
   const stay = rule('stay', [cond('contains', 'rust')], 'Bookmarks Menu');
-  assert.equal(plan(flat, [away, stay]).changes.length, 0);
+  const away = rule('away', [cond('contains', 'rust')], 'Other Bookmarks/Dev');
+  assert.equal(plan(flat, [stay, away]).changes.length, 0);
+  assert.equal(plan(flat, [away, stay]).changes[0].target.path.join('/'), 'Other Bookmarks/Dev');
+});
+
+test('a skipped move still lets the lower rule’s other actions run', () => {
+  const flat = [bm('a', 'Rust old', 'https://a.test')];
+  const first = rule('first', [cond('contains', 'rust')], 'Reading');
+  const second = withActions(rule('second', [cond('contains', 'rust')], ''), action('move', { path: 'Other Bookmarks/Dev' }), action('replace', { find: 'old', replace: 'new', field: 'title' }));
+  const [change] = plan(flat, [first, second]).changes;
+  assert.equal(change.target.path.join('/'), 'Other Bookmarks/Reading');
+  assert.deepEqual(change.edits, { title: 'Rust new' });
 });
 
 test('a move follows its folder by id after a rename', () => {
@@ -208,8 +218,8 @@ test('the plan counts every bookmark each valid rule matches and changes, disabl
   const off = rule('off', [cond('contains', 'python')], 'Bookmarks Menu/Python', { enabled: false });
   const { matches, acting, changes } = plan(flat, [rust, video, off], { ignoredIds: new Set(['d']) });
   assert.deepEqual(Object.fromEntries(matches), { rust: 2, video: 1, off: 1 });
-  assert.deepEqual(Object.fromEntries(acting), { rust: 1, video: 1 });
-  assert.equal(changes.length, 2);
+  assert.deepEqual(Object.fromEntries(acting), { rust: 1 }, 'b stays in Rust, so the lower video move is skipped');
+  assert.equal(changes.length, 1);
 });
 
 test('the plan lists bookmarks no enabled rule matches, leaving out ignored ones and folders', () => {
