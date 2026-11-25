@@ -537,3 +537,15 @@ test('with no rules the list says how to start', async () => {
   assert.equal($('.rule-list-box .empty-state p').textContent, 'No rules yet. Use “+ Rule” to add one.');
   assert.equal($('details.unmatched'), null);
 });
+
+test('preview groups follow the order of the rules, not of the bookmarks', async () => {
+  const tips = rule('t1', 'Tips', [cond('kt', 'title', 'contains', 'tips')], [move('mt', 'Bookmarks Toolbar')]);
+  const book = rule('b1', 'Book', [cond('kb', 'title', 'contains', 'book')], [move('mb', 'Bookmarks Toolbar')]);
+  const headings = () => $$('.group-title > span').map((span) => span.textContent).filter((text) => / — \d+$/.test(text));
+
+  await reset({ rules: [tips, book] });
+  assert.deepEqual(headings(), ['Tips — 1', 'Book — 1']);
+
+  await reset({ rules: [book, tips] });
+  assert.deepEqual(headings(), ['Book — 1', 'Tips — 1']);
+});
