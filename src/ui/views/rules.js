@@ -472,8 +472,9 @@ export default {
         if (!c.problem) return row(sel, c.bookmark.id, content);
         return h('li', { class: 'item' }, h('label', { class: 'check' }, h('input', { type: 'checkbox', disabled: true, 'aria-label': c.problem })), content);
       };
-      // Changes are grouped by the first rule that acts on them.
-      const groups = [...groupBy(changes, (c) => c.steps[0].ruleId)];
+      // Changes are grouped by the first rule that acts on them, in the order the rules are listed.
+      const place = new Map(rules.map((rule, index) => [rule.id, index]));
+      const groups = [...groupBy(changes, (c) => c.steps[0].ruleId)].sort(([a], [b]) => place.get(a) - place.get(b));
       const list = h('div', { class: 'groups' }, groups.map(([id, group]) => {
         const name = ruleName(rules.find((r) => r.id === id) ?? {});
         const ids = group.filter((c) => !c.problem).map((c) => c.bookmark.id);
