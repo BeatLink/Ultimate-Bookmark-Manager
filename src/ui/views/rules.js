@@ -55,10 +55,10 @@ function matchedText(why) {
 }
 
 // The rule's conditions in a react-querybuilder editor.
-function queryEditor(ctx, rule, changed, moveToNewRule) {
+function queryEditor(ctx, rule, rules, changed, moveToNewRule) {
   const box = h('div', { class: 'query-box' });
   editors.get(rule.id)?.();
-  editors.set(rule.id, mountQueryEditor(box, rule.query, (query) => { rule.query = query; changed(); }, { root: ctx.state.root, moveToNewRule }));
+  editors.set(rule.id, mountQueryEditor(box, rule.query, (query) => { rule.query = query; changed(); }, { root: ctx.state.root, moveToNewRule, rules, ruleId: rule.id }));
   return box;
 }
 
@@ -138,7 +138,7 @@ function actionsEditor(ctx, rule, handlers) {
 function mergeAction(rule, rules, redraw) {
   const others = rules.filter((r) => r !== rule);
   return { label: 'Merge…', title: 'Merge another rule into this one', disabled: !others.length, run: async () => {
-    const entries = others.map((r) => ({ id: r.id, label: ruleName(r), detail: describeRule(r) }));
+    const entries = others.map((r) => ({ id: r.id, label: ruleName(r), detail: describeRule(r, rules) }));
     const id = await pickRule(entries, { heading: `Merge into ${quoted(rule)}`, confirm: 'Merge this rule' });
     const other = others.find((r) => r.id === id);
     if (!other) return;
@@ -162,7 +162,7 @@ function ruleCard(ctx, rule, rules, handlers, parts) {
   const fillBody = () => body.append(
     check('enabled', 'Enabled', null, true),
     check('autoRun', 'Run on new bookmarks', 'A few seconds after each is added; skipped if you pick a folder yourself, or when many arrive at once as during an import or sync', false),
-    field('Conditions', queryEditor(ctx, rule, changed, (itemId) => {
+    field('Conditions', queryEditor(ctx, rule, rules, changed, (itemId) => {
       const moved = moveToNewRule(rules, rule.id, itemId);
       if (!moved) return;
       rules.splice(0, rules.length, ...moved.rules);
@@ -188,7 +188,7 @@ function ruleCard(ctx, rule, rules, handlers, parts) {
     },
   }, h('span', { class: 'chevron', 'aria-hidden': 'true' }));
   setToggle(toggle, isOpen, toggleLabels);
-  const name = h('span', { class: `rule-name${rule.name ? '' : ' unnamed'}`, text: ruleName(rule), title: describeRule(rule), onclick: () => toggle.click() });
+  const name = h('span', { class: `rule-name${rule.name ? '' : ' unnamed'}`, text: ruleName(rule), title: describeRule(rule, rules), onclick: () => toggle.click() });
   const shift = (by) => {
     rules.splice(0, rules.length, ...reorder(rules, index, index + by));
     redraw();
@@ -368,7 +368,7 @@ export default {
       editors.clear();
       cardParts.clear();
       const q = state.query.trim().toLowerCase();
-      const shown = rules.filter((r) => !q || ruleName(r).toLowerCase().includes(q) || describeRule(r).toLowerCase().includes(q));
+      const shown = rules.filter((r) => !q || ruleName(r).toLowerCase().includes(q) || describeRule(r, rules).toLowerCase().includes(q));
       if (!rules.length) return listBox.replaceChildren(emptyState('No rules yet. Use “+ Rule” to add one.'));
       listBox.replaceChildren(shown.length ? h('ol', { class: 'rule-list' }, shown.map(card)) : emptyState('No rules match.'));
     };
