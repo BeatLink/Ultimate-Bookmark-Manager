@@ -1,7 +1,7 @@
 // Rules: edit rules that act on the bookmarks matching their conditions, preview what they would do, then apply it.
 
 import { h, Selection, toast, confirmDialog, promptDialog } from '../dom.js';
-import { viewHeader, emptyState, bindCheckboxes, selectionBar, selectAllToggle, bookmarkInfo, row, pagedList, pickFolder, pickRule, helpLink, actionMenu } from '../components.js';
+import { viewHeader, emptyState, bindCheckboxes, selectionBar, selectAllToggle, bookmarkInfo, row, pagedList, pickFolder, pickRule, helpLink, actionMenu, setToggle, collapseButton } from '../components.js';
 import { mountQueryEditor } from '../query-editor.js';
 import { ProgressJob } from '../progress.js';
 import { askAllSites } from '../permissions.js';
@@ -24,6 +24,8 @@ const state = {
   expanded: new Set(),
   query: '',
   unmatchedOpen: false,
+  // Preview groups the user has closed.
+  closedGroups: new Set(),
 };
 
 // Each open rule's query editor, taken down when the list is redrawn.
@@ -50,13 +52,6 @@ const quoted = (r) => `“${ruleName(r)}”`;
 // "“ccna” in title, “youtube.com” in URL" for a rule's match explanation.
 function matchedText(why) {
   return why.terms.map((t) => `“${t.value}” in ${t.on.map((o) => PART_NAMES[o] ?? o).join(' and ')}`).join(', ');
-}
-
-// Sets a toggle button's state and the labels that go with it.
-function setToggle(button, open, { collapse, expand }) {
-  button.setAttribute('aria-expanded', String(open));
-  button.setAttribute('aria-label', open ? collapse : expand);
-  button.title = open ? collapse : expand;
 }
 
 // The rule's conditions in a react-querybuilder editor.
@@ -253,11 +248,14 @@ function stepList(change) {
     h('strong', { text: s.ruleName || 'Unnamed rule' }), `: ${s.text}`)));
 }
 
-// A group of preview rows under a sticky heading, shown a page at a time.
+// A group of preview rows under a sticky heading that opens and closes it, shown a page at a time.
 function previewGroup(key, heading, items, make) {
   const list = h('ul', { class: 'items' });
   const more = pagedList(key, list, items, make);
-  return h('section', { class: 'group' }, h('h2', { class: 'group-title sticky' }, heading), list, more);
+  const body = h('div', {}, list, more);
+  const toggle = collapseButton(body, !state.closedGroups.has(key), { collapse: 'Collapse group', expand: 'Expand group' },
+    (open) => (open ? state.closedGroups.delete(key) : state.closedGroups.add(key)));
+  return h('section', { class: 'group' }, h('h2', { class: 'group-title sticky row' }, toggle, heading), body);
 }
 
 // Reads the pages that title and redirect actions need, marking every one as read so a failed page is not waited on again.

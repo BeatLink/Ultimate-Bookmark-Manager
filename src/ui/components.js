@@ -38,6 +38,26 @@ export function bindCheckboxes(container, sel) {
 }
 
 // A sticky toolbar showing the selection count, with actions that stay disabled until something is selected.
+// Marks an open-and-close button as open or closed, with the matching label.
+export function setToggle(button, open, { collapse, expand }) {
+  button.setAttribute('aria-expanded', String(open));
+  button.setAttribute('aria-label', open ? collapse : expand);
+  button.title = open ? collapse : expand;
+}
+
+// A chevron button that shows or hides `body`, telling `onToggle` the new state.
+export function collapseButton(body, open, labels, onToggle) {
+  const button = h('button', { type: 'button', class: 'rule-toggle', onclick: () => {
+    const now = body.hidden;
+    body.hidden = !now;
+    setToggle(button, now, labels);
+    onToggle(now);
+  } }, h('span', { class: 'chevron', 'aria-hidden': 'true' }));
+  body.hidden = !open;
+  setToggle(button, open, labels);
+  return button;
+}
+
 export function selectionBar(sel, actions, leading = []) {
   const count = h('span', { class: 'muted count' });
   const buttons = actions.map((a) =>

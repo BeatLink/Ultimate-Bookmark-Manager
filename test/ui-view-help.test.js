@@ -32,7 +32,7 @@ test('each section links to its page, except the one about opening the add-on', 
 test('the rules section explains every action and the order rules run in', () => {
   const rules = main().querySelector('#help-rules').textContent;
   for (const action of ['Move to folder', 'Find and replace', 'Rename to page title', 'Use redirect target', 'Ignore', 'Delete']) assert.match(rules, new RegExp(action));
-  assert.match(rules, /the last move wins/);
+  assert.match(rules, /the highest rule’s move wins/);
 });
 
 test('opening help at a page’s section scrolls to that section', async () => {

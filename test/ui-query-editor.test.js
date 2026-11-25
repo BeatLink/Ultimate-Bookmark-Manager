@@ -418,3 +418,24 @@ test('a folder condition shows its folder by id, so a renamed folder shows its n
   assert.ok(!('folderId' in ed.last().rules[0]), 'a condition that is no longer a folder drops the id');
   ed.unmount();
 });
+
+test('a nested group closes and opens, counting what it hides, and stays closed when redrawn', () => {
+  const first = mount();
+  const inner = () => first.byId('inner');
+  const toggle = inner().querySelector('.ruleGroup-header .rule-toggle');
+  assert.equal(first.$('.ruleGroup-header .rule-toggle'), toggle, 'the outermost group has no toggle');
+
+  toggle.click();
+  assert.equal(inner().querySelector('.ruleGroup-body').hidden, true);
+  assert.equal(inner().querySelector('.ruleGroup-header .muted').hidden, false);
+  assert.equal(inner().querySelector('.ruleGroup-header .muted').textContent, '1 item(s) hidden');
+  first.unmount();
+
+  const again = mount();
+  const reopened = again.byId('inner');
+  assert.equal(reopened.querySelector('.ruleGroup-body').hidden, true, 'still closed after a redraw');
+  reopened.querySelector('.ruleGroup-header .rule-toggle').click();
+  assert.equal(reopened.querySelector('.ruleGroup-body').hidden, false);
+  assert.equal(reopened.querySelector('.ruleGroup-header .muted').hidden, true);
+  again.unmount();
+});

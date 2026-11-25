@@ -3,7 +3,7 @@
 import { h } from './dom.js';
 import { OPERATORS, FIELDS, FIELD_OPERATORS, WORD_OPS, FOLDER_OPS, newCondition, newGroup, isGroup, folderLabel, findFolderId, folderPathById } from '../lib/rules.js';
 import { parentOf, itemAt, withIds, moveItem, groupItems, insertItem, addItem, removeItem, canDropOnCondition, canDropOnGroup, dropPath } from '../lib/query-tree.js';
-import { pickFolder } from './components.js';
+import { pickFolder, collapseButton } from './components.js';
 
 const PLACEHOLDERS = { matchesRegex: 'Pattern', onDomain: 'example.com', hasParam: 'v or list=PL123' };
 
@@ -19,6 +19,9 @@ const ITEM = '[data-rule-id], [data-rule-group-id]';
 
 // The item being dragged, shared by every open editor so a condition can be dragged from one rule into another.
 let dragging = null;
+
+// Ids of condition groups the user has closed, kept while editors redraw.
+const closedGroups = new Set();
 // The drop target under the pointer and the classes that mark it.
 let marks = [];
 
@@ -251,8 +254,15 @@ export function mountQueryEditor(element, query, onChange, { root, moveToNewRule
   const group = (g, path) => {
     const nested = path.length > 0;
     const current = Object.keys(RULE_SETTINGS).find((k) => RULE_SETTINGS[k].combinator === g.combinator && RULE_SETTINGS[k].not === !!g.not) ?? 'any';
+    const body = h('div', { class: 'ruleGroup-body' }, g.rules.map((item, i) => (isGroup(item) ? group(item, [...path, i]) : condition(item, [...path, i]))));
+    const count = h('span', { class: 'muted small', hidden: !closedGroups.has(g.id), text: `${g.rules.length} item(s) hidden` });
+    const toggle = nested && collapseButton(body, !closedGroups.has(g.id), { collapse: 'Collapse group', expand: 'Expand group' }, (open) => {
+      open ? closedGroups.delete(g.id) : closedGroups.add(g.id);
+      count.hidden = open;
+    });
     const header = h('div', { class: 'ruleGroup-header' },
       nested && dragHandle(path),
+      toggle,
       h('select', {
         class: 'ruleGroup-combinators', 'aria-label': nested ? 'Group rule' : 'Rule',
         onchange: (e) => {
@@ -266,10 +276,10 @@ export function mountQueryEditor(element, query, onChange, { root, moveToNewRule
         copyButton('ruleGroup-cloneGroup', 'Add a copy of this group', path),
         moveButton(g),
         h('button', { type: 'button', class: 'ruleGroup-remove small', title: 'Remove group', text: 'Remove group', onclick: own(() => editor.remove(path)) }),
-      ]);
+      ],
+      nested && count);
     dropTarget(header, path, 'group');
-    return h('div', { class: 'ruleGroup', 'data-rule-group-id': g.id },
-      header, h('div', { class: 'ruleGroup-body' }, g.rules.map((item, i) => (isGroup(item) ? group(item, [...path, i]) : condition(item, [...path, i])))));
+    return h('div', { class: 'ruleGroup', 'data-rule-group-id': g.id }, header, body);
   };
 
   const draw = () => element.replaceChildren(h('div', { role: 'form', class: 'queryBuilder query-editor queryBuilder-branches' }, group(editor.query, [])));

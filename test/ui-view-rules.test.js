@@ -121,11 +121,31 @@ test('the page lists the rules in the order they run and previews what they woul
   assert.equal(card('r1').querySelector('.rule-name').title, 'title contains “rust”');
   assert.equal(card('r1').querySelector('.rule-body').hidden, true, 'saved rules start closed');
   assert.equal(previewTitle(), 'Preview: 3 bookmark(s) to change');
-  assert.equal($('.group-title span').textContent, 'Rust — 3');
+  assert.equal($('.group-title > span').textContent, 'Rust — 3');
   assert.equal($('.rule-steps li').textContent, 'Rust: Move to “Bookmarks Menu › Dev › Rust”');
   assert.equal(byText('Apply selected').disabled, false);
   assert.equal($('.unmatched summary h2').textContent, 'Not matched by any rule: 1 bookmark(s)');
   assert.equal(document.querySelector('#nav a.active .badge').textContent, '3');
+});
+
+test('a preview group closes and opens from its heading, and stays closed when the page redraws', async () => {
+  const toggle = () => $('.group-title .rule-toggle');
+  const body = () => $('.group-title').nextElementSibling;
+  assert.equal(toggle().getAttribute('aria-expanded'), 'true');
+
+  toggle().click();
+  assert.equal(body().hidden, true);
+  assert.equal(toggle().getAttribute('aria-label'), 'Expand group');
+
+  location.hash = '#stats';
+  await settle(20);
+  location.hash = '#rules';
+  await settle(20);
+  assert.equal(body().hidden, true, 'still closed after a redraw');
+
+  toggle().click();
+  assert.equal(body().hidden, false);
+  assert.equal(toggle().getAttribute('aria-expanded'), 'true');
 });
 
 test('opening a rule shows its editor and what it matches', () => {

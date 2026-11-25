@@ -70,6 +70,13 @@ test('the dashboard opens on the first page with every page listed in the naviga
   assert.equal(options.find((o) => o.value === 'help').textContent, 'Help');
 });
 
+test('Find and replace sits right under Redirects in the navigation, before Rules', () => {
+  const order = [...document.querySelectorAll('#nav a')].map((link) => link.getAttribute('href').slice(1));
+  const redirects = order.indexOf('redirects');
+
+  assert.deepEqual(order.slice(redirects, redirects + 3), ['redirects', 'find-replace', 'rules']);
+});
+
 test('navigation badges count what each scan found', () => {
   assert.equal(navLink('duplicates').querySelector('.badge').textContent, '1');
   assert.equal(navLink('empty-folders').querySelector('.badge').textContent, '2');
