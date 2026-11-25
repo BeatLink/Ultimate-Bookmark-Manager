@@ -1,11 +1,11 @@
 // The editor for a rule's conditions, drawn in the markup and layout of react-querybuilder, whose query format rules use.
 
 import { h } from './dom.js';
-import { OPERATORS, FIELDS, FIELD_OPERATORS, WORD_OPS, FOLDER_OPS, newCondition, newGroup, isGroup, folderLabel, findFolderId, folderPathById } from '../lib/rules.js';
+import { OPERATORS, FIELDS, FIELD_OPERATORS, WORD_OPS, FOLDER_OPS, RULE_OPS, ruleName, describeRule, newCondition, newGroup, isGroup, folderLabel, findFolderId, folderPathById } from '../lib/rules.js';
 import { parentOf, itemAt, withIds, moveItem, groupItems, insertItem, addItem, removeItem, canDropOnCondition, canDropOnGroup, dropPath } from '../lib/query-tree.js';
-import { pickFolder, collapseButton } from './components.js';
+import { pickFolder, pickRule, collapseButton } from './components.js';
 
-const PLACEHOLDERS = { matchesRegex: 'Pattern', onDomain: 'example.com', hasParam: 'v or list=PL123' };
+const PLACEHOLDERS = { matchesRegex: 'Pattern', doesNotMatchRegex: 'Pattern', onDomain: 'example.com', hasParam: 'v or list=PL123' };
 
 // "none" and "not all" are the `not` flag on an "any" or "all" group.
 const RULE_SETTINGS = {
@@ -77,7 +77,7 @@ function refocus(box, spot) {
 }
 
 // Shows `query` in `element`, reports each change, and returns a function that takes the editor down again.
-export function mountQueryEditor(element, query, onChange, { root, moveToNewRule }) {
+export function mountQueryEditor(element, query, onChange, { root, moveToNewRule, rules = [], ruleId = '' }) {
   const editor = { query: withIds(structuredClone(query)) };
 
   // Redraws the editor, keeping focus on the same control, and reports the new query.
@@ -165,13 +165,16 @@ export function mountQueryEditor(element, query, onChange, { root, moveToNewRule
     onclick: () => editor.remove(path),
   });
 
-  // Changing the field sets the operator to "contains" and keeps the keyword, unless switching to or from a folder.
+  // Folders and rules are chosen from a list, so their values are not kept when switching to or from them.
+  const kindOf = (field) => (field === 'folder' || field === 'rule' ? field : 'text');
+
+  // Changing the field sets the operator to "contains" and keeps the keyword, unless switching to or from a folder or a rule.
   const fieldSelect = (c) => h('select', {
     class: 'rule-fields', 'aria-label': 'Field',
     onchange: (e) => {
       const field = e.target.value;
       if (field === c.field) return;
-      if ((field === 'folder') !== (c.field === 'folder')) {
+      if (kindOf(field) !== kindOf(c.field)) {
         c.value = '';
         delete c.folderId;
       }
@@ -192,7 +195,7 @@ export function mountQueryEditor(element, query, onChange, { root, moveToNewRule
 
   // The case and whole-word switches; one that does not apply keeps its place, so every row's columns line up.
   const switches = (c) => {
-    const caseApplies = c.operator !== 'onDomain' && !FOLDER_OPS.has(c.operator);
+    const caseApplies = c.operator !== 'onDomain' && !FOLDER_OPS.has(c.operator) && !RULE_OPS.has(c.operator);
     const wordsApply = WORD_OPS.has(c.operator);
     const flag = (prop, label, applies) => h('input', {
       type: 'checkbox', 'aria-label': label, disabled: !applies, checked: !!c[prop],
@@ -213,10 +216,27 @@ export function mountQueryEditor(element, query, onChange, { root, moveToNewRule
   // A folder condition's folder as it is named now, by its id when it has one.
   const shown = (c) => (c.folderId && folderPathById(root, c.folderId)) || c.value || '';
 
-  // A folder condition's folder, chosen with the page's folder picker; any other condition's keyword.
+  // A rule condition's rule, as the rule is named now.
+  const ruleShown = (c) => {
+    const other = rules.find((r) => r.id === c.value);
+    return other ? ruleName(other) : c.value ? 'A deleted rule' : '';
+  };
+
+  // A folder or rule condition's choice, made in the page's picker; any other condition's keyword.
   const valueEditor = (c, path) => {
-    const control = FOLDER_OPS.has(c.operator)
+    const control = RULE_OPS.has(c.operator)
       ? h('button', {
+        type: 'button', class: `folder-button${c.value ? '' : ' unset'}`, 'aria-label': 'Rule',
+        onclick: async () => {
+          const others = rules.filter((r) => r.id !== ruleId);
+          const entries = others.map((r) => ({ id: r.id, label: ruleName(r), detail: describeRule(r, rules) }));
+          const picked = await pickRule(entries, { heading: 'Choose a rule', confirm: 'Use this rule' });
+          if (!picked || picked === c.value) return;
+          c.value = picked;
+          commit();
+        },
+      }, h('span', { class: 'rule-icon', 'aria-hidden': 'true' }), ruleShown(c) || 'Choose rule…')
+      : FOLDER_OPS.has(c.operator) ? h('button', {
         type: 'button', class: `folder-button${c.value ? '' : ' unset'}`, 'aria-label': 'Folder',
         onclick: async () => {
           const picked = await pickFolder(root, shown(c), { heading: 'Choose a folder', verb: 'Folder', allowCreate: false });
@@ -228,7 +248,7 @@ export function mountQueryEditor(element, query, onChange, { root, moveToNewRule
         },
       }, h('span', { class: 'folder-icon', 'aria-hidden': 'true' }), shown(c) ? folderLabel(shown(c)) : 'Choose folder…')
       : h('input', {
-        type: 'text', class: `keyword${c.operator === 'matchesRegex' ? ' mono' : ''}`, 'aria-label': 'Keyword', value: c.value ?? '',
+        type: 'text', class: `keyword${c.operator === 'matchesRegex' || c.operator === 'doesNotMatchRegex' ? ' mono' : ''}`, 'aria-label': 'Keyword', value: c.value ?? '',
         placeholder: PLACEHOLDERS[c.operator] ?? 'Keyword',
         oninput: (e) => {
           if (e.target.value === c.value) return;

@@ -10,13 +10,16 @@ export const OPERATORS = {
   endsWith: 'ends with',
   '=': 'is',
   matchesRegex: 'matches regex',
+  doesNotMatchRegex: 'does not match regex',
+  matchesRule: 'matches',
+  doesNotMatchRule: 'does not match',
   onDomain: 'is on domain',
   hasParam: 'has query parameter',
   inFolder: 'is in or under',
   directlyInFolder: 'is directly in',
 };
 
-const TEXT_OPS = ['contains', 'doesNotContain', 'beginsWith', 'endsWith', '=', 'matchesRegex'];
+const TEXT_OPS = ['contains', 'doesNotContain', 'beginsWith', 'endsWith', '=', 'matchesRegex', 'doesNotMatchRegex'];
 
 // The operators each field offers; domains belong to the site name and parameters to the query string.
 export const FIELD_OPERATORS = {
@@ -28,6 +31,7 @@ export const FIELD_OPERATORS = {
   query: [...TEXT_OPS, 'hasParam'],
   fragment: TEXT_OPS,
   folder: ['inFolder', 'directlyInFolder'],
+  rule: ['matchesRule', 'doesNotMatchRule'],
 };
 
 export const FIELDS = {
@@ -39,10 +43,17 @@ export const FIELDS = {
   query: 'query string',
   fragment: 'part after #',
   folder: 'folder',
+  rule: 'rule',
 };
 
 // Folder conditions narrow a rule down to where a bookmark sits; they never add to how specific its match is.
 export const FOLDER_OPS = new Set(['inFolder', 'directlyInFolder']);
+
+// Rule conditions hold when another rule's conditions do, or do not, hold for the bookmark; their value is that rule's id.
+export const RULE_OPS = new Set(['matchesRule', 'doesNotMatchRule']);
+
+// Operators that hold when a pattern is absent from every part they look at.
+export const NEGATED_OPS = new Set(['doesNotContain', 'doesNotMatchRegex']);
 
 // Operators where "whole words" applies; domains, regexes and exact matches already have their own edges.
 export const WORD_OPS = new Set(['contains', 'doesNotContain', 'beginsWith', 'endsWith']);
@@ -65,7 +76,7 @@ export function isGroup(item) {
 }
 
 export function newCondition(field = 'either', operator = 'contains', value = '') {
-  if (field === 'folder') return { id: crypto.randomUUID(), field, operator, value };
+  if (field === 'folder' || field === 'rule') return { id: crypto.randomUUID(), field, operator, value };
   return { id: crypto.randomUUID(), field, operator, value, caseSensitive: false, wholeWords: false };
 }
 
@@ -264,26 +275,30 @@ export function isWellFormedRule(rule) {
 
 // ---- Rules in words ----
 
-// One condition in plain words, e.g. `title contains “rust”` or `folder is in or under “Other Bookmarks › Inbox”`.
-function describeCondition(cond) {
+// One condition in plain words, e.g. `title contains “rust”` or `folder is in or under “Other Bookmarks › Inbox”`; `rules` names the rules that rule conditions point at.
+function describeCondition(cond, rules) {
   const value = valueOf(cond);
   const subject = FIELDS[cond.field] ?? FIELDS.either;
+  if (RULE_OPS.has(cond.operator)) {
+    const other = rules?.find((r) => r.id === value);
+    return `${subject} ${OPERATORS[cond.operator]} “${other ? ruleName(other) : 'a deleted rule'}”`;
+  }
   if (FOLDER_OPS.has(cond.operator)) return `${subject} ${OPERATORS[cond.operator]} “${folderLabel(value)}”`;
   const whole = WORD_OPS.has(cond.operator) && cond.wholeWords ? ' (whole words)' : '';
   const exact = cond.caseSensitive && cond.operator !== 'onDomain' ? ' (exact case)' : '';
   return `${subject} ${OPERATORS[cond.operator] ?? cond.operator} “${value}”${exact}${whole}`;
 }
 
-function describeGroup(group, nested) {
-  const parts = activeItems(group).map((item) => (isGroup(item) ? describeGroup(item, true) : describeCondition(item)));
+function describeGroup(group, nested, rules) {
+  const parts = activeItems(group).map((item) => (isGroup(item) ? describeGroup(item, true, rules) : describeCondition(item, rules)));
   const joined = parts.join(group.combinator === 'and' ? ' and ' : ' or ');
   if (group.not) return `not (${joined})`;
   return nested && parts.length > 1 ? `(${joined})` : joined;
 }
 
 // The rule's logic in one line, with nested groups in brackets and inverted groups always as "not (…)" so they read unambiguously.
-export function describeRule(rule) {
-  return activeItems(rule.query).length ? describeGroup(rule.query, false) : 'No conditions yet';
+export function describeRule(rule, rules) {
+  return activeItems(rule.query).length ? describeGroup(rule.query, false, rules) : 'No conditions yet';
 }
 
 // One action in plain words, e.g. `Move to “Other Bookmarks › Dev”` or `Replace “http:” with “https:” in URLs`.

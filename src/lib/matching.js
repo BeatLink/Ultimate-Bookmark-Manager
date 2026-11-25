@@ -2,7 +2,7 @@
 
 import { valuePoints, URL_TIER } from './specificity.js';
 import { bareDomain, onDomain } from './domains.js';
-import { FOLDER_OPS, WORD_OPS, isGroup, valueOf, activeItems, folderPathOf, startsWithPath } from './rules.js';
+import { FOLDER_OPS, RULE_OPS, NEGATED_OPS, WORD_OPS, isGroup, valueOf, activeItems, folderPathOf, startsWithPath } from './rules.js';
 
 // Parsed hosts and compiled patterns are remembered up to these counts, then forgotten and rebuilt as needed.
 const HOST_CACHE_MAX = 50000;
@@ -36,7 +36,7 @@ function patternFor(cond, value) {
   const key = `${cond.operator}|${cond.caseSensitive ? 1 : 0}|${whole ? 1 : 0}|${value}`;
   if (patterns.has(key)) return patterns.get(key);
   let re;
-  if (cond.operator === 'matchesRegex') {
+  if (cond.operator === 'matchesRegex' || cond.operator === 'doesNotMatchRegex') {
     re = new RegExp(value, cond.caseSensitive ? 'g' : 'gi');
   } else {
     const v = escapeRe(value);
@@ -132,13 +132,17 @@ function bookmarkText(bookmark) {
   const url = bookmark.url ?? '';
   const parts = {};
   const partAt = (on) => (on === 'title' ? { text: title, start: 0 } : on === 'url' ? { text: url, start: 0 } : (parts[on] ??= urlPart(url, on)));
-  return { url, path: bookmark.path ?? [], partAt, part: (on) => partAt(on).text };
+  return { bookmark, url, path: bookmark.path ?? [], partAt, part: (on) => partAt(on).text };
 }
 
 // A condition prepared once per plan: which parts of a bookmark it reads, a quick test of one part, and where it matched.
-function compileCondition(cond, rootFolders, folders) {
+function compileCondition(cond, rootFolders, folders, lookup) {
   const value = valueOf(cond);
   const op = cond.operator;
+  if (RULE_OPS.has(op)) {
+    // A rule that is gone never matches, so "matches" fails and "does not match" holds.
+    return { op, rule: true, holds: (text) => (lookup(value)?.score(text.bookmark) != null) === (op === 'matchesRule') };
+  }
   if (FOLDER_OPS.has(op)) {
     // A folder chosen by id is followed wherever it now is; its saved path is only used when the id is gone.
     const path = (cond.folderId && folders.get(cond.folderId)) || folderPathOf(value, rootFolders);
@@ -171,24 +175,24 @@ function compileCondition(cond, rootFolders, folders) {
 }
 
 // A rule's conditions prepared once per plan, with inactive items already dropped.
-function compileGroup(group, rootFolders, folders) {
-  const items = activeItems(group).map((item) => (isGroup(item) ? compileGroup(item, rootFolders, folders) : compileCondition(item, rootFolders, folders)));
+function compileGroup(group, rootFolders, folders, lookup) {
+  const items = activeItems(group).map((item) => (isGroup(item) ? compileGroup(item, rootFolders, folders, lookup) : compileCondition(item, rootFolders, folders, lookup)));
   return { combinator: group.combinator, not: !!group.not, items };
 }
 
 // The specificity of a condition's match, or null when it does not hold.
 function conditionScore(c, text) {
-  if (c.folder) return c.holds(text) ? 0 : null;
-  // "Does not contain" on the title and URL must hold for both.
-  if (c.op === 'doesNotContain') return c.fields.every((on) => !c.hit(text, on)) ? 0 : null;
+  if (c.folder || c.rule) return c.holds(text) ? 0 : null;
+  // A "does not" condition on the title and URL must hold for both.
+  if (NEGATED_OPS.has(c.op)) return c.fields.every((on) => !c.hit(text, on)) ? 0 : null;
   const on = c.fields.find((f) => c.hit(text, f));
   return on ? valuePoints(c.op, c.value, on) * c.tier : null;
 }
 
-// What made a condition hold, as the keyword and where it matched; null when it does not hold, empty for folder and "does not contain" conditions.
+// What made a condition hold, as the keyword and where it matched; null when it does not hold, empty for folder, rule and "does not" conditions.
 function conditionHits(c, text) {
   if (conditionScore(c, text) === null) return null;
-  if (c.folder || c.op === 'doesNotContain') return [];
+  if (c.folder || c.rule || NEGATED_OPS.has(c.op)) return [];
   return c.fields.map((on) => ({ value: c.value, on, ranges: c.ranges(text, on) })).filter((hit) => hit.ranges.length);
 }
 
@@ -230,9 +234,9 @@ function summarize(hits) {
   };
 }
 
-// A rule prepared for many bookmarks: `score` is the specificity of a match or null, and `explain` says what matched.
-export function matcher(rule, rootFolders, folders = new Map()) {
-  const compiled = compileGroup(rule.query ?? {}, rootFolders, folders);
+// A rule prepared for many bookmarks: `score` is the specificity of a match or null, and `explain` says what matched; `lookup(id)` gives the matcher of a rule that rule conditions point at.
+export function matcher(rule, rootFolders, folders = new Map(), lookup = () => null) {
+  const compiled = compileGroup(rule.query ?? {}, rootFolders, folders, lookup);
   if (!compiled.items.length) return { score: () => null, explain: () => null };
   return {
     score: (bookmark) => evalGroup(compiled, bookmarkText(bookmark), conditionScore, sum),
@@ -255,7 +259,7 @@ export function explainMatch(rule, bookmark, rootFolders) {
 // The most a rule can score: every condition it lists matching, in the part of the bookmark worth the most.
 export function maxScore(rule) {
   const cond = (c) => {
-    if (FOLDER_OPS.has(c.operator) || c.operator === 'doesNotContain') return 0;
+    if (FOLDER_OPS.has(c.operator) || RULE_OPS.has(c.operator) || NEGATED_OPS.has(c.operator)) return 0;
     const fields = fieldsOf(c);
     return Math.max(...fields.map((f) => valuePoints(c.operator, valueOf(c), f))) * tierFor(fields);
   };

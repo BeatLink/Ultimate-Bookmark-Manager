@@ -1,6 +1,6 @@
 // Plans what the rules would do to each bookmark, running every matching rule's actions from the top of the list down.
 
-import { FOLDER_OPS, valueOf, allConditions, describeAction, folderLabel, folderPaths, folderPathOf, resolveMove, startsWithPath } from './rules.js';
+import { FOLDER_OPS, RULE_OPS, valueOf, allConditions, describeAction, folderLabel, folderPaths, folderPathOf, resolveMove, startsWithPath } from './rules.js';
 import { matcher } from './matching.js';
 import { FIELDS, searchPattern, replaceIn } from './find-replace.js';
 
@@ -10,6 +10,9 @@ export function validateRules(rules, rootFolders, flat = null) {
   const folderNodes = flat?.filter((n) => n.type === 'folder') ?? [];
   const folders = flat && new Set(folderNodes.map((n) => [...n.path, n.title].join('\0')));
   const folderIds = new Set(folderNodes.map((n) => n.id));
+  // The rules each rule's rule conditions point at, and whether following them ever leads back to a rule already passed.
+  const refs = new Map(rules.map((r) => [r.id, allConditions(r.query).filter((c) => RULE_OPS.has(c.operator) && valueOf(c)).map(valueOf)]));
+  const loops = (id, seen = []) => seen.includes(id) || (refs.get(id) ?? []).some((next) => loops(next, [...seen, id]));
   for (const rule of rules) {
     const issues = [];
     const active = allConditions(rule.query).filter(valueOf);
@@ -22,7 +25,9 @@ export function validateRules(rules, rootFolders, flat = null) {
         if (path && !folders.has(path.join('\0'))) issues.push(`The folder “${path.join(' › ')}” no longer exists.`);
       }
     }
-    const regexes = active.filter((c) => c.operator === 'matchesRegex').map(valueOf);
+    const regexes = active.filter((c) => c.operator === 'matchesRegex' || c.operator === 'doesNotMatchRegex').map(valueOf);
+    if (active.some((c) => RULE_OPS.has(c.operator) && !refs.has(valueOf(c)))) issues.push('A condition refers to a rule that no longer exists.');
+    if (loops(rule.id)) issues.push('This rule refers, directly or through other rules, back to itself.');
     for (const action of rule.actions) {
       const lost = flat && action.folderId && !folderIds.has(action.folderId);
       if (action.type === 'move' && (!action.folderId || lost) && !action.path.trim()) issues.push(lost ? 'The folder to move to no longer exists.' : 'Choose the folder to move to.');
@@ -106,9 +111,17 @@ export function planRules(flat, rules, rootFolders, { ignoredIds = new Set(), tr
   // Each replace action's search is built once per plan rather than once per bookmark.
   const places = { folders: folderPaths(tree), rootFolders, patterns: new Map() };
   // Disabled rules are still matched so the editor can say what they would match; they never act.
+  // Rule conditions look other rules up here; validation has already ruled out loops.
+  const byId = new Map(rules.map((rule) => [rule.id, rule]));
+  const matchers = new Map();
+  const lookup = (id) => {
+    if (!byId.has(id)) return null;
+    if (!matchers.has(id)) matchers.set(id, matcher(byId.get(id), rootFolders, places.folders, lookup));
+    return matchers.get(id);
+  };
   const valid = rules
     .filter((rule) => !problems.has(rule.id))
-    .map((rule) => ({ rule, match: matcher(rule, rootFolders, places.folders), on: rule.enabled !== false }));
+    .map((rule) => ({ rule, match: lookup(rule.id), on: rule.enabled !== false }));
   const changes = [];
   const unmatched = [];
   const matches = new Map();
