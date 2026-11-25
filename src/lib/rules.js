@@ -191,7 +191,20 @@ export function mergeRules(rules, keepId, otherId) {
   if (!keep || !other || keep === other) return rules;
   // "Any" groups that are not inverted are joined directly rather than nested.
   const parts = [keep.query, other.query].flatMap((q) => (q.combinator === 'or' && !q.not ? q.rules : [q]));
-  return rules.filter((r) => r !== other).map((r) => (r === keep ? { ...keep, query: newGroup(parts) } : r));
+  const merged = rules.filter((r) => r !== other).map((r) => (r === keep ? { ...keep, query: newGroup(parts) } : r));
+  return merged.map((r) => {
+    const query = repoint(r.query, otherId, keepId);
+    return query === r.query ? r : { ...r, query };
+  });
+}
+
+// The group with every rule condition that points at rule `from` pointing at rule `to` instead; the same group when none does.
+function repoint(group, from, to) {
+  const rules = group.rules.map((item) => {
+    if (isGroup(item)) return repoint(item, from, to);
+    return RULE_OPS.has(item.operator) && item.value === from ? { ...item, value: to } : item;
+  });
+  return rules.every((item, index) => item === group.rules[index]) ? group : { ...group, rules };
 }
 
 // The list with the item at `from` moved to position `to`, as rules and their actions run in list order.
